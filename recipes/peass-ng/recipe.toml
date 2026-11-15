@@ -2,6 +2,9 @@
 version = "2026.11.14"
 build = 1
 
+# Upstream publishes no checksum file. Each SHA-256 can be checked against the digest GitHub
+# shows for that asset on the release page of tag 20261114-5ac9329e.
+
 [[source]]
 url = "https://github.com/peass-ng/PEASS-ng/releases/download/20261114-5ac9329e/linpeas.sh"
 size = 1826158

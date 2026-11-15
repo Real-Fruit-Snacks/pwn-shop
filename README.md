@@ -15,11 +15,12 @@ tools_index = "/home/kali/pwn-packages"
 
 Then, inside a box, `tool install kerbrute`. `fetch.sh` is POSIX `sh`. It needs `gh` signed in with access to this repository, and `sha256sum`. It changes nothing on your machine except that folder, and it takes the repository from `PWN_SHOP_REPO` if you set it.
 
-The repository is private for now, so a signed-in `gh` is the only way to download a package. Nothing has been published yet either: CI has not run, so there is no index release, and `fetch.sh` will stop with a `fail` line until the first run on `main` has finished. To use the packages before that, build them on Linux and point `tools_index` at the folder:
+The repository is private, so a signed-in `gh` is the only way to download a package. The first CI run published all six packages and the index on 2026-11-15. To build the packages yourself instead, on Linux:
 
 ```sh
-python3 -m pip install tomli-w
-python3 build.py build
+python3 -m venv .venv
+.venv/bin/pip install tomli-w
+.venv/bin/python build.py build
 ```
 
 That writes `dist/` with the zips and an `index.toml`.
@@ -54,7 +55,7 @@ Kind `kali` puts a command on the machine, `upload` puts files in a folder to ca
 | `python build.py lock [tool ...]` | Resolve a Python tool's `requirements.in` into `requirements.lock` (needs `uv`) |
 | `python build.py index <cards> --base-url <pattern>` | Write an index from a folder of cards |
 | `python build.py plan` | List each recipe's name, release tag and zip name |
-| `python build.py compare <built> <published>` | Fail if a card differs from the published one for the same build |
+| `python build.py compare <built card> <published card> <built zip> <published zip>` | Fail if a rebuilt package differs from the published one for the same build. The whole card is compared, so any changed byte shows; only if the recipe has `build_from_source` are the zips compared member by member instead, leaving out those distributions' wheels and `wheels.lock` lines |
 | `python build.py notes <card>` | Print a release's notes |
 
 `build`, `check` and `lock` take `--recipes`, `--out` and `--cache`. See [CONTRIBUTING.md](CONTRIBUTING.md) to add a tool.
@@ -63,24 +64,27 @@ Kind `kali` puts a command on the machine, `upload` puts files in a folder to ca
 
 This section is updated by hand after each CI run. As of 2026-11-15:
 
-- The unit tests, on Windows 11 with Python 3.13: 358 passed, 2 skipped, with warnings treated as errors. The two skips need a POSIX file system. They run no recipe and install nothing.
-- `certipy` and `targetedkerberoast`: built on a Windows 11 development machine with Python 3.13. The zips pass `build.py check` and pwn-broker's package checks (the size and hash check, the unpack and the manifest reader). They have not been installed.
-- `fetch.sh`: its index parsing and the whole script, with a stand-in `gh`, under `sh` on that machine. `dash -n` and `shellcheck` are clean.
-- *Not* tested: `kerbrute`, `pspy`, `ligolo-ng` and `peass-ng` have recipes with pinned sizes and hashes, but have not been built anywhere. Antivirus on the development machine deletes their upstream files, so CI is the first place they are built and installed.
-- *Not* tested: any package installed on Kali. CI installs them on Ubuntu 24.04 with pwn-broker's own code, and starts each command once, but CI has not run yet.
-- *Not* tested: the workflow. It has been read and parsed, and nothing in it has run on GitHub.
-- *Not* tested: `fetch.sh` against GitHub. Nothing is published to fetch.
+- The unit tests: passed in CI on Ubuntu 24.04 under Python 3.11, 3.12 and 3.13, and on Windows 11 with Python 3.13 (492 passed and 3 skipped; the skips need a POSIX file system), warnings treated as errors.
+- All six packages: built by CI on Ubuntu 24.04, passed `build.py check`, and were installed with pwn-broker's own code under Python 3.12 and 3.13, then removed with nothing left behind. `certipy`, `kerbrute`, `ligolo-proxy` and `targetedKerberoast` each answered `--help`. The upload files of `ligolo-ng`, `pspy` and `peass-ng` were present at the right sizes and were not run.
+- `certipy` and `targetedkerberoast` built on Windows 11 with Python 3.13 are byte-identical to the CI builds.
+- Published from that run: one release per package and the `index` release.
+- `fetch.sh`: `sh -n`, `dash -n` and `shellcheck` are clean and its tests run with a stand-in `gh`. It has not been run against the real releases.
+- Not tested: any package installed or run on Kali.
 
 ## Known issues
 
 - The repository is private. The index is not public either, so `fetch.sh` and a signed-in `gh` are the way to get packages, and pwn-broker's default `tools_index` (the published index URL) cannot be fetched without signing in. Set `tools_index` to the folder `fetch.sh` fills.
 - The index and the packages are not signed. The SHA-256 values in the index are the only check, and they catch a corrupted or swapped zip. They do not prove who published the index.
-- `kerbrute` publishes no checksums upstream. Its pin is the SHA-256 of the file as first downloaded.
+- `kerbrute` and `pspy` publish no checksums upstream. Their pins are the SHA-256 of each file as first downloaded.
 - PEASS-ng's licence has terms beyond the GPL. Read `recipes/peass-ng/LICENSE` before redistributing the package or making this repository public.
-- Antivirus on a Windows build machine removes several upstream files during a build (`kerbrute`, `pspy`, `ligolo-ng`, `peass-ng` among them). Build on Linux, or let CI do it.
+- Kali's own `ligolo-ng` package also installs a command named `ligolo-proxy`. While this package is installed, a bare `ligolo-proxy` runs this one, because pwn-broker's folder comes first on PATH. `sudo` does not use PATH, so a bare `sudo ligolo-proxy` runs Kali's copy. Use `sudo /opt/pwn-broker/bin/ligolo-proxy`, the path `tool install` prints.
+- A folder filled by `fetch.sh` does not update itself. Run `fetch.sh` again after a new build is published; `tool refresh` does not reach a folder.
+- Nothing has been installed on Kali yet.
+- Antivirus on a Windows build machine removes several upstream files during a build. Build on Linux, or let CI do it.
+- If an upstream file is removed or replaced, CI warns and keeps testing the published package; the recipe can no longer be rebuilt until it is repinned with a raised `build`.
 - Packages are x86_64 only. Python tools carry wheels for Python 3.12 and 3.13 only, and are refused on any other Python.
 - The workflow checks out pwn-broker with a deploy key, so it cannot run on a pull request from a fork.
-- While a new index is uploaded, `index.toml` is briefly missing from the `index` release. `fetch.sh` fails cleanly then; run it again.
+- When the index changes, `index.toml` is briefly missing from the `index` release while the new one is uploaded. CI skips the upload when nothing changed. `fetch.sh` fails cleanly if it runs in that gap; run it again.
 
 ## Configuration
 

@@ -1,6 +1,8 @@
 version = "1.2.1"
 build = 1
 
+# Upstream publishes no checksums. Each SHA-256 is that of the file as first downloaded.
+
 [[source]]
 url = "https://github.com/DominicBreuker/pspy/releases/download/v1.2.1/pspy64"
 size = 3104768

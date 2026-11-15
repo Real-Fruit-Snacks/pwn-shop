@@ -56,7 +56,7 @@ The tests need no network and do not import pwn-broker. CI runs them on Python 3
 
 ## Changing a tool
 
-A published build is never changed or replaced. If a recipe changes in any way that changes the package (a different upstream version, a re-pinned dependency, a new description), raise `build` in `recipe.toml`. CI builds the recipe again, compares its card with the published one, and fails with the field that differs if `build` did not go up. For a Python tool, a different size or hash alone is allowed, because the wheels come from the index at build time; the manifest and `wheels.lock` inside the two zips must still be equal, apart from the lines for any distribution in `build_from_source`.
+A published build is never changed or replaced. If a recipe changes in any way that changes the package (a different upstream version, a re-pinned dependency, a new description), raise `build` in `recipe.toml`. CI builds the recipe again, compares its card with the published one, and fails with the field that differs if `build` did not go up. The whole card is compared, size and SHA-256 included, so any change to a file in the zip shows. The one exception is a recipe with `build_from_source`: its size and hash are ignored, and the two zips are compared member by member instead, except the wheels of the distributions listed there and their lines in `wheels.lock`. If an upstream file has gone or no longer matches its pin, CI warns instead and still tests the published package; repin the recipe and raise `build`.
 
 A build is withdrawn by deleting its release and its git tag. Then either raise `build` in the recipe, which publishes a replacement, or remove the recipe. If neither is done, the next push to `main` builds and publishes that same build again. The index is rebuilt from the releases that exist, so a deleted release leaves the index at the next publish.
 
@@ -66,15 +66,16 @@ A build is withdrawn by deleting its release and its git tag. Then either raise 
 
 - `name`, `version` and `build` may be left out of `manifest.toml`; the recipe supplies them. If you write them they must equal the recipe's. A version has no slash, backslash, colon or space.
 - `kind` is `kali`, `upload` or `both`. A `kali` package needs a `[[command]]` and no `[[upload]]`. An `upload` package needs an `[[upload]]` and no `[[command]]`. `both` needs one of each.
-- `description`, `upstream`, `licence` and `arch` are required and not empty. `arch` must be `x86_64`, because pwn-broker refuses a package for another processor.
+- `description`, `upstream`, `licence` and `arch` are required and not empty. `arch` must be `x86_64`, because pwn-broker refuses a package for another processor, and `check` refuses anything else.
 - Every path (`path`, `script`, the recipe's `to`) is relative, starts with `files/`, names a file and has no `..`, no backslash and no drive letter.
-- A command's `name` starts with a letter or digit and holds only letters, digits, `.`, `_` and `-`. No two commands share a name.
-- A command's `type` is `binary` (with `path`), `python-script` (with `script`) or `python-entry` (with `entry`, a plain console-script name). `env` is a table of strings and `args` a list of strings. `{data}` in either stands for the box's `tooldata/<tool>/` folder.
+- A command's `name` starts with a letter or digit and holds only letters, digits, `.`, `_` and `-`. No two commands in one package share a name, and no two tools share one. A command may not be named `sh bash dash zsh fish sudo su doas env python python3 pip pip3 sed cut mkdir kill cat rm ls cp mv ln tar vim vi` or `pwn-broker`, since its launcher would shadow a system command.
+- A command's `type` is `binary` (with `path`), `python-script` (with `script`) or `python-entry` (with `entry`, a plain console-script name). `env` is a table of strings whose names match `[A-Za-z_][A-Za-z0-9_]*` and are not `data`, `box`, `run` or `pid`, and `args` is a list of strings. No `args` or `env` value, and no path, holds a newline or NUL. `{data}` in either stands for the box's `tooldata/<tool>/` folder.
 - A `python-script` or `python-entry` command needs a `[python]` table, and a `[python]` table is only for a package that has one.
-- An `[[upload]]`'s `as` is a plain file name with no slash.
+- An `[[upload]]`'s `as` is a plain file name with no slash, and no two uploads share one.
 - Every file the manifest names must be in the package, so it must be some source's `to`. Two sources cannot share a `to`, even in a different case.
 - A `member` must match exactly one regular file in its archive. A link or a directory is refused.
-- `[data] home` lists paths under the home folder that the tool writes to, relative and without `..`.
+- `[data] home` lists paths under the home folder that the tool writes to, relative and without `..`. It may not name, or lie under, `.ssh` or `.gnupg`, and may not be exactly `.config`, `.local`, `.local/share`, `.local/bin`, `.cache`, `.bashrc`, `.zshrc`, `.profile`, `.bash_profile`, `.bash_history`, `.zsh_history`, `.vimrc`, `.gitconfig`, `Desktop`, `Documents` or `Downloads`: those folders are shared, so give the tool a folder of its own such as `.config/<tool>`.
+- In a Python package, `wheels.lock` holds one `name==version --hash=sha256:...` line for each distribution (a hash for every wheel of it), with no blank lines, comments or carriage returns, and is under 1 MiB. `build.py` writes it that way.
 - `examples` may use `{ip}`, `{hostname}`, `{domain}` and `{lhost}`, and no other placeholder. `build.py check` does not look, but the tests do.
 
 ## Dependencies
