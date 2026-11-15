@@ -51,7 +51,15 @@ Kind `kali` puts a command on the machine, `upload` puts files in a folder to ca
 
 Build 3 of `certipy` and `targetedkerberoast` requires `python-3.13` (`requires = ["python-3.13"]` in its manifest). Builds 1 and 2 stay published as they were: they carry no runtime and run on Kali's own Python, and only when it is one they list (build 1: 3.12 and 3.13; build 2: 3.12, 3.13 and 3.14). A box that recorded one of those builds is still offered it.
 
-The runtime's `LICENSE` carries CPython's licence and then, each under a heading naming it, the licence of every library the build bundles (OpenSSL, SQLite, zlib, expat, libffi, Tcl/Tk and the others) and those of pip and the libraries pip vendors. They are copied byte for byte from upstream's full distribution of the same build and from the archive itself; `recipes/python-3.13/recipe.toml` names the full distribution and its SHA-256, and `tools/runtime-licence.py` writes the file from the two archives.
+The runtime's `LICENSE` holds these parts, each under a heading that names it and where it came from, each copied byte for byte:
+
+- CPython's licence, from the archive.
+- The licence files that the build's own `PYTHON.json` names for the libraries it links (OpenSSL, SQLite, zlib, expat, libffi, Tcl and others), from upstream's full distribution of the same build.
+- CPython's `Doc/license.rst` at the tag `v3.13.18`, its own statement of the software incorporated into the interpreter, mimalloc's notice among it.
+- The HACL* notice, from the leading comment of `Modules/_hacl/Hacl_Hash_SHA2.c` at the same tag.
+- pip's licences and those of the libraries pip vendors, from the archive.
+
+`recipes/python-3.13/recipe.toml` names each source with its size and SHA-256, and `tools/runtime-licence.py` writes the file from them. Licence files in the full distribution that `PYTHON.json` names for nothing in the build (Tix and zstd) are left out, and the script says so each time it runs.
 
 The `targetedkerberoast` version is the date of the pinned commit, because upstream has no releases. The `peass-ng` version is the date of the pinned upstream tag `20261114-5ac9329e`.
 
@@ -108,10 +116,10 @@ This section is updated by hand after each CI run. As of 2026-11-15:
 | `PWN_BROKER_DEPLOY_KEY` | repository secret | A read-only deploy key for pwn-broker. Only the checkout steps of the `packages` and `kali` jobs use it |
 | `PWN_BROKER_REF` | repository variable | The pwn-broker branch CI tests against. Default `main` |
 
-CI runs on pushes to `main` and on pull requests. Before anything is published, the `kali` job starts the official Kali image, installs pwn-broker in it, switches the container's network off, checks that nothing resolves or answers, then installs each recipe's current build from the built folder index with pwn-broker's own code and starts each command with `--help`. Publishing waits for it, so a build that fails on the Kali of the day is not published. Older builds are not tested there. On `main` it publishes one GitHub release per new build, tagged `<tool>-v<version>-<build>` and holding the zip, `SHA256SUMS.txt` and a card, then rebuilds the index from every release's card and replaces `index.toml` on the release tagged `index`. Do not turn on immutable releases for this repository: the index file could not be replaced.
+CI runs on pushes to `main` and on pull requests. Before anything is published, the `kali` job starts the official Kali image, installs pwn-broker in it, switches the container's network off, checks that nothing resolves or answers, then installs each recipe's current build from the built folder index with pwn-broker's own code and starts each command with `--help` or `-h`. Publishing waits for it, so a build that fails on the Kali of the day is not published. Older builds are not tested there. On `main` it publishes one GitHub release per new build, tagged `<tool>-v<version>-<build>` and holding the zip, `SHA256SUMS.txt` and a card, then rebuilds the index from every release's card and replaces `index.toml` on the release tagged `index`. Do not turn on immutable releases for this repository: the index file could not be replaced.
 
 A build is withdrawn by deleting its release and its git tag. Then either raise `build` in the recipe, which publishes a replacement, or remove the recipe. If neither is done, the next push to `main` builds and publishes that same build again. The index is rebuilt from the releases that exist, so a deleted release leaves the index at the next publish.
 
 ## License
 
-MIT. Each package carries the licence of the tool in it; the runtime carries CPython's and those of the libraries it bundles.
+MIT. Each package carries the licence of the tool in it; what the runtime's `LICENSE` holds is listed above.

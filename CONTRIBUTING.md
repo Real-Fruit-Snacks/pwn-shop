@@ -58,13 +58,13 @@ The tests need no network and do not import pwn-broker. CI runs them on Python 3
 
 A runtime is a Python for the tools that require it, named for its series: `python-3.13`. Its recipe has one `[[source]]`: python-build-standalone's `install_only_stripped` archive for `x86_64-unknown-linux-gnu`, pinned by size and SHA-256 (compare the hash with the release's `SHA256SUMS`) and carried whole to `files/python.tar.gz`, with no `member`. Its manifest is `schema = 2` and `kind = "runtime"` with a `[runtime]` table: `archive`, the path of the archive in the package; `python`, the interpreter inside the unpacked archive; and `series`, the Python the requiring tools' wheels are built for. It has no `[[command]]`, `[[upload]]`, `[data]` or `[python]`, and requires nothing. See `recipes/python-3.13/`.
 
-The stripped archive has none of the licences of the libraries it bundles. Download the `pgo+lto-full` distribution of the same CPython from the same release, check it against `SHA256SUMS`, and write `LICENSE` from the two archives:
+The stripped archive has none of the licences of the libraries it bundles. Download the `pgo+lto-full` distribution of the same CPython from the same release and check it against `SHA256SUMS`. `PYTHON.json` names licences only for extension modules, so also take, from the CPython source at the tag of the same version, `Doc/license.rst` and `Modules/_hacl/Hacl_Hash_SHA2.c`: they carry the notices for mimalloc and HACL*, which are compiled into the interpreter. Then write `LICENSE` from the four files:
 
 ```sh
-python tools/runtime-licence.py <stripped archive> <full distribution> > recipes/<name>/LICENSE
+python tools/runtime-licence.py <stripped archive> <full distribution> <license.rst> <Hacl_Hash_SHA2.c> > recipes/<name>/LICENSE
 ```
 
-The full distribution is a `.tar.zst`, so this needs the `zstandard` package; give it the file under its upstream name, which the headings quote. It only reads the archives. Name the full distribution and its SHA-256 in a comment in `recipe.toml`.
+The full distribution is a `.tar.zst`, so this needs the `zstandard` package; give it the file under its upstream name, which the headings quote. It only reads its inputs, and on stderr it names each licence file in the full distribution that it left out because `PYTHON.json` names it for nothing in the build. Name the full distribution and the two source files, each with its size and SHA-256, in a comment in `recipe.toml`.
 
 A tool moves to a new runtime by naming it in `requires` and raising its `build`.
 
