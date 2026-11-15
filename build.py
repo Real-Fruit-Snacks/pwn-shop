@@ -44,9 +44,12 @@ _NAME_RULE = (
     "with no two dots together and none at the end"
 )
 _SERIES = re.compile(r"[0-9]+\.[0-9]+")
+_NEEDS_RUNTIME = (
+    "a Python tool must require a runtime: add requires = [\"python-3.13\"] (or another "
+    "runtime's name) to its manifest.toml"
+)
 _COMMAND_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
-PYTHONS = ("3.12", "3.13", "3.14")
 PLATFORM = "manylinux_2_28_x86_64"
 # The glibc on Kali satisfies every older glibc tag; each is given to pip as its own
 # --platform, newest first
@@ -277,13 +280,14 @@ def load_recipe(folder: Path) -> Recipe:
                 "they must be the same path"
             )
     elif "python" in manifest:
-        if "requires" in manifest:
-            if len(requires) != 1:
-                raise BuildError(
-                    f"{who}: requires: a Python tool requires exactly one runtime; "
-                    f"this one names {len(requires)}"
-                )
-            series = _required_series(folder.parent, requires[0], who)
+        if "requires" not in manifest:
+            raise BuildError(f"{who}: {_NEEDS_RUNTIME}")
+        if len(requires) != 1:
+            raise BuildError(
+                f"{who}: requires: a Python tool requires exactly one runtime; "
+                f"this one names {len(requires)}"
+            )
+        series = _required_series(folder.parent, requires[0], who)
     elif "requires" in manifest:
         raise BuildError(f"{who}: requires: a tool that is not Python requires nothing")
     return Recipe(
@@ -465,9 +469,7 @@ def _python_manifest(recipe: Recipe) -> tuple[dict, bool]:
     if not isinstance(table, dict):
         raise BuildError(f"{recipe.name}: python must be a table")
     ours = {"lock": WHEELS_LOCK, "wheels": "wheels"}
-    if recipe.series is None:
-        ours = {"versions": list(PYTHONS), **ours}
-    elif "versions" in table:
+    if "versions" in table:
         raise BuildError(
             f"{recipe.name}: python.versions: schema 2 has no versions; the wheels are for "
             f"the required runtime's Python {recipe.series}. Leave it out of the recipe's manifest"
@@ -796,14 +798,17 @@ def _wheel_for(
     return wheel
 
 
-def _pythons(recipe: Recipe) -> tuple[str, ...]:
-    """The Pythons a tool's wheels are for: its runtime's series, or PYTHONS in schema 1."""
-    return (recipe.series,) if recipe.series is not None else PYTHONS
+def _series(recipe: Recipe) -> str:
+    """The one Python a tool's wheels are for: the series of the runtime it requires."""
+    if recipe.series is None:
+        raise BuildError(f"{recipe.name}: {_NEEDS_RUNTIME}")
+    return recipe.series
 
 
 def collect_wheels(
     recipe: Recipe, staged: Path, *, run: Run = subprocess.run, find_links: Path | None = None
 ) -> list[Path]:
+    python = _series(recipe)
     pins = read_requirements_lock(recipe.folder / REQUIREMENTS_LOCK, recipe.name)
     locked = {_norm_name(p.name) for p in pins}
     for name in recipe.build_from_source:
@@ -819,21 +824,12 @@ def collect_wheels(
             # one pin per file, so pip fetches that distribution and nothing it would add itself
             options = " ".join(f"--hash=sha256:{h}" for h in pin.hashes)
             _write_bytes(tmp / f"req-{i}.txt", f"{pin.name}=={pin.version} {options}\n".encode())
-        # a listed distribution is built once and the one wheel serves every Python
-        built = {
-            i: _wheel_from_source(pin, i, tmp, run, find_links)
-            for i, pin in enumerate(pins)
-            if _norm_name(pin.name) in recipe.build_from_source
-        }
-        for python in _pythons(recipe):
-            for i, pin in enumerate(pins):
-                wheel = built[i] if i in built else _wheel_for(pin, python, i, tmp, run, find_links)
-                target = wheels / wheel.name
-                if target.exists():
-                    if sha256_file(target) != sha256_file(wheel):
-                        raise BuildError(f"{pin.name} {pin.version}: two different files are named {wheel.name}")
-                else:
-                    shutil.copyfile(wheel, target)
+        for i, pin in enumerate(pins):
+            if _norm_name(pin.name) in recipe.build_from_source:
+                wheel = _wheel_from_source(pin, i, tmp, run, find_links)
+            else:
+                wheel = _wheel_for(pin, python, i, tmp, run, find_links)
+            shutil.copyfile(wheel, wheels / wheel.name)
     return sorted(wheels.glob("*.whl"))
 
 
@@ -866,68 +862,27 @@ def lock(recipe: Recipe, *, run: Run = subprocess.run) -> Path:
         raise BuildError(f"{recipe.name}: not a Python tool (its manifest has no [python] table)")
     if not source.is_file():
         raise BuildError(f"{recipe.name}: the recipe folder has no {REQUIREMENTS_IN}")
-    texts: dict[str, bytes] = {}
-    resolved: dict[str, dict[str, tuple[str, list[str]]]] = {}
-    pythons = _pythons(recipe)
-    with tempfile.TemporaryDirectory(prefix="pwn-shop-lock-") as tmpdir:
-        for python in pythons:
-            out = Path(tmpdir) / f"lock-{python}.txt"
-            # not --universal: it cannot be combined with --python-platform, and it writes
-            # markers such as sys_platform == 'win32' that pip would judge by the build machine
-            cmd = ["uv", "pip", "compile", REQUIREMENTS_IN, "--generate-hashes",
-                   "--python-version", python, "--python-platform", UV_PLATFORM,
-                   "--no-header", "--no-annotate", "-o", str(out)]  # fmt: skip
-            done = _sh(run, cmd, recipe.folder)
-            if done.returncode != 0:
-                raise BuildError(f"{recipe.name}: uv failed for Python {python} ({_tail(done.stderr)})")
-            try:
-                texts[python] = out.read_bytes().replace(b"\r\n", b"\n")
-            except OSError as exc:
-                raise BuildError(f"{recipe.name}: uv wrote no lock for Python {python} ({exc})") from exc
-            out.write_bytes(texts[python])
-            resolved[python] = {
-                _norm_name(p.name): (p.version, sorted(p.hashes))
-                for p in read_requirements_lock(out, recipe.name)
-            }
-    names = sorted({n for pins in resolved.values() for n in pins})
-    differing = [
-        _disagreement(n, resolved, pythons) for n in names if len({str(r.get(n)) for r in resolved.values()}) > 1
-    ]
-    if differing:
-        raise BuildError(
-            f"{recipe.name}: the dependencies differ between Python versions: {'; '.join(differing)}. "
-            f"Pin each of them in {REQUIREMENTS_IN} to one version that every Python can use"
-        )
+    python = _series(recipe)
     path = recipe.folder / REQUIREMENTS_LOCK
-    _write_bytes(path, texts[pythons[0]])
+    with tempfile.TemporaryDirectory(prefix="pwn-shop-lock-") as tmpdir:
+        out = Path(tmpdir) / "requirements.lock"
+        # not --universal: it cannot be combined with --python-platform, and it writes
+        # markers such as sys_platform == 'win32' that pip would judge by the build machine
+        cmd = ["uv", "pip", "compile", REQUIREMENTS_IN, "--generate-hashes",
+               "--python-version", python, "--python-platform", UV_PLATFORM,
+               "--no-header", "--no-annotate", "-o", str(out)]  # fmt: skip
+        done = _sh(run, cmd, recipe.folder)
+        if done.returncode != 0:
+            raise BuildError(f"{recipe.name}: uv failed for Python {python} ({_tail(done.stderr)})")
+        try:
+            text = out.read_bytes().replace(b"\r\n", b"\n")
+        except OSError as exc:
+            raise BuildError(f"{recipe.name}: uv wrote no lock for Python {python} ({exc})") from exc
+        out.write_bytes(text)
+        # the same checks a build makes, before the recipe's lock is replaced
+        read_requirements_lock(out, recipe.name)
+    _write_bytes(path, text)
     return path
-
-
-def _and(items: list[str]) -> str:
-    return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} and {items[-1]}"
-
-
-def _disagreement(
-    name: str, resolved: dict[str, dict[str, tuple[str, list[str]]]], pythons: tuple[str, ...]
-) -> str:
-    """name (1.0 on Python 3.12 and 3.13, 1.1 on 3.14): what each Python resolved it to."""
-    groups: dict[str, list[str]] = {}
-    for python in pythons:
-        groups.setdefault(str(resolved[python].get(name)), []).append(python)
-    parts = []
-    versions_said = set()
-    for pythons in groups.values():
-        pin = resolved[pythons[0]].get(name)
-        if pin is None:
-            said = "none"
-        elif pin[0] in versions_said:
-            # the same version resolved to other files (hashes) on these Pythons
-            said = f"{pin[0]} with other files"
-        else:
-            said = pin[0]
-            versions_said.add(pin[0])
-        parts.append(f"{said} on {'Python ' if not parts else ''}{_and(pythons)}")
-    return f"{name} ({', '.join(parts)})"
 
 
 # ---- zip, card, sums, index

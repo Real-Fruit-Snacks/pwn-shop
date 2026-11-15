@@ -172,6 +172,7 @@ PY_MANIFEST = {
     "needs_root": False,
     "examples": ["tinytool"],
     "command": [{"name": "tinytool", "type": "python-entry", "entry": "tinytool"}],
+    "requires": ["python-3.13"],
     "python": {},
 }
 
@@ -204,14 +205,11 @@ def make_runtime_recipe(folder: Path, net: FakeNet, *, manifest: dict | None = N
 
 def make_python_recipe(folder: Path, net, pins: list[tuple[str, str, list[bytes]]], *,
                        manifest: dict | None = None, lock: bool = True,
-                       build_from_source: tuple[str, ...] = (), runtime: bool = False) -> Path:
-    """runtime=True makes the tool require python-3.13 and puts that runtime's recipe beside it."""
-    manifest = dict(manifest or PY_MANIFEST)
-    if runtime:
-        manifest.setdefault("requires", ["python-3.13"])
-        if not (folder.parent / "python-3.13").exists():
-            make_runtime_recipe(folder.parent / "python-3.13", net)
-    make_recipe(folder, net, sources=[], manifest=manifest)
+                       build_from_source: tuple[str, ...] = ()) -> Path:
+    """A tool that requires python-3.13, with that runtime's recipe beside it."""
+    if not (folder.parent / "python-3.13").exists():
+        make_runtime_recipe(folder.parent / "python-3.13", net)
+    make_recipe(folder, net, sources=[], manifest=dict(manifest or PY_MANIFEST))
     if build_from_source:
         head = tomllib.loads((folder / "recipe.toml").read_text())
         head["build_from_source"] = list(build_from_source)

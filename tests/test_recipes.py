@@ -147,7 +147,11 @@ def test_lock_lines_are_plain_hashed_pins(loaded):
 
 
 def copy_recipe(name: str, dest: Path) -> Path:
+    """Copies a recipe, and the runtime recipes it requires, under dest."""
     shutil.copytree(RECIPES / name, dest / name)
+    for runtime in build.load_recipe(RECIPES / name).requires:
+        if not (dest / runtime).exists():
+            shutil.copytree(RECIPES / runtime, dest / runtime)
     return dest / name
 
 

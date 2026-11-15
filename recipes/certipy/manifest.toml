@@ -1,4 +1,5 @@
-schema = 1
+schema = 2
+requires = ["python-3.13"]
 kind = "kali"
 description = "Active Directory certificate services enumeration and abuse"
 tags = ["ad", "adcs", "certificates", "enum", "privesc"]

@@ -1,4 +1,5 @@
-schema = 1
+schema = 2
+requires = ["python-3.13"]
 kind = "kali"
 description = "Kerberoasting that sets a temporary SPN on accounts that have none"
 tags = ["ad", "kerberos", "kerberoast", "enum"]

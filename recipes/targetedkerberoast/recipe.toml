@@ -1,6 +1,6 @@
 # Upstream has no releases: the version is the date of the pinned commit.
 version = "2024.12.16"
-build = 2
+build = 3
 
 [[source]]
 url = "https://raw.githubusercontent.com/ShutdownRepo/targetedKerberoast/ebed0790002dfae503eb5e5525a0630f131fa117/targetedKerberoast.py"
