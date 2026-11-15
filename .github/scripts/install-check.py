@@ -17,16 +17,21 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import unicodedata
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-# a command that prints something and exits 0, 1 or 2 has started; a missing file, a crash
-# on import and a hang all end differently
+# A binary that prints something and exits 0, 1 or 2 has started; a missing file, a crash
+# and a hang all end differently. A Python command must exit 0, because a tool that dies
+# importing a missing module exits 1 and prints a traceback. A traceback is never "started".
 STARTED = (0, 1, 2)
 PROBES = ("--help", "-h")
 TIMEOUT = 60
+TRACEBACK = "Traceback (most recent call last)"
+SHOWN = 80
+PYTHON_TYPES = ("python-entry", "python-script")
 
 
 class CheckFailed(Exception):
@@ -40,11 +45,26 @@ def parse_args(argv):
     return parser.parse_args(argv)
 
 
-def started(returncode: int, output: str) -> bool:
-    return returncode in STARTED and bool(output.strip())
+def is_python(command_type: str) -> bool:
+    return command_type in PYTHON_TYPES
 
 
-def probe(launcher: Path, *, run=subprocess.run, env=None) -> tuple[bool, str]:
+def started(returncode: int, output: str, *, python: bool = False) -> bool:
+    if TRACEBACK in output or not output.strip():
+        return False
+    return returncode == 0 if python else returncode in STARTED
+
+
+def first_line(output: str) -> str:
+    """The first line with something on it, without control characters, cut short."""
+    for raw in output.splitlines():
+        line = "".join(c for c in raw if unicodedata.category(c) != "Cc").strip()
+        if line:
+            return line[:SHOWN]
+    return ""
+
+
+def probe(launcher: Path, *, python: bool = False, run=subprocess.run, env=None) -> tuple[bool, str]:
     """Runs the launcher with --help, then -h. Returns whether it started and a note."""
     notes = []
     for flag in PROBES:
@@ -56,15 +76,33 @@ def probe(launcher: Path, *, run=subprocess.run, env=None) -> tuple[bool, str]:
             )  # fmt: skip
         except subprocess.TimeoutExpired:
             notes.append(f"{flag}: no answer in {TIMEOUT} seconds")
+            if python:
+                break
             continue
         except OSError as exc:
             return False, f"cannot run it ({exc})"
         output = (result.stdout or "") + (result.stderr or "")
-        if started(result.returncode, output):
-            return True, flag
-        said = "printed something" if output.strip() else "printed nothing"
+        if started(result.returncode, output, python=python):
+            return True, f"{flag}: {first_line(output)}"
+        if TRACEBACK in output:
+            said = "printed a traceback"
+        elif output.strip():
+            said = "printed something"
+        else:
+            said = "printed nothing"
         notes.append(f"{flag}: exit {result.returncode}, {said}")
+        # -h is for a command that rejects --help; a Python command that crashed, or that
+        # exited 0 and said nothing, has nothing to retry
+        if python and (result.returncode == 0 or TRACEBACK in output):
+            break
     return False, "; ".join(notes)
+
+
+def command_types(zip_path: Path) -> dict[str, str]:
+    """Each command's name and type, from the package's manifest."""
+    with zipfile.ZipFile(zip_path) as zf:
+        manifest = tomllib.loads(zf.read("manifest.toml").decode("utf-8"))
+    return {row["name"]: row["type"] for row in manifest.get("command", [])}
 
 
 def upload_problems(zip_path: Path, upload_dir: Path) -> list[str]:
@@ -159,12 +197,13 @@ def check_tool(broker, folder: Path, name: str, now: datetime) -> str:
             said = "; ".join(text for _, text in console.lines)
             raise CheckFailed(f"{label}: install failed ({exc}){'; ' + said if said else ''}") from exc
 
+        types = command_types(zip_path)
         started_with = []
         for command in item.commands:
             launcher = paths.bin / command
             if not launcher.is_file():
                 raise CheckFailed(f"{label}: command {command} has no launcher at {launcher}")
-            worked, note = probe(launcher, env=env)
+            worked, note = probe(launcher, python=is_python(types.get(command, "")), env=env)
             if not worked:
                 raise CheckFailed(f"{label}: command {command} did not start ({note})")
             started_with.append(f"{command} {note}")

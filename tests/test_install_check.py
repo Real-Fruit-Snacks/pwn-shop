@@ -60,9 +60,11 @@ def test_no_tool_names_means_every_tool(check):
 
 # ---- the exit-status rule
 
+TRACE = "Traceback (most recent call last):\n  File \"x\", line 1\nModuleNotFoundError: No module named 'y'\n"
+
 
 @pytest.mark.parametrize("code", [0, 1, 2])
-def test_exit_0_to_2_with_output_is_started(check, code):
+def test_exit_0_to_2_with_output_is_started_for_a_binary(check, code):
     assert check.started(code, "usage: tool\n")
 
 
@@ -76,18 +78,60 @@ def test_no_output_is_not_started(check, out):
     assert not check.started(0, out)
 
 
+@pytest.mark.parametrize("code", [0, 1, 2])
+@pytest.mark.parametrize("python", [False, True])
+def test_a_traceback_is_never_started(check, code, python):
+    assert not check.started(code, TRACE, python=python)
+    assert not check.started(code, "usage: tool\n" + TRACE, python=python)
+
+
+@pytest.mark.parametrize("code", [1, 2])
+def test_a_python_command_must_exit_0(check, code):
+    assert not check.started(code, "usage: tool\n", python=True)
+    assert check.started(code, "usage: tool\n", python=False)
+    assert check.started(0, "usage: tool\n", python=True)
+
+
+# ---- the line the log shows
+
+
+def test_the_first_non_empty_line_is_shown(check):
+    assert check.first_line("\n  \nCertipy v5.1.0 - ly4k\nusage: x\n") == "Certipy v5.1.0 - ly4k"
+
+
+def test_a_long_line_is_cut_to_80_characters(check):
+    assert check.first_line("x" * 200) == "x" * 80
+
+
+def test_control_characters_are_removed(check):
+    assert check.first_line("\x1b[31mred\x07 text\x00\r\n") == "[31mred text"
+
+
+def test_a_line_of_only_control_characters_is_skipped(check):
+    assert check.first_line("\x1b\x07\nreal line\n") == "real line"
+
+
+def test_no_text_gives_an_empty_line(check):
+    assert check.first_line(" \n\t\n") == ""
+
+
 # ---- running a launcher
 
 
 def test_help_is_tried_first(check):
     run = Runner(result(0, "usage\n"))
-    assert check.probe(Path("/x/tool"), run=run) == (True, "--help")
+    assert check.probe(Path("/x/tool"), run=run) == (True, "--help: usage")
     assert [c[0] for c in run.calls] == [[str(Path("/x/tool")), "--help"]]
+
+
+def test_the_note_carries_the_first_line_of_output(check):
+    ok, note = check.probe(Path("t"), run=Runner(result(0, "\nTool 1.2 - does things\nmore\n")))
+    assert ok and note == "--help: Tool 1.2 - does things"
 
 
 def test_short_help_is_the_fallback(check):
     run = Runner(result(1, ""), result(2, err="usage\n"))
-    assert check.probe(Path("/x/tool"), run=run) == (True, "-h")
+    assert check.probe(Path("/x/tool"), run=run) == (True, "-h: usage")
     assert [c[0][1] for c in run.calls] == ["--help", "-h"]
 
 
@@ -130,6 +174,70 @@ def test_the_launcher_gets_no_input_and_a_time_limit(check):
     assert kwargs["stdin"] == subprocess.DEVNULL
     assert kwargs["timeout"] == check.TIMEOUT
     assert kwargs["env"] == {"A": "b"}
+
+
+def test_a_traceback_on_help_is_not_started_and_short_help_is_not_tried(check):
+    run = Runner(result(1, err=TRACE), result(0, "usage\n"))
+    ok, note = check.probe(Path("t"), python=True, run=run)
+    assert not ok
+    assert "traceback" in note
+    assert len(run.calls) == 1
+
+
+def test_a_traceback_that_exits_0_is_not_started(check):
+    ok, _ = check.probe(Path("t"), python=True, run=Runner(result(0, TRACE), result(0, TRACE)))
+    assert not ok
+
+
+def test_a_traceback_is_not_started_for_a_binary_either(check):
+    ok, note = check.probe(Path("t"), run=Runner(result(1, err=TRACE), result(1, err=TRACE)))
+    assert not ok
+    assert "traceback" in note
+
+
+def test_a_python_command_that_exits_1_on_help_falls_back_to_short_help(check):
+    run = Runner(result(1, "usage: tool\n"), result(0, "usage: tool\n"))
+    assert check.probe(Path("t"), python=True, run=run) == (True, "-h: usage: tool")
+    assert [c[0][1] for c in run.calls] == ["--help", "-h"]
+
+
+def test_a_python_command_that_exits_1_on_both_is_not_started(check):
+    ok, note = check.probe(
+        Path("t"), python=True, run=Runner(result(1, "usage\n"), result(2, "usage\n"))
+    )
+    assert not ok
+    assert "--help: exit 1" in note and "-h: exit 2" in note
+
+
+def test_a_python_command_that_exits_0_on_help_needs_no_fallback(check):
+    run = Runner(result(0, "usage\n"))
+    assert check.probe(Path("t"), python=True, run=run)[0]
+    assert len(run.calls) == 1
+
+
+def test_a_binary_may_exit_2_on_help(check):
+    assert check.probe(Path("t"), python=False, run=Runner(result(2, err="usage\n")))[0]
+
+
+# ---- which commands are Python
+
+
+def test_command_types_come_from_the_manifest(check, tmp_path):
+    path = tmp_path / "p.zip"
+    manifest = {
+        "schema": 1,
+        "command": [
+            {"name": "a", "type": "binary", "path": "files/a"},
+            {"name": "b", "type": "python-entry", "entry": "b"},
+            {"name": "c", "type": "python-script", "script": "files/c.py"},
+        ],
+    }
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("manifest.toml", tomli_w.dumps(manifest))
+    assert check.command_types(path) == {"a": "binary", "b": "python-entry", "c": "python-script"}
+    assert [check.is_python(t) for t in ("binary", "python-entry", "python-script")] == [
+        False, True, True,
+    ]
 
 
 # ---- upload files

@@ -10,8 +10,10 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  # A push is never cancelled: a later push must not stop an earlier one half way through
-  # publishing. Only a pull request run gives way to a newer one.
+  # A push run is never cancelled, so a later push cannot stop an earlier one half way through
+  # publishing. GitHub keeps one pending run per group, though: of three quick pushes the
+  # middle one is dropped. Nothing is lost, because the next run publishes every build that
+  # has no release. A pull request run gives way to a newer one.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
@@ -55,7 +57,11 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Install
-        run: python -m pip install pytest tomli-w
+        # pytest is not pinned: this job holds no token that can write. tomli-w comes from
+        # the pinned file, as in the jobs that do.
+        run: |
+          python -m pip install pytest
+          python -m pip install --require-hashes -r ci-requirements.txt
       - name: Tests
         run: python -m pytest -q -W error
 
@@ -76,29 +82,32 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Install
-        run: python -m pip install tomli-w
+        run: python -m pip install --require-hashes -r ci-requirements.txt
       - name: Build or download each package
         # A build that has a release is tested from the published bytes, so CI and a user never
-        # see different files under one tag. It is still built again, into fresh/, and the
-        # card of that build must equal the published card: a recipe that changed without its
-        # build number going up fails here.
+        # see different files under one tag. It is still built again, into fresh/, one tool at
+        # a time, and the card of that build must equal the published card: a recipe that
+        # changed without its build number going up fails here. If the rebuild cannot fetch an
+        # upstream file (build.py exits 3), that tool gets a warning and its published zip is
+        # still tested; any other failure, and any difference, fails the job. A build with no
+        # release must build.
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          set -eu
           mkdir -p dist fresh
+          : > published.txt
           python build.py plan > plan.txt
           gh release list --limit 1000 --json tagName --jq '.[].tagName' > releases.txt
           to_build=()
-          published=()
           while read -r tool tag file; do
             if grep -Fxq -- "$tag" releases.txt; then
               card="${file%.zip}.toml"
               gh release download "$tag" --dir dist --pattern "$file" --pattern "$card" </dev/null
               want="$(sed -n 's/^sha256 = "\(.*\)"$/\1/p' "dist/$card")"
               echo "$want  dist/$file" | sha256sum -c -
-              published+=("$tool")
-              echo "$tool $card $file" >> published.txt
+              echo "$tool $tag $file" >> published.txt
               echo "ok    $tag is published; testing the published zip"
             else
               to_build+=("$tool")
@@ -106,15 +115,31 @@ jobs:
             fi
           done < plan.txt
           if [ "${#to_build[@]}" -gt 0 ]; then
-            python build.py build "${to_build[@]}" --out dist
+            python build.py build "${to_build[@]}" --out dist </dev/null
           fi
-          if [ "${#published[@]}" -gt 0 ]; then
-            python build.py build "${published[@]}" --out fresh
-            while read -r tool card file; do
+          while read -r tool tag file; do
+            card="${file%.zip}.toml"
+            if python build.py build "$tool" --out fresh </dev/null 2> "rebuild-$tool.err"; then
+              status=0
+            else
+              status=$?
+            fi
+            cat "rebuild-$tool.err" >&2
+            if [ "$status" -eq 0 ]; then
               python build.py compare "fresh/$card" "dist/$card" "fresh/$file" "dist/$file" </dev/null
-            done < published.txt
-          fi
-          python build.py index dist --out dist/index.toml
+              echo "ok    $tag rebuilt and equal to the published build"
+            elif [ "$status" -eq 3 ]; then
+              echo "::warning title=$tool::$tag cannot be rebuilt: an upstream file is gone or no longer matches the recipe. The published zip is still tested."
+              echo "warn  $tag cannot be rebuilt; testing the published zip only"
+            else
+              echo "fail  $tag: the rebuild failed with exit status $status" >&2
+              exit 1
+            fi
+          done < published.txt
+          python build.py index dist --out dist/index.toml </dev/null
+      - name: Show the package hashes
+        # Each leg prints its bytes, so the two legs can be compared in the log.
+        run: sha256sum dist/*.zip
       - name: Check
         run: python build.py check
       - name: Check out pwn-broker
@@ -145,7 +170,7 @@ jobs:
 
   publish:
     # Main only, after the tests and the install check. It uploads what the packages job
-    # installed, not a second build. Two pushes queue; neither cancels the other.
+    # installed, not a second build. A run waits for the one before it and never cancels it.
     needs: [test, packages]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
@@ -162,7 +187,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Install
-        run: python -m pip install tomli-w
+        run: python -m pip install --require-hashes -r ci-requirements.txt
       - uses: actions/download-artifact@v4
         with:
           name: dist
@@ -195,22 +220,39 @@ jobs:
       - name: Replace the index
         # The index is rebuilt from the card of every release, so a withdrawn build (a deleted
         # release) drops out of it. The index release is made once and never marked latest.
+        # index.toml is uploaded only when it differs from the one there, so it is not briefly
+        # missing on every push.
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           COMMIT: ${{ github.sha }}
           BASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/download/{tag}/{file}
         run: |
+          set -eu
           gh release list --limit 1000 --json tagName --jq '.[].tagName' > releases.txt
-          mkdir cards
+          mkdir cards current
           while read -r tag; do
             if [ "$tag" != index ]; then
               gh release download "$tag" --dir cards --pattern '*.toml' </dev/null
             fi
           done < releases.txt
           python build.py index cards --base-url "$BASE_URL" --out index.toml
-          if ! grep -Fxq index releases.txt; then
+          same=no
+          if grep -Fxq index releases.txt; then
+            if gh release download index --dir current --pattern index.toml </dev/null; then
+              if cmp -s current/index.toml index.toml; then
+                same=yes
+              fi
+            else
+              echo "warn  the index release has no index.toml"
+            fi
+          else
             gh release create index --title index --target "$COMMIT" --latest=false \
               --notes "The index of the published packages. CI replaces index.toml here after each publish." </dev/null
           fi
-          gh release upload index index.toml --clobber
+          if [ "$same" = yes ]; then
+            echo "ok    index.toml is unchanged"
+          else
+            gh release upload index index.toml --clobber </dev/null
+            echo "ok    index.toml replaced"
+          fi
