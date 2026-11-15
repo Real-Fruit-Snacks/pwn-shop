@@ -2,7 +2,7 @@ schema = 2
 kind = "runtime"
 description = "CPython 3.13, for the tools that require it"
 upstream = "https://github.com/astral-sh/python-build-standalone"
-licence = "PSF-2.0"
+licence = "PSF-2.0 and others (see LICENSE)"
 arch = "x86_64"
 
 [runtime]

@@ -23,8 +23,8 @@ defaults:
 jobs:
   lint:
     # fetch.sh runs on a machine with nothing but sh, so it is read by sh and dash as well as
-    # shellcheck; the two Python files are only compiled here (the tests and the packages
-    # job run them).
+    # shellcheck; the Python files are only compiled here (the tests run them, and the
+    # packages job runs build.py and install-check.py).
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -40,7 +40,7 @@ jobs:
       - name: shellcheck
         run: shellcheck fetch.sh
       - name: Compile
-        run: python -m py_compile build.py .github/scripts/install-check.py
+        run: python -m py_compile build.py .github/scripts/install-check.py tools/runtime-licence.py
 
   test:
     # The unit tests need no network and no pwn-broker. build.py needs 3.11 or later.

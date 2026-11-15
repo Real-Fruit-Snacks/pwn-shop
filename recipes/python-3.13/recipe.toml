@@ -4,6 +4,12 @@ build = 1
 # The install_only_stripped build of CPython 3.13.18 for x86_64-unknown-linux-gnu, from
 # python-build-standalone release 20261110. The SHA-256 matches the one in that release's
 # SHA256SUMS file. The archive is carried as it is; pwn-broker unpacks it.
+#
+# The archive has no licences of the libraries it bundles. LICENSE carries them, copied from
+# python/licenses/ of the full distribution of the same build from the same release,
+# cpython-3.13.18+20261110-x86_64-unknown-linux-gnu-pgo+lto-full.tar.zst (SHA-256
+# dec4f6d23031233beddfe91b99751977ef96e90642109836b1f9ad80b0019a68, as in SHA256SUMS), with
+# pip's from the archive itself. tools/runtime-licence.py prints LICENSE from the two files.
 [[source]]
 url = "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.13.18+20261110-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
 size = 35596130
