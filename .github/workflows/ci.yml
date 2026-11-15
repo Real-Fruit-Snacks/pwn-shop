@@ -48,7 +48,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.11', '3.12', '3.13']
+        python: ['3.11', '3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@v5
         with:
@@ -66,14 +66,14 @@ jobs:
         run: python -m pytest -q -W error
 
   packages:
-    # Both Pythons build or download every package and install it with pwn-broker's own code.
+    # Each Python builds or downloads every package and installs it with pwn-broker's own code.
     # Nothing in the build proves that a Python tool's lock is its whole dependency set; the
     # install, which uses no index, does.
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.12', '3.13']
+        python: ['3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@v5
         with:
@@ -138,7 +138,7 @@ jobs:
           done < published.txt
           python build.py index dist --out dist/index.toml </dev/null
       - name: Show the package hashes
-        # Each leg prints its bytes, so the two legs can be compared in the log.
+        # Each leg prints its bytes, so the legs can be compared in the log.
         run: sha256sum dist/*.zip
       - name: Check
         run: python build.py check
@@ -158,8 +158,8 @@ jobs:
       - name: Install each package and start its commands
         run: '"$RUNNER_TEMP/broker/bin/python" .github/scripts/install-check.py dist'
       - name: Keep the packages for publish
-        # One leg's files are published. Wheels for both Pythons are collected whichever
-        # Python runs the build, and the zip is built the same way on both.
+        # One leg's files are published. Wheels for every Python are collected whichever
+        # Python runs the build, and the zip is built the same way on each.
         if: matrix.python == '3.13'
         uses: actions/upload-artifact@v4
         with:
