@@ -1,0 +1,17 @@
+schema = 1
+kind = "kali"
+description = "Kerberos user enumeration and password spraying"
+tags = ["ad", "kerberos", "enum", "bruteforce"]
+upstream = "https://github.com/ropnop/kerbrute"
+licence = "Apache-2.0"
+arch = "x86_64"
+examples = [
+  "kerbrute userenum -d {domain} --dc {ip} users.txt",
+  "kerbrute passwordspray -d {domain} --dc {ip} users.txt 'Password123'",
+  "kerbrute bruteuser -d {domain} --dc {ip} passwords.lst username",
+]
+
+[[command]]
+name = "kerbrute"
+type = "binary"
+path = "files/kerbrute_linux_amd64"

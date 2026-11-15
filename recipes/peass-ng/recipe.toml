@@ -1,0 +1,27 @@
+# Upstream publishes several releases a day; this is the one from 2026-11-14, tag 20261114-5ac9329e.
+version = "2026.11.14"
+build = 1
+
+[[source]]
+url = "https://github.com/peass-ng/PEASS-ng/releases/download/20261114-5ac9329e/linpeas.sh"
+size = 1826158
+sha256 = "13fe37068bf2bd1d052cd873af13e5e595977bcff2c378d380ca0bfb8cc0024b"
+to = "files/linpeas.sh"
+
+[[source]]
+url = "https://github.com/peass-ng/PEASS-ng/releases/download/20261114-5ac9329e/winPEASx64.exe"
+size = 12036608
+sha256 = "fc1cabe4e48009a5c8bd8b06a003a221a8e14d7ec27494aa3518699838ae5bab"
+to = "files/winPEASx64.exe"
+
+[[source]]
+url = "https://github.com/peass-ng/PEASS-ng/releases/download/20261114-5ac9329e/winPEASany.exe"
+size = 12037120
+sha256 = "9558721bd0b8c227f60d664a8be69ba4b1119dfe300662bad0cdbac22cd08805"
+to = "files/winPEASany.exe"
+
+[[source]]
+url = "https://github.com/peass-ng/PEASS-ng/releases/download/20261114-5ac9329e/winPEAS.bat"
+size = 43707
+sha256 = "cd45a0db52a7a887e34622c0af501cfcd67b65267517fe9964bd2d5af2e9d1a2"
+to = "files/winPEAS.bat"

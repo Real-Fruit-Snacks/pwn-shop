@@ -1,0 +1,31 @@
+schema = 1
+kind = "both"
+description = "Tunnelling and pivoting into internal networks"
+tags = ["pivot", "tunnel", "linux", "windows"]
+upstream = "https://github.com/nicocha30/ligolo-ng"
+licence = "GPL-3.0"
+arch = "x86_64"
+needs_root = true
+examples = [
+  "ligolo-proxy -selfcert",
+  "./agent -connect {lhost}:11601 -ignore-cert",
+  "agent.exe -connect {lhost}:11601 -ignore-cert",
+]
+
+[[command]]
+name = "ligolo-proxy"
+type = "binary"
+path = "files/proxy"
+
+[[upload]]
+path = "files/agent"
+as = "agent"
+note = "Linux x86_64"
+
+[[upload]]
+path = "files/agent.exe"
+as = "agent.exe"
+note = "Windows x86_64"
+
+[data]
+home = [".ligolo-proxy"]

@@ -1,0 +1,9 @@
+version = "1.0.3"
+build = 1
+
+# Upstream publishes no checksums. The SHA-256 is that of the file as first downloaded.
+[[source]]
+url = "https://github.com/ropnop/kerbrute/releases/download/v1.0.3/kerbrute_linux_amd64"
+size = 8286607
+sha256 = "710a9d2653c8bd3689e451778dab9daec0de4c4c75f900788ccf23ef254b122a"
+to = "files/kerbrute_linux_amd64"
