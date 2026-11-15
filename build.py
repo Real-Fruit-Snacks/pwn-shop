@@ -20,7 +20,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import tomli_w
@@ -41,8 +41,14 @@ _COMMAND_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 PYTHONS = ("3.12", "3.13")
 PLATFORM = "manylinux_2_28_x86_64"
-# pip treats the older tags as compatible with PLATFORM, so wheels carrying them arrive too
-_PLATFORMS = (PLATFORM, "manylinux_2_17_x86_64", "manylinux2014_x86_64")
+# The glibc on Kali satisfies every older glibc tag; each is given to pip as its own
+# --platform, newest first
+PLATFORMS = (
+    *(f"manylinux_2_{n}_x86_64" for n in range(28, 16, -1)),
+    "manylinux2014_x86_64", "manylinux_2_12_x86_64", "manylinux2010_x86_64",
+    "manylinux_2_5_x86_64", "manylinux1_x86_64",
+)  # fmt: skip
+COMMAND_TIMEOUT = 900
 REQUIREMENTS_IN = "requirements.in"
 REQUIREMENTS_LOCK = "requirements.lock"
 WHEELS_LOCK = "wheels.lock"
@@ -76,6 +82,7 @@ class Recipe:
     sources: list[Source]
     manifest: dict
     folder: Path
+    build_from_source: list[str] = field(default_factory=list)
 
 
 Fetch = Callable[[str, Path, int], None]
@@ -202,7 +209,10 @@ def load_recipe(folder: Path) -> Recipe:
         raise BuildError("manifest: schema must be 1")
     rest = {k: v for k, v in manifest.items() if k not in ("schema", "name", "version", "build")}
     filled = {"schema": 1, "name": name, "version": version, "build": build, **rest}
-    return Recipe(name, version, build, sources, filled, folder)
+    listed = recipe.get("build_from_source", [])
+    if not isinstance(listed, list) or not all(isinstance(n, str) and n for n in listed):
+        raise BuildError(f"{who}: build_from_source must be a list of distribution names")
+    return Recipe(name, version, build, sources, filled, folder, [_norm_name(n) for n in listed])
 
 
 def tag(recipe: Recipe) -> str:
@@ -491,7 +501,7 @@ def _wheel_fits(filename: str, python: str) -> bool:
     if m is None:
         return False
     minor = int(python.split(".")[1])
-    if not any(p == "any" or p in _PLATFORMS for p in m["plat"].split(".")):
+    if not any(p == "any" or p in PLATFORMS for p in m["plat"].split(".")):
         return False
     for py in m["py"].split("."):
         for abi in m["abi"].split("."):
@@ -509,6 +519,43 @@ def _wheel_fits(filename: str, python: str) -> bool:
     return False
 
 
+_NATIVE_SUFFIXES = (".so", ".pyd", ".dll", ".dylib")
+
+
+def _check_pure(path: Path, label: str) -> None:
+    """A wheel built here must be pure Python by content, or it would only fit this machine."""
+    if not path.name.endswith(_PURE_SUFFIX):
+        raise BuildError(
+            f"{label}: the wheel built from source is {path.name}, which is not pure Python; "
+            "it would only fit the build machine"
+        )
+    try:
+        with zipfile.ZipFile(path) as zf:
+            names = zf.namelist()
+            marks = [n for n in names if n.count("/") == 1 and n.endswith(".dist-info/WHEEL")]
+            if len(marks) != 1:
+                raise BuildError(f"{label}: {path.name} has no single *.dist-info/WHEEL file")
+            fields = zf.read(marks[0]).decode("utf-8", "replace").splitlines()
+    except (zipfile.BadZipFile, OSError) as exc:
+        raise BuildError(f"{label}: {path.name} cannot be read as a wheel ({exc})") from exc
+    purelib = [
+        ln.split(":", 1)[1].strip().lower()
+        for ln in fields
+        if ln.lower().startswith("root-is-purelib:")
+    ]
+    if purelib != ["true"]:
+        raise BuildError(
+            f"{label}: the wheel built from source does not say Root-Is-Purelib: true, "
+            "so it is not pure Python"
+        )
+    native = [n for n in names if n.lower().endswith(_NATIVE_SUFFIXES)]
+    if native:
+        raise BuildError(
+            f"{label}: the wheel built from source holds compiled code ({native[0]}), "
+            "so it is not pure Python"
+        )
+
+
 def _check_wheel(path: Path, pin: Pin, python: str | None) -> None:
     """python None means a wheel built here from source, which must suit every Python."""
     label = f"{pin.name} {pin.version}"
@@ -518,11 +565,7 @@ def _check_wheel(path: Path, pin: Pin, python: str | None) -> None:
     ):
         raise BuildError(f"{label}: got {path.name}, which is not that distribution and version")
     if python is None:
-        if not path.name.endswith(_PURE_SUFFIX):
-            raise BuildError(
-                f"{label}: no wheel exists, and the wheel built from source is {path.name}, "
-                "which is not pure Python; it would only fit the build machine"
-            )
+        _check_pure(path, label)
         return
     if not _wheel_fits(path.name, python):
         raise BuildError(
@@ -532,9 +575,35 @@ def _check_wheel(path: Path, pin: Pin, python: str | None) -> None:
         raise BuildError(f"{label}: {path.name} has a SHA-256 that requirements.lock does not list")
 
 
+def _tool_env(tool: str) -> dict[str, str]:
+    # the caller's pip and uv settings (index, config, require-virtualenv) must not change
+    # what a build collects
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith(("PIP_", "UV_"))}
+    env["PIP_CONFIG_FILE"] = os.devnull
+    env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
+    env["PIP_NO_INPUT"] = "1"
+    if tool == "uv":
+        env["UV_NO_CONFIG"] = "1"
+    return env
+
+
 def _sh(run: Run, cmd: list[str], cwd: Path | None = None):
+    """The one place pip and uv are run."""
+    uv = cmd[0] == "uv"
+    label = " ".join(cmd[:3]) if uv else f"pip {cmd[3]}"
     try:
-        return run(cmd, capture_output=True, text=True, cwd=cwd)
+        return run(
+            cmd, capture_output=True, text=True, cwd=cwd,
+            env=_tool_env("uv" if uv else "pip"), timeout=COMMAND_TIMEOUT,
+        )  # fmt: skip
+    except subprocess.TimeoutExpired as exc:
+        raise BuildError(f"{label} timed out after {COMMAND_TIMEOUT} seconds") from exc
+    except FileNotFoundError as exc:
+        if uv:
+            raise BuildError(
+                "uv is not installed; install uv (https://docs.astral.sh/uv/) and run lock again"
+            ) from exc
+        raise BuildError(f"cannot run {cmd[0]} ({exc})") from exc
     except OSError as exc:
         raise BuildError(f"cannot run {cmd[0]} ({exc})") from exc
 
@@ -552,9 +621,10 @@ def _only_file(folder: Path, label: str, what: str) -> Path:
     return files[0]
 
 
-def _wheel_from_source(
-    pin: Pin, index: int, tmp: Path, run: Run, find_links: Path | None, why: str
-) -> Path:
+# What is pinned: the source archive is fetched with --require-hashes. The build's own
+# requirements (setuptools and the like) are fetched by pip's build isolation without hashes,
+# and the build runs the dependency's setup code here; that is why a recipe must opt in by name.
+def _wheel_from_source(pin: Pin, index: int, tmp: Path, run: Run, find_links: Path | None) -> Path:
     label = f"{pin.name} {pin.version}"
     req = tmp / f"req-{index}.txt"
     src = tmp / f"src-{index}"
@@ -566,10 +636,7 @@ def _wheel_from_source(
              "-r", str(req), "--dest", str(src)),
     )  # fmt: skip
     if done.returncode != 0:
-        raise BuildError(
-            f"{label}: no wheel for {why} and the pinned source archive cannot be fetched "
-            f"({_tail(done.stderr)})"
-        )
+        raise BuildError(f"{label}: the pinned source archive cannot be fetched ({_tail(done.stderr)})")
     archive = _only_file(src, label, "source archive")
     if archive.name.endswith(".whl"):
         raise BuildError(f"{label}: got a wheel where a source archive was expected")
@@ -586,42 +653,55 @@ def _wheel_from_source(
 
 
 def _wheel_for(
-    pin: Pin, python: str, index: int, tmp: Path, run: Run, find_links: Path | None,
-    built: dict[int, Path],
+    pin: Pin, python: str, index: int, tmp: Path, run: Run, find_links: Path | None
 ) -> Path:
+    label = f"{pin.name} {pin.version}"
     dest = tmp / f"{python}-{index}"
     dest.mkdir()
+    platforms = [a for tag in PLATFORMS for a in ("--platform", tag)]
     done = _sh(
         run,
         _pip("download", find_links, "--no-deps", "--require-hashes", "--only-binary", ":all:",
-             "--platform", PLATFORM, "--python-version", python, "--implementation", "cp",
+             *platforms, "--python-version", python, "--implementation", "cp",
              "--dest", str(dest), "-r", str(tmp / f"req-{index}.txt")),
     )  # fmt: skip
-    if done.returncode == 0:
-        wheel = _only_file(dest, f"{pin.name} {pin.version}", "downloaded file")
-        _check_wheel(wheel, pin, python)
-        return wheel
-    if index not in built:
-        built[index] = _wheel_from_source(pin, index, tmp, run, find_links, f"Python {python}")
-    return built[index]
+    if done.returncode != 0:
+        raise BuildError(
+            f"{label}: no wheel could be downloaded for Python {python} ({_tail(done.stderr)}). "
+            "If the distribution publishes no wheel, add it to build_from_source in the recipe."
+        )
+    wheel = _only_file(dest, label, "downloaded file")
+    _check_wheel(wheel, pin, python)
+    return wheel
 
 
 def collect_wheels(
     recipe: Recipe, staged: Path, *, run: Run = subprocess.run, find_links: Path | None = None
 ) -> list[Path]:
     pins = read_requirements_lock(recipe.folder / REQUIREMENTS_LOCK, recipe.name)
+    locked = {_norm_name(p.name) for p in pins}
+    for name in recipe.build_from_source:
+        if name not in locked:
+            raise BuildError(
+                f"{recipe.name}: build_from_source names {name}, which {REQUIREMENTS_LOCK} does not pin"
+            )
     wheels = staged / "wheels"
     wheels.mkdir(parents=True, exist_ok=True)
-    built: dict[int, Path] = {}
     with tempfile.TemporaryDirectory(prefix="pwn-shop-wheels-") as tmpdir:
         tmp = Path(tmpdir)
         for i, pin in enumerate(pins):
             # one pin per file, so pip fetches that distribution and nothing it would add itself
             options = " ".join(f"--hash=sha256:{h}" for h in pin.hashes)
             _write_bytes(tmp / f"req-{i}.txt", f"{pin.name}=={pin.version} {options}\n".encode())
+        # a listed distribution is built once and the one wheel serves every Python
+        built = {
+            i: _wheel_from_source(pin, i, tmp, run, find_links)
+            for i, pin in enumerate(pins)
+            if _norm_name(pin.name) in recipe.build_from_source
+        }
         for python in PYTHONS:
             for i, pin in enumerate(pins):
-                wheel = _wheel_for(pin, python, i, tmp, run, find_links, built)
+                wheel = built[i] if i in built else _wheel_for(pin, python, i, tmp, run, find_links)
                 target = wheels / wheel.name
                 if target.exists():
                     if sha256_file(target) != sha256_file(wheel):
@@ -670,12 +750,7 @@ def lock(recipe: Recipe, *, run: Run = subprocess.run) -> Path:
             cmd = ["uv", "pip", "compile", REQUIREMENTS_IN, "--generate-hashes",
                    "--python-version", python, "--python-platform", UV_PLATFORM,
                    "--no-header", "--no-annotate", "-o", str(out)]  # fmt: skip
-            try:
-                done = run(cmd, capture_output=True, text=True, cwd=recipe.folder)
-            except FileNotFoundError as exc:
-                raise BuildError("uv is not installed; install uv (https://docs.astral.sh/uv/) and run lock again") from exc
-            except OSError as exc:
-                raise BuildError(f"cannot run uv ({exc})") from exc
+            done = _sh(run, cmd, recipe.folder)
             if done.returncode != 0:
                 raise BuildError(f"{recipe.name}: uv failed for Python {python} ({_tail(done.stderr)})")
             try:

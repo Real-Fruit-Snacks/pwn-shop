@@ -741,6 +741,21 @@ def test_write_wheels_lock_refuses_no_wheels(tmp_path):
         ("cp312-cp312-manylinux2014_aarch64", "3.12", False),
         ("cp312-cp312-manylinux_2_34_x86_64", "3.12", False),
         ("pp312-pypy312_pp73-manylinux2014_x86_64", "3.12", False),
+        ("cp312-cp312-manylinux1_x86_64", "3.12", True),
+        ("cp312-cp312-manylinux1_x86_64", "3.13", False),
+        ("cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64", "3.12", True),
+        ("cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64", "3.13", False),
+        ("cp313-cp313-manylinux_2_24_x86_64", "3.12", False),
+        ("cp313-cp313-manylinux_2_24_x86_64", "3.13", True),
+        ("cp39-abi3-manylinux2010_x86_64", "3.12", True),
+        ("cp39-abi3-manylinux2010_x86_64", "3.13", True),
+        ("cp312-cp312-manylinux_2_34_x86_64", "3.13", False),
+        ("cp313-cp313t-manylinux_2_28_x86_64", "3.12", False),
+        ("cp313-cp313t-manylinux_2_28_x86_64", "3.13", False),
+        ("cp312-cp312-manylinux_2_28_aarch64", "3.12", False),
+        ("cp312-cp312-manylinux_2_28_aarch64", "3.13", False),
+        ("cp312-cp312-manylinux_2_29_x86_64", "3.12", False),
+        ("cp312-cp312-linux_x86_64", "3.12", False),
     ],
 )
 def test_wheel_tags_that_fit(tag, python, fits):
@@ -905,13 +920,18 @@ def test_downloaded_wheel_of_another_version_is_an_error(tmp_path, net):
         build.collect_wheels(r, staged_dir(tmp_path), run=fake)
 
 
-def test_dependency_without_a_wheel_is_built_once_from_its_pinned_source(tmp_path, net):
+def src_recipe(tmp_path, net, pins, *listed):
+    return py_recipe(tmp_path, net, pins, build_from_source=tuple(listed))
+
+
+def test_listed_dependency_is_built_once_from_its_pinned_source(tmp_path, net):
     sdist = ("docopt-0.6.2.tar.gz", b"source archive")
     built = pure("docopt", "0.6.2")
     fake = FakeTools(sdists={"docopt": sdist}, built={"docopt": built})
-    r = py_recipe(tmp_path, net, [("docopt", "0.6.2", [sdist[1]])])
+    r = src_recipe(tmp_path, net, [("docopt", "0.6.2", [sdist[1]])], "Docopt")
     got = build.collect_wheels(r, staged_dir(tmp_path), run=fake)
     assert [p.name for p in got] == [built[0]]
+    assert not any("--only-binary" in c for c in fake.calls)
     sources = [c for c in fake.calls if "--no-binary" in c]
     wheels = [c for c in fake.calls if c[3] == "wheel"]
     assert len(sources) == 1 and len(wheels) == 1
@@ -924,30 +944,172 @@ def test_dependency_without_a_wheel_is_built_once_from_its_pinned_source(tmp_pat
     assert wheels[0][-1].endswith("docopt-0.6.2.tar.gz")
 
 
+def test_listed_dependency_is_built_once_whatever_pythons_holds(tmp_path, net, monkeypatch):
+    monkeypatch.setattr(build, "PYTHONS", ("3.12", "3.13", "3.14"))
+    sdist = ("docopt-0.6.2.tar.gz", b"source archive")
+    fake = FakeTools(sdists={"docopt": sdist}, built={"docopt": pure("docopt", "0.6.2")})
+    r = src_recipe(tmp_path, net, [("docopt", "0.6.2", [sdist[1]])], "docopt")
+    build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+    assert len([c for c in fake.calls if "--no-binary" in c]) == 1
+    assert len([c for c in fake.calls if c[3] == "wheel"]) == 1
+    assert len(fake.calls) == 2
+
+
+def test_listed_name_that_is_not_in_the_lock_is_refused(tmp_path, net):
+    tool = pure("tinytool", "1.0")
+    fake = FakeTools(downloads=two_pythons(("tinytool", [tool])))
+    r = src_recipe(tmp_path, net, [("tinytool", "1.0", [tool[1]])], "missing-dep")
+    with pytest.raises(build.BuildError, match="missing-dep"):
+        build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+    assert fake.calls == []
+
+
+def test_build_from_source_must_be_a_list_of_names(tmp_path, net):
+    folder = make_python_recipe(tmp_path / "recipes" / "tinytool", net, [])
+    head = tomllib.loads((folder / "recipe.toml").read_text())
+    head["build_from_source"] = "docopt"
+    (folder / "recipe.toml").write_bytes(tomli_w.dumps(head).encode())
+    with pytest.raises(build.BuildError, match="build_from_source"):
+        build.load_recipe(folder)
+
+
+def test_recipe_without_build_from_source_lists_nothing(recipe):
+    assert recipe.build_from_source == []
+
+
 def test_source_archive_with_a_hash_not_in_the_lock_is_an_error(tmp_path, net):
     sdist = ("docopt-0.6.2.tar.gz", b"tampered")
     fake = FakeTools(sdists={"docopt": sdist}, built={"docopt": pure("docopt", "0.6.2")})
-    r = py_recipe(tmp_path, net, [("docopt", "0.6.2", [b"original"])])
+    r = src_recipe(tmp_path, net, [("docopt", "0.6.2", [b"original"])], "docopt")
     with pytest.raises(build.BuildError, match="SHA-256"):
         build.collect_wheels(r, staged_dir(tmp_path), run=fake)
 
 
-def test_source_built_wheel_that_is_not_pure_python_is_an_error(tmp_path, net):
-    sdist = ("native-1.0.tar.gz", b"source")
+def source_build_error(tmp_path, net, wheel, name="native"):
+    sdist = (f"{name}-1.0.tar.gz", b"source")
+    fake = FakeTools(sdists={name: sdist}, built={name: wheel})
+    r = src_recipe(tmp_path, net, [(name, "1.0", [sdist[1]])], name)
+    with pytest.raises(build.BuildError) as err:
+        build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+    return str(err.value)
+
+
+def test_source_built_wheel_with_a_platform_name_is_an_error(tmp_path, net):
     tag = "cp313-cp313-win_amd64"
-    built = (wheel_name("native", "1.0", tag), wheel_bytes("native", "1.0", tag=tag))
-    fake = FakeTools(sdists={"native": sdist}, built={"native": built})
-    r = py_recipe(tmp_path, net, [("native", "1.0", [sdist[1]])])
-    with pytest.raises(build.BuildError, match="native.*pure Python"):
-        build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+    wheel = (wheel_name("native", "1.0", tag), wheel_bytes("native", "1.0", tag=tag))
+    message = source_build_error(tmp_path, net, wheel)
+    assert "native" in message and "pure Python" in message
 
 
-def test_dependency_with_no_wheel_and_no_source_is_an_error_naming_it(tmp_path, net):
+def test_source_built_wheel_that_says_it_is_not_purelib_is_an_error(tmp_path, net):
+    wheel = (wheel_name("native", "1.0"), wheel_bytes("native", "1.0", purelib=False))
+    message = source_build_error(tmp_path, net, wheel)
+    assert "native" in message and "Root-Is-Purelib" in message
+
+
+@pytest.mark.parametrize("member", ["native/_x.so", "native/_x.PYD", "native/x.dll", "native/x.dylib"])
+def test_source_built_wheel_holding_a_binary_is_an_error(tmp_path, net, member):
+    wheel = (wheel_name("native", "1.0"), wheel_bytes("native", "1.0", extra={member: b"\x7fELF"}))
+    message = source_build_error(tmp_path, net, wheel)
+    assert "native" in message and member in message
+
+
+def test_source_built_wheel_without_wheel_metadata_is_an_error(tmp_path, net):
+    import io
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("native/__init__.py", "")
+    wheel = (wheel_name("native", "1.0"), buf.getvalue())
+    assert "WHEEL" in source_build_error(tmp_path, net, wheel)
+
+
+def test_failed_wheel_download_for_an_unlisted_name_stops_the_build(tmp_path, net):
     tool = pure("tinytool", "1.0")
-    fake = FakeTools(downloads={(py, "tinytool"): [tool] for py in build.PYTHONS})
-    r = py_recipe(tmp_path, net, [("tinytool", "1.0", [tool[1]]), ("gone", "3.1", [b"x"])])
-    with pytest.raises(build.BuildError, match="gone 3.1"):
+    sdist = ("gone-3.1.tar.gz", b"x")
+    fake = FakeTools(
+        downloads={(py, "tinytool"): [tool] for py in build.PYTHONS},
+        sdists={"gone": sdist}, built={"gone": pure("gone", "3.1")},
+    )
+    r = py_recipe(tmp_path, net, [("gone", "3.1", [sdist[1]]), ("tinytool", "1.0", [tool[1]])])
+    with pytest.raises(build.BuildError, match="gone 3.1") as err:
         build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+    message = str(err.value)
+    assert "No matching distribution" in message and "build_from_source" in message
+    assert not any("--no-binary" in c for c in fake.calls)
+    assert not any(c[3] == "wheel" for c in fake.calls)
+
+
+def test_a_failure_on_one_python_does_not_change_what_is_bundled(tmp_path, net):
+    # 3.12 has no wheel; 3.13 has one. Nothing may fall back to source for 3.12.
+    tool = pure("tinytool", "1.0")
+    fake = FakeTools(downloads={("3.13", "tinytool"): [tool]}, sdists={"tinytool": ("tinytool-1.0.tar.gz", b"s")},
+                     built={"tinytool": tool})
+    r = py_recipe(tmp_path, net, [("tinytool", "1.0", [tool[1]])])
+    with pytest.raises(build.BuildError, match="build_from_source"):
+        build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+    assert not any(c[3] == "wheel" for c in fake.calls)
+
+
+# ---- how every command runs
+
+
+def test_every_accepted_platform_is_passed_to_pip_newest_first(tmp_path, net):
+    tool = pure("tinytool", "1.0")
+    fake = FakeTools(downloads=two_pythons(("tinytool", [tool])))
+    r = py_recipe(tmp_path, net, [("tinytool", "1.0", [tool[1]])])
+    build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+    cmd = fake.calls[0]
+    given = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--platform"]
+    assert given == list(build.PLATFORMS) and given[0] == build.PLATFORM
+    assert given[:3] == ["manylinux_2_28_x86_64", "manylinux_2_27_x86_64", "manylinux_2_26_x86_64"]
+    assert given[-5:] == ["manylinux2014_x86_64", "manylinux_2_12_x86_64", "manylinux2010_x86_64",
+                          "manylinux_2_5_x86_64", "manylinux1_x86_64"]
+    assert "manylinux_2_17_x86_64" in given and "manylinux_2_18_x86_64" in given
+    assert "manylinux_2_29_x86_64" not in given
+
+
+def test_commands_run_with_a_clean_environment_and_a_timeout(tmp_path, net, monkeypatch):
+    monkeypatch.setenv("PIP_INDEX_URL", "https://elsewhere.invalid/simple")
+    monkeypatch.setenv("PIP_REQUIRE_VIRTUALENV", "1")
+    monkeypatch.setenv("UV_INDEX_URL", "https://elsewhere.invalid/simple")
+    monkeypatch.setenv("PWN_KEEP", "yes")
+    tool = pure("tinytool", "1.0")
+    fake = FakeTools(downloads=two_pythons(("tinytool", [tool])), uv={"3.12": UV_LOCK, "3.13": UV_LOCK})
+    r = py_recipe(tmp_path, net, [("tinytool", "1.0", [tool[1]])])
+    build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+    build.lock(r, run=fake)
+    assert len(fake.envs) == 4
+    for cmd, env, timeout in zip(fake.calls, fake.envs, fake.timeouts):
+        assert timeout == build.COMMAND_TIMEOUT == 900
+        assert env["PWN_KEEP"] == "yes"
+        extra = {k for k in env if k.upper().startswith(("PIP_", "UV_"))}
+        assert "PIP_INDEX_URL" not in env and "UV_INDEX_URL" not in env
+        assert "PIP_REQUIRE_VIRTUALENV" not in env
+        assert env["PIP_CONFIG_FILE"] == os.devnull
+        assert env["PIP_DISABLE_PIP_VERSION_CHECK"] == "1" and env["PIP_NO_INPUT"] == "1"
+        if cmd[0] == "uv":
+            assert env["UV_NO_CONFIG"] == "1"
+        else:
+            assert "UV_NO_CONFIG" not in env
+        assert extra <= {"PIP_CONFIG_FILE", "PIP_DISABLE_PIP_VERSION_CHECK", "PIP_NO_INPUT",
+                         "UV_NO_CONFIG"}
+
+
+@pytest.mark.parametrize("which", ["pip", "uv"])
+def test_a_timeout_is_a_build_error_naming_the_command(tmp_path, net, which):
+    def slow(cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd, kw["timeout"])
+
+    tool = pure("tinytool", "1.0")
+    r = py_recipe(tmp_path, net, [("tinytool", "1.0", [tool[1]])])
+    with pytest.raises(build.BuildError, match="timed out") as err:
+        if which == "pip":
+            build.collect_wheels(r, staged_dir(tmp_path), run=slow)
+        else:
+            build.lock(r, run=slow)
+    assert ("pip" if which == "pip" else "uv") in str(err.value)
+    assert "download" in str(err.value) or which == "uv"
 
 
 def test_wheel_missing_for_only_one_python_is_an_error(tmp_path, net):
@@ -1109,7 +1271,7 @@ def test_python_tool_builds_from_local_wheels_and_installs_offline(tmp_path, net
     env = tmp_path / "venv"
     try:
         venv.EnvBuilder(with_pip=True).create(env)
-    except Exception as exc:
+    except (subprocess.CalledProcessError, OSError) as exc:
         pytest.skip(f"cannot create a virtual environment here ({exc})")
     python = venv_python(env)
     install = [

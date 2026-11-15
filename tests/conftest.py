@@ -3,6 +3,7 @@ import io
 import re
 import subprocess
 import tarfile
+import tomllib
 import zipfile
 from pathlib import Path
 
@@ -109,7 +110,8 @@ def _record_hash(data: bytes) -> str:
 
 
 def wheel_bytes(name: str, version: str, *, tag: str = "py3-none-any", body: str = "",
-                scripts: dict[str, str] | None = None) -> bytes:
+                scripts: dict[str, str] | None = None, purelib: bool = True,
+                extra: dict[str, bytes] | None = None) -> bytes:
     """A small but installable wheel; `scripts` maps a console script to module:function."""
     dist = name.replace("-", "_")
     info = f"{dist}-{version}.dist-info"
@@ -117,8 +119,10 @@ def wheel_bytes(name: str, version: str, *, tag: str = "py3-none-any", body: str
         f"{dist}/__init__.py": (body or f"VERSION = {version!r}\n").encode(),
         f"{info}/METADATA": f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n".encode(),
         f"{info}/WHEEL": (
-            f"Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: {tag}\n"
+            f"Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: {str(purelib).lower()}\n"
+            f"Tag: {tag}\n"
         ).encode(),
+        **(extra or {}),
     }
     if scripts:
         lines = "".join(f"{k} = {v}\n" for k, v in scripts.items())
@@ -170,8 +174,13 @@ PY_MANIFEST = {
 
 
 def make_python_recipe(folder: Path, net, pins: list[tuple[str, str, list[bytes]]], *,
-                       manifest: dict | None = None, lock: bool = True) -> Path:
+                       manifest: dict | None = None, lock: bool = True,
+                       build_from_source: tuple[str, ...] = ()) -> Path:
     make_recipe(folder, net, sources=[], manifest=dict(manifest or PY_MANIFEST))
+    if build_from_source:
+        head = tomllib.loads((folder / "recipe.toml").read_text())
+        head["build_from_source"] = list(build_from_source)
+        (folder / "recipe.toml").write_bytes(tomli_w.dumps(head).encode())
     (folder / "requirements.in").write_bytes(b"tinytool\n")
     if lock:
         (folder / "requirements.lock").write_bytes(lock_text(pins).encode())
@@ -192,6 +201,8 @@ class FakeTools:
         self.uv = uv or {}
         self.calls: list[list[str]] = []
         self.cwds: list = []
+        self.envs: list = []
+        self.timeouts: list = []
 
     @staticmethod
     def _norm(name: str) -> str:
@@ -201,6 +212,8 @@ class FakeTools:
         cmd = list(cmd)
         self.calls.append(cmd)
         self.cwds.append(kwargs.get("cwd"))
+        self.envs.append(kwargs.get("env"))
+        self.timeouts.append(kwargs.get("timeout"))
         done = subprocess.CompletedProcess
 
         def arg(flag):
