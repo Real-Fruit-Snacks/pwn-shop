@@ -64,11 +64,11 @@ Kind `kali` puts a command on the machine, `upload` puts files in a folder to ca
 
 This section is updated by hand after each CI run. As of 2026-11-15:
 
-- The unit tests: passed in CI on Ubuntu 24.04 under Python 3.11, 3.12 and 3.13, and on Windows 11 with Python 3.13 (516 passed and 3 skipped; the skips need a POSIX file system), warnings treated as errors. CI now runs them under Python 3.14 as well; no result from that is recorded here yet.
+- The unit tests: passed in CI on Ubuntu 24.04 under Python 3.11, 3.12 and 3.13, and on Windows 11 with Python 3.13 (516 passed and 3 skipped; the skips need a POSIX file system), warnings treated as errors. They also passed in CI under Python 3.14.
 - All six packages, build 1: built by CI on Ubuntu 24.04, passed `build.py check`, and were installed with pwn-broker's own code under Python 3.12 and 3.13, then removed with nothing left behind. `certipy`, `kerbrute`, `ligolo-proxy` and `targetedKerberoast` each answered `--help`. The upload files of `ligolo-ng`, `pspy` and `peass-ng` were present at the right sizes and were not run.
 - Build 1 of `certipy` and `targetedkerberoast` built on Windows 11 with Python 3.13 is byte-identical to the CI builds.
-- Python 3.14 has been added. Build 2 of `certipy` and `targetedkerberoast` built on Windows 11 with Python 3.13 and passed `build.py check`; each lists Python 3.12, 3.13 and 3.14 and carries a wheel that fits each of them for every dependency. CI now installs every package under Python 3.14 as well as 3.12 and 3.13; no result from that is recorded here yet.
-- Published from that run: one release per package and the `index` release.
+- Python 3.14 has been added. Build 2 of `certipy` and `targetedkerberoast` built on Windows 11 with Python 3.13 and passed `build.py check`; each lists Python 3.12, 3.13 and 3.14 and carries a wheel that fits each of them for every dependency. CI built build 2 of each on Ubuntu 24.04, ran `build.py check`, and installed it with pwn-broker's own code under Python 3.12, 3.13 and 3.14; `certipy` and `targetedKerberoast` each answered `--help`. The other four packages were installed under 3.14 in the same run.
+- Published from the first CI run: build 1 of each package and the `index` release. Build 2 of `certipy` and `targetedkerberoast` is not yet published.
 - `fetch.sh`: `sh -n`, `dash -n` and `shellcheck` are clean and its tests run with a stand-in `gh`. It has not been run against the real releases.
 - Not tested: any package installed or run on Kali.
 

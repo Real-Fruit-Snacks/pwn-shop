@@ -10,5 +10,5 @@
 - `record`, `asciinema`, `openvpn`, `ping` and `ip` are now reserved command names, because pwn-broker runs them itself.
 - Published: build 1 of each of the six and the index, from the first CI run on 2026-11-15. The repository is private, and the packages and the index are not signed.
 - Python 3.14 added: a Python tool's wheels now cover Python 3.12, 3.13 and 3.14, because Kali now ships Python 3.14 and pwn-broker refuses a Python tool on a Python its package does not list. `lock` resolves for every listed Python and, when they differ, names each dependency and what each Python resolved it to.
-- Build 2 of `certipy` 5.1.0 and `targetedkerberoast` 2024.12.16, with wheels for Python 3.12, 3.13 and 3.14. `targetedkerberoast` now pins `pycryptodome` 4.5.0 (build 1: 4.4.0); the other dependencies of both are unchanged. Build 1 of each stays published as it is.
+- Build 2 of `certipy` 5.1.0 and `targetedkerberoast` 2024.12.16, with wheels for Python 3.12, 3.13 and 3.14. `targetedkerberoast` now pins `pycryptodome` 4.5.0 (build 1: 4.4.0), because `requirements.in` leaves it unpinned and the new lock took the newer release; the other dependencies of both are unchanged. Build 1 of each stays published as it is.
 - CI: the unit tests also run under Python 3.14, and every package is installed under 3.14 as well as 3.12 and 3.13.
