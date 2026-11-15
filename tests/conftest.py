@@ -176,10 +176,42 @@ PY_MANIFEST = {
 }
 
 
+RUNTIME_MANIFEST = {
+    "schema": 2,
+    "kind": "runtime",
+    "description": "CPython 3.13, for the tools that require it",
+    "tags": ["python"],
+    "upstream": "https://example.invalid/python-build-standalone",
+    "licence": "PSF-2.0",
+    "arch": "x86_64",
+    "examples": ["python"],
+    "runtime": {"archive": "files/python.tar.gz", "python": "python/bin/python3.13", "series": "3.13"},
+}
+RUNTIME_ARCHIVE = tar_gz({"python/bin/python3.13": b"not run\n"})
+
+
+def make_runtime_recipe(folder: Path, net: FakeNet, *, manifest: dict | None = None,
+                        sources: list[dict] | None = None, **kwargs) -> Path:
+    """A runtime recipe whose one source is a small tar.gz served by net."""
+    if sources is None:
+        url = f"https://example.invalid/{folder.name}.tar.gz"
+        net.add(url, RUNTIME_ARCHIVE)
+        sources = [{"url": url, "size": len(RUNTIME_ARCHIVE), "sha256": digest(RUNTIME_ARCHIVE),
+                    "to": "files/python.tar.gz"}]
+    return make_recipe(folder, net, sources=sources, manifest=manifest or RUNTIME_MANIFEST,
+                       version="3.13.18", **kwargs)
+
+
 def make_python_recipe(folder: Path, net, pins: list[tuple[str, str, list[bytes]]], *,
                        manifest: dict | None = None, lock: bool = True,
-                       build_from_source: tuple[str, ...] = ()) -> Path:
-    make_recipe(folder, net, sources=[], manifest=dict(manifest or PY_MANIFEST))
+                       build_from_source: tuple[str, ...] = (), runtime: bool = False) -> Path:
+    """runtime=True makes the tool require python-3.13 and puts that runtime's recipe beside it."""
+    manifest = dict(manifest or PY_MANIFEST)
+    if runtime:
+        manifest.setdefault("requires", ["python-3.13"])
+        if not (folder.parent / "python-3.13").exists():
+            make_runtime_recipe(folder.parent / "python-3.13", net)
+    make_recipe(folder, net, sources=[], manifest=manifest)
     if build_from_source:
         head = tomllib.loads((folder / "recipe.toml").read_text())
         head["build_from_source"] = list(build_from_source)

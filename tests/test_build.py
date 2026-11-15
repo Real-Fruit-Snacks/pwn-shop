@@ -13,7 +13,8 @@ import tomli_w
 
 import build
 from conftest import (
-    PY_MANIFEST, FakeTools, digest, lock_text, make_python_recipe, make_recipe, make_wheel,
+    PLAIN_MANIFEST, PY_MANIFEST, RUNTIME_ARCHIVE, RUNTIME_MANIFEST, FakeTools, digest, lock_text,
+    make_python_recipe, make_recipe, make_runtime_recipe, make_wheel,
     tar_gz, wheel_bytes, wheel_name, zip_bytes,
 )
 
@@ -1695,3 +1696,512 @@ def test_what_write_wheels_lock_writes_passes_validate(tmp_path):
     lock = build.write_wheels_lock(staged)
     files = {"wheels.lock": lock.read_bytes(), "wheels/a": b"w"}
     build.validate(pkg(tmp_path, PY_ENTRY, files, drop=("files/kerbrute",)))
+
+
+# ---- the rules shared with pwn-broker
+
+# literal copies of pwn-broker's toolpkg._NAME.pattern and toolpkg.KINDS
+NAME_PATTERN = r"[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*"
+APP_KINDS = ("kali", "upload", "both", "runtime")
+
+
+def test_name_pattern_and_kinds_equal_the_apps():
+    assert build._NAME.pattern == NAME_PATTERN
+    assert build.KINDS == APP_KINDS
+    assert build.SCHEMAS == (1, 2)
+
+
+def pkg_manifest(**over):
+    m = {
+        "schema": 1, "name": "kerbrute", "version": "1.0.3", "build": 1, "kind": "kali",
+        "description": "d", "tags": [], "upstream": "u", "licence": "l", "arch": "x86_64",
+        "command": [{"name": "kerbrute", "type": "binary", "path": "files/kerbrute"}],
+    }
+    return {k: v for k, v in {**m, **over}.items() if v is not None}
+
+
+def runtime_manifest(**over):
+    m = {
+        "schema": 2, "name": "python-3.13", "version": "3.13.18", "build": 1, "kind": "runtime",
+        "description": "d", "tags": [], "upstream": "u", "licence": "PSF-2.0", "arch": "x86_64",
+        "runtime": {"archive": "files/python.tar.gz", "python": "python/bin/python3.13",
+                    "series": "3.13"},
+    }
+    return {k: v for k, v in {**m, **over}.items() if v is not None}
+
+
+def tool_manifest(**over):
+    m = pkg_manifest(
+        schema=2, name="certipy", requires=["python-3.13"],
+        command=[{"name": "certipy", "type": "python-entry", "entry": "certipy"}],
+        python={"lock": "wheels.lock", "wheels": "wheels"},
+    )
+    return {k: v for k, v in {**m, **over}.items() if v is not None}
+
+
+@pytest.mark.parametrize("name", ["python-3.13", "a.b-c.d", "x1", "3", "a-"])
+def test_names_with_dots_between_other_characters_are_accepted(tmp_path, net, name):
+    folder = make_recipe(tmp_path / "recipes" / name, net)
+    assert build.load_recipe(folder).name == name
+    build._check_manifest(pkg_manifest(name=name))
+
+
+@pytest.mark.parametrize("name", ["a..b", "a.", ".a", "-a", "A", "a_b", "a.B", "a/b", ""])
+def test_names_the_app_refuses_are_refused(tmp_path, net, name):
+    folder = make_recipe(tmp_path / "recipes" / "kerbrute", net, name=name)
+    with pytest.raises(build.BuildError, match="kerbrute"):
+        build.load_recipe(folder)
+    with pytest.raises(build.BuildError, match="name"):
+        build._check_manifest(pkg_manifest(name=name))
+
+
+def test_the_name_rule_is_said_in_full(tmp_path, net):
+    folder = make_recipe(tmp_path / "recipes" / "kerbrute", net, name="a..b")
+    with pytest.raises(build.BuildError, match="no two dots together and none at the end"):
+        build.load_recipe(folder)
+
+
+def test_the_three_kinds_of_manifest_pass():
+    assert build._check_manifest(pkg_manifest()) == (["files/kerbrute"], None, [])
+    assert build._check_manifest(runtime_manifest()) == (["files/python.tar.gz"], None, [])
+    assert build._check_manifest(tool_manifest()) == ([], "wheels", ["wheels.lock"])
+
+
+NO_RUNTIME_TABLES = [
+    ("command", [{"name": "py", "type": "binary", "path": "files/py"}], r"\[\[command\]\]"),
+    ("command", [], r"\[\[command\]\]"),
+    ("upload", [{"path": "files/a", "as": "a"}], r"\[\[upload\]\]"),
+    ("data", {"home": [".py"]}, r"\[data\]"),
+    ("python", {"lock": "wheels.lock", "wheels": "wheels"}, r"\[python\]"),
+]
+
+
+@pytest.mark.parametrize(("key", "value", "table"), NO_RUNTIME_TABLES)
+def test_a_runtime_manifest_with_a_tool_table_is_refused(key, value, table):
+    with pytest.raises(build.BuildError, match=f"{key}: a runtime has no {table}"):
+        build._check_manifest(runtime_manifest(**{key: value}))
+
+
+BAD_SCHEMA_2 = [
+    (runtime_manifest(schema=1), "kind: a runtime needs schema 2"),
+    (pkg_manifest(requires=["python-3.13"]), "requires: a schema 1 package cannot require anything"),
+    (tool_manifest(schema=1), "requires: a schema 1 package cannot require anything"),
+    (runtime_manifest(requires=["python-3.12"]), "requires: a runtime requires nothing"),
+    (tool_manifest(requires=["Python"]), "requires: 'Python' is not a valid package name"),
+    (tool_manifest(requires=["a..b"]), r"requires: 'a\.\.b' is not a valid package name"),
+    (tool_manifest(requires="python-3.13"), "requires: must be a list of strings"),
+    (tool_manifest(requires=[1]), "requires: must be a list of strings"),
+    (tool_manifest(requires=["certipy"]), "requires: certipy cannot require itself"),
+    (tool_manifest(requires=["python-3.13", "python-3.13"]),
+     "requires: 'python-3.13' appears more than once"),
+    (tool_manifest(requires=[]), "a Python tool requires exactly one runtime; this one names 0"),
+    (tool_manifest(requires=["python-3.13", "python-3.12"]), "exactly one runtime; this one names 2"),
+    (pkg_manifest(schema=2, requires=["python-3.13"]),
+     "requires: a tool that is not Python requires nothing"),
+    (pkg_manifest(schema=2),
+     "schema: a package that is not a runtime and requires nothing must be schema 1"),
+    (tool_manifest(python={"versions": ["3.13"], "lock": "wheels.lock", "wheels": "wheels"}),
+     "python.versions: schema 2 has no versions"),
+    (runtime_manifest(runtime=None), r"runtime: a runtime package needs a \[runtime\] table"),
+    (runtime_manifest(runtime="files/python.tar.gz"), "runtime: must be a table"),
+    (pkg_manifest(schema=3), "schema: must be 1 or 2"),
+    (pkg_manifest(schema=True), "schema: must be 1 or 2"),
+]
+
+
+@pytest.mark.parametrize(("manifest", "message"), BAD_SCHEMA_2)
+def test_schema_2_rules_are_the_apps(manifest, message):
+    with pytest.raises(build.BuildError, match=message):
+        build._check_manifest(manifest)
+
+
+@pytest.mark.parametrize(
+    ("change", "field"),
+    [
+        ({"archive": ""}, "runtime.archive"),
+        ({"archive": "python.tar.gz"}, "runtime.archive"),
+        ({"archive": "wheels/python.tar.gz"}, "runtime.archive"),
+        ({"archive": "files/../python.tar.gz"}, "runtime.archive"),
+        ({"archive": "/files/python.tar.gz"}, "runtime.archive"),
+        ({"archive": "files\\python.tar.gz"}, "runtime.archive"),
+        ({"archive": 5}, "runtime.archive"),
+        ({"python": ""}, "runtime.python"),
+        ({"python": "python/../../bin/python3"}, "runtime.python"),
+        ({"python": "/usr/bin/python3"}, "runtime.python"),
+        ({"python": "C:/python"}, "runtime.python"),
+        ({"series": ""}, "runtime.series"),
+        ({"series": "3"}, "runtime.series"),
+        ({"series": "3.13.1"}, "runtime.series"),
+        ({"series": "py3.13"}, "runtime.series"),
+        ({"series": "3.13\n"}, "runtime.series"),
+        ({"series": 3.13}, "runtime.series"),
+    ],
+)
+def test_runtime_table_rules(change, field):
+    manifest = runtime_manifest()
+    manifest["runtime"] = {**manifest["runtime"], **change}
+    with pytest.raises(build.BuildError, match=field):
+        build._check_manifest(manifest)
+
+
+def test_a_runtime_table_on_a_package_that_is_not_a_runtime_is_ignored(tmp_path, net):
+    # as pwn-broker does: only a runtime's [runtime] table is read
+    extra = {"runtime": {"archive": "nowhere", "series": "x"}}
+    build._check_manifest(pkg_manifest(**extra))
+    folder = make_recipe(tmp_path / "recipes" / "kerbrute", net, manifest={**PLAIN_MANIFEST, **extra})
+    recipe = build.load_recipe(folder)
+    assert recipe.manifest["schema"] == 1 and recipe.series is None
+
+
+def runtime_pkg(tmp_path, manifest=None, files=None):
+    path = tmp_path / "python-3.13-3.13.18-1.zip"
+    entries = {"manifest.toml": tomli_w.dumps(manifest or runtime_manifest()).encode(),
+               "LICENSE": b"l\n", **(files or {})}
+    with zipfile.ZipFile(path, "w") as zf:
+        for n, data in entries.items():
+            zf.writestr(n, data)
+    return path
+
+
+def test_validate_accepts_a_runtime_and_a_tool_that_requires_one(tmp_path):
+    build.validate(runtime_pkg(tmp_path, files={"files/python.tar.gz": b"archive"}))
+    lock = {"wheels.lock": GOOD_LOCK, "wheels/a.whl": b"w"}
+    build.validate(pkg(tmp_path, tool_manifest(), lock, name="certipy-1.0.3-1.zip", drop=("files/kerbrute",)))
+
+
+def test_validate_refuses_a_runtime_without_its_archive(tmp_path):
+    with pytest.raises(build.BuildError, match="files/python.tar.gz"):
+        build.validate(runtime_pkg(tmp_path))
+
+
+def test_validate_refuses_a_runtime_that_has_a_command(tmp_path):
+    files = {"files/python.tar.gz": b"archive", "files/kerbrute": b"x"}
+    with pytest.raises(build.BuildError, match=r"command: a runtime has no \[\[command\]\]"):
+        build.validate(runtime_pkg(tmp_path, runtime_manifest(command=PY_ENTRY["command"]), files))
+
+
+# ---- a runtime recipe
+
+
+def runtime_recipe(tmp_path, net, **kw):
+    return build.load_recipe(make_runtime_recipe(tmp_path / "recipes" / "python-3.13", net, **kw))
+
+
+def test_a_runtime_is_schema_2_and_carries_its_series(tmp_path, net):
+    r = runtime_recipe(tmp_path, net)
+    assert r.manifest["schema"] == 2 and r.series == "3.13" and r.requires == []
+    assert build.tag(r) == "python-3.13-v3.13.18-1"
+
+
+def test_a_runtime_builds_its_archive_byte_for_byte_and_nothing_else(tmp_path, net):
+    r = runtime_recipe(tmp_path, net)
+    fake = FakeTools()
+    zip_path = build.build_one(r, tmp_path / "dist", tmp_path / "c", fetch_fn=net, run=fake)
+    assert fake.calls == []
+    assert zip_path.name == "python-3.13-3.13.18-1.zip"
+    with zipfile.ZipFile(zip_path) as zf:
+        assert zf.namelist() == ["LICENSE", "files/python.tar.gz", "manifest.toml"]
+        assert zf.read("files/python.tar.gz") == RUNTIME_ARCHIVE
+        manifest = tomllib.loads(zf.read("manifest.toml").decode())
+    assert manifest["schema"] == 2 and manifest["kind"] == "runtime"
+    assert manifest["runtime"] == RUNTIME_MANIFEST["runtime"]
+    assert "python" not in manifest and "requires" not in manifest
+    c = tomllib.loads(zip_path.with_suffix(".toml").read_text())
+    assert c["kind"] == "runtime" and c["commands"] == [] and "requires" not in c
+
+
+def test_a_runtime_needs_a_licence(tmp_path, net):
+    r = runtime_recipe(tmp_path, net, licence=False)
+    with pytest.raises(build.BuildError, match="LICENSE"):
+        build.stage(r, tmp_path / "w", tmp_path / "c", fetch=net)
+
+
+def runtime_source(to="files/python.tar.gz", **extra):
+    return {"url": "https://e.invalid/p.tar.gz", "size": 1, "sha256": "0" * 64, "to": to, **extra}
+
+
+@pytest.mark.parametrize(
+    ("sources", "message"),
+    [
+        ([], "exactly one"),
+        ([runtime_source(), runtime_source("files/other")], "exactly one"),
+        ([runtime_source("files/python.tgz")], "runtime.archive is files/python.tar.gz"),
+        ([runtime_source(member="python/bin/python3")], "carried whole"),
+    ],
+)
+def test_a_runtime_has_one_source_at_its_archive_path(tmp_path, net, sources, message):
+    with pytest.raises(build.BuildError, match=message) as err:
+        runtime_recipe(tmp_path, net, sources=sources)
+    assert "python-3.13" in str(err.value)
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"schema": 1}, "kind: a runtime needs schema 2"),
+        ({"requires": ["python-3.12"]}, "requires: a runtime requires nothing"),
+        ({"command": [{"name": "py", "type": "binary", "path": "files/py"}]}, "a runtime has no"),
+        ({"python": {}}, r"python: a runtime has no \[python\]"),
+        ({"data": {"home": [".py"]}}, r"data: a runtime has no \[data\]"),
+        ({"runtime": {"archive": "files/python.tar.gz", "python": "p", "series": "3"}}, "runtime.series"),
+    ],
+)
+def test_a_runtime_recipe_is_held_to_the_manifest_rules(tmp_path, net, change, message):
+    with pytest.raises(build.BuildError, match=message):
+        runtime_recipe(tmp_path, net, manifest={**RUNTIME_MANIFEST, **change})
+
+
+def test_lock_refuses_a_runtime(tmp_path, net):
+    with pytest.raises(build.BuildError, match="not a Python tool"):
+        build.lock(runtime_recipe(tmp_path, net), run=FakeTools())
+
+
+# ---- a tool that requires a runtime
+
+
+def tool_recipe(tmp_path, net, pins, **kw):
+    return py_recipe(tmp_path, net, pins, runtime=True, **kw)
+
+
+def test_a_tool_takes_its_series_from_the_runtime_it_requires(tmp_path, net):
+    r = tool_recipe(tmp_path, net, [])
+    assert r.manifest["schema"] == 2 and r.requires == ["python-3.13"] and r.series == "3.13"
+    assert list(r.manifest)[:4] == ["schema", "name", "version", "build"]
+
+
+def test_a_tool_on_a_runtime_collects_wheels_for_that_series_alone(tmp_path, net):
+    tool = pure("tinytool", "1.0")
+    t = "cp313-cp313-manylinux_2_28_x86_64"
+    dep = (wheel_name("dep", "1.0", t), wheel_bytes("dep", "1.0", tag=t))
+    fake = FakeTools(downloads={("3.13", "tinytool"): [tool], ("3.13", "dep"): [dep]})
+    r = tool_recipe(tmp_path, net, [("dep", "1.0", [dep[1]]), ("tinytool", "1.0", [tool[1]])])
+    zip_path = build.build_one(r, tmp_path / "dist", tmp_path / "c", fetch_fn=net, run=fake)
+    downloads = [c for c in fake.calls if c[3] == "download"]
+    assert [c[c.index("--python-version") + 1] for c in downloads] == ["3.13", "3.13"]
+    with zipfile.ZipFile(zip_path) as zf:
+        assert sorted(n for n in zf.namelist() if n.startswith("wheels/")) == sorted(
+            f"wheels/{w[0]}" for w in (tool, dep)
+        )
+        manifest = tomllib.loads(zf.read("manifest.toml").decode())
+    assert manifest["schema"] == 2 and manifest["requires"] == ["python-3.13"]
+    assert manifest["python"] == {"lock": "wheels.lock", "wheels": "wheels"}
+    c = tomllib.loads(zip_path.with_suffix(".toml").read_text())
+    assert c["requires"] == ["python-3.13"] and c["kind"] == "kali"
+
+
+@pytest.mark.parametrize(
+    "tag", ["cp312-cp312-manylinux_2_28_x86_64", "cp314-cp314-manylinux_2_28_x86_64", "py314-none-any"]
+)
+def test_a_wheel_for_another_series_is_refused(tmp_path, net, tag):
+    data = wheel_bytes("dep", "1.0", tag=tag)
+    fake = FakeTools(downloads={("3.13", "dep"): [(wheel_name("dep", "1.0", tag), data)]})
+    r = tool_recipe(tmp_path, net, [("dep", "1.0", [data])])
+    with pytest.raises(build.BuildError, match="does not fit CPython 3.13"):
+        build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+
+
+def test_a_source_built_wheel_serves_the_one_series(tmp_path, net):
+    sdist = ("docopt-0.6.2.tar.gz", b"source archive")
+    fake = FakeTools(sdists={"docopt": sdist}, built={"docopt": pure("docopt", "0.6.2")})
+    r = tool_recipe(tmp_path, net, [("docopt", "0.6.2", [sdist[1]])], build_from_source=("docopt",))
+    assert [p.name for p in build.collect_wheels(r, staged_dir(tmp_path), run=fake)] == [
+        "docopt-0.6.2-py3-none-any.whl"
+    ]
+    assert len(fake.calls) == 2
+
+
+def test_lock_resolves_for_the_runtimes_series_alone(tmp_path, net):
+    r = tool_recipe(tmp_path, net, [], lock=False)
+    fake = FakeTools(uv={"3.13": UV_LOCK.replace(b"\n", b"\r\n")})
+    assert build.lock(r, run=fake).read_bytes() == UV_LOCK
+    assert [c[c.index("--python-version") + 1] for c in fake.calls] == ["3.13"]
+    assert fake.cwds == [r.folder]
+
+
+def test_versions_in_a_schema_2_python_table_are_refused(tmp_path, net):
+    manifest = {**PY_MANIFEST, "python": {"versions": ["3.13"]}}
+    r = tool_recipe(tmp_path, net, [], manifest=manifest)
+    with pytest.raises(build.BuildError, match="python.versions: schema 2 has no versions"):
+        build.stage(r, tmp_path / "w", tmp_path / "c", fetch=net, run=FakeTools())
+
+
+def test_a_runtime_recipe_beside_the_tool_is_not_built_with_it(tmp_path, net):
+    tool = pure("tinytool", "1.0")
+    fake = FakeTools(downloads={("3.13", "tinytool"): [tool]})
+    r = tool_recipe(tmp_path, net, [("tinytool", "1.0", [tool[1]])])
+    build.build_one(r, tmp_path / "dist", tmp_path / "c", fetch_fn=net, run=fake)
+    assert sorted(p.name for p in (tmp_path / "dist").glob("*.zip")) == ["tinytool-1.0.3-1.zip"]
+    assert net.calls == []
+
+
+def requiring(tmp_path, net, requires, *, python=True, schema=None):
+    manifest = dict(PY_MANIFEST if python else PLAIN_MANIFEST, requires=requires)
+    if schema is not None:
+        manifest["schema"] = schema
+    make_runtime_recipe(tmp_path / "recipes" / "python-3.13", net)
+    make_recipe(tmp_path / "recipes" / "kerbrute", net)
+    folder = tmp_path / "recipes" / "tinytool"
+    make_recipe(folder, net, sources=[], manifest=manifest)
+    return folder
+
+
+@pytest.mark.parametrize(
+    ("requires", "message"),
+    [
+        (["python-3.12"], "requires python-3.12, but .* has no recipe for it"),
+        (["kerbrute"], "requires kerbrute, which is not a runtime"),
+        (["tinytool"], "tinytool cannot require itself"),
+        (["python-3.13", "python-3.13"], "'python-3.13' appears more than once"),
+        (["Python-3.13"], "'Python-3.13' is not a valid package name"),
+        (["../python-3.13"], "is not a valid package name"),
+        ([], "exactly one runtime; this one names 0"),
+        (["python-3.13", "kerbrute"], "exactly one runtime; this one names 2"),
+        ("python-3.13", "requires: must be a list of strings"),
+    ],
+)
+def test_what_a_tool_requires_is_checked(tmp_path, net, requires, message):
+    with pytest.raises(build.BuildError, match=message) as err:
+        build.load_recipe(requiring(tmp_path, net, requires))
+    assert str(err.value).startswith("tinytool: ")
+
+
+def test_a_tool_that_is_not_python_requires_nothing(tmp_path, net):
+    with pytest.raises(build.BuildError, match="a tool that is not Python requires nothing"):
+        build.load_recipe(requiring(tmp_path, net, ["python-3.13"], python=False))
+
+
+def test_a_stated_schema_must_agree_with_what_the_recipe_is(tmp_path, net):
+    with pytest.raises(build.BuildError, match="a schema 1 package cannot require anything"):
+        build.load_recipe(requiring(tmp_path, net, ["python-3.13"], schema=1))
+    folder = make_recipe(tmp_path / "other" / "kerbrute", net, manifest={**PLAIN_MANIFEST, "schema": 2})
+    with pytest.raises(build.BuildError, match="requires nothing must be schema 1"):
+        build.load_recipe(folder)
+    folder = make_recipe(tmp_path / "third" / "kerbrute", net, manifest={**PLAIN_MANIFEST, "schema": 3})
+    with pytest.raises(build.BuildError, match="schema must be 1 or 2"):
+        build.load_recipe(folder)
+
+
+def test_a_tool_requiring_a_broken_runtime_recipe_is_refused(tmp_path, net):
+    folder = requiring(tmp_path, net, ["python-3.13"])
+    (tmp_path / "recipes" / "python-3.13" / "manifest.toml").write_text("kind = 'runtime'\n")
+    with pytest.raises(build.BuildError, match="python-3.13"):
+        build.load_recipe(folder)
+
+
+def test_a_schema_1_recipe_stages_the_manifest_it_always_did(tmp_path, net):
+    r = build.load_recipe(make_recipe(tmp_path / "recipes" / "kerbrute", net))
+    staged = build.stage(r, tmp_path / "w", tmp_path / "c", fetch=net)
+    expected = {"schema": 1, "name": "kerbrute", "version": "1.0.3", "build": 1, **PLAIN_MANIFEST}
+    assert (staged / "manifest.toml").read_bytes() == tomli_w.dumps(expected).encode()
+
+
+# ---- cards and the index
+
+
+def test_a_card_carries_requires_only_when_there_is_one(tmp_path, net, recipe):
+    tool = pure("tinytool", "1.0")
+    r = tool_recipe(tmp_path, net, [("tinytool", "1.0", [tool[1]])])
+    fake = FakeTools(downloads={("3.13", "tinytool"): [tool]})
+    zip_path = build.build_one(r, tmp_path / "dist", tmp_path / "c", fetch_fn=net, run=fake)
+    c = build.card(r, zip_path)
+    assert list(c)[list(c).index("commands") + 1] == "requires"
+    assert c["requires"] == ["python-3.13"] and c["kind"] == "kali"
+    assert "requires" not in build.card(recipe, zip_path)
+
+
+def test_a_published_card_without_requires_is_read(tmp_path):
+    (tmp_path / "kerbrute-1.0.3-1.toml").write_text(tomli_w.dumps(cardf()))
+    out = tmp_path / "index.toml"
+    assert build.main(["index", str(tmp_path), "--out", str(out)]) == 0
+    data = tomllib.loads(out.read_text())
+    assert data["schema"] == 1 and "requires" not in data["tool"][0]["build"][0]
+
+
+def test_a_card_with_bad_requires_is_refused(tmp_path, capsys):
+    c = {**cardf(), "requires": "python-3.13"}
+    (tmp_path / "kerbrute-1.0.3-1.toml").write_text(tomli_w.dumps(c))
+    assert build.main(["index", str(tmp_path), "--out", str(tmp_path / "i.toml")]) == 1
+    assert "requires" in capsys.readouterr().err
+
+
+def runtime_card(version="3.13.18", build_no=1, **over):
+    c = cardf(name="python-3.13", version=version, build_no=build_no)
+    return {**c, "kind": "runtime", "commands": [], **over}
+
+
+def test_the_index_is_schema_2_with_a_runtime_and_a_tool_that_requires_it():
+    cards = [cardf(name="certipy", build_no=2), {**cardf(name="certipy", build_no=3), "requires": ["python-3.13"]},
+             cardf(), runtime_card()]
+    idx = build.build_index(build.card_order(cards), base_url=None)
+    assert idx["schema"] == 2
+    tools = {t["name"]: t for t in idx["tool"]}
+    certipy = tools["certipy"]["build"]
+    assert "requires" not in certipy[0] and certipy[1]["requires"] == ["python-3.13"]
+    assert list(certipy[1])[list(certipy[1]).index("commands") + 1] == "requires"
+    runtime = tools["python-3.13"]["build"][0]
+    assert runtime["kind"] == "runtime" and runtime["commands"] == [] and "requires" not in runtime
+    assert runtime["file"] == "python-3.13-3.13.18-1.zip"
+    assert "requires" not in tools["kerbrute"]["build"][0]
+
+
+def test_the_index_is_schema_2_with_a_runtime_alone():
+    assert build.build_index([runtime_card()], base_url=None)["schema"] == 2
+
+
+@pytest.mark.parametrize(
+    ("cards", "message"),
+    [
+        ([runtime_card(commands=["python3.13"])], "a runtime has no commands"),
+        ([runtime_card(requires=["python-3.12"])], "a runtime requires nothing"),
+        ([runtime_card(), {**runtime_card("3.13.19"), "kind": "kali"}], "mix kind runtime with other kinds"),
+        ([{**cardf(), "requires": ["Bad"]}], "'Bad' is not a valid package name"),
+        ([{**cardf(), "requires": ["a", "a"]}], "'a' appears more than once"),
+        ([{**cardf(), "requires": ["kerbrute"]}], "kerbrute cannot require itself"),
+        ([{**cardf(), "kind": "other"}], "kind must be one of kali, upload, both, runtime"),
+    ],
+)
+def test_the_index_refuses_what_the_app_refuses(cards, message):
+    with pytest.raises(build.BuildError, match=message):
+        build.build_index(cards, base_url=None)
+
+
+def test_a_runtime_card_file_is_read_into_the_index(tmp_path):
+    c = runtime_card()
+    (tmp_path / "python-3.13-3.13.18-1.toml").write_text(tomli_w.dumps(c))
+    out = tmp_path / "index.toml"
+    assert build.main(["index", str(tmp_path), "--out", str(out)]) == 0
+    assert tomllib.loads(out.read_text())["tool"][0]["name"] == "python-3.13"
+
+
+# ---- the command line with runtimes
+
+
+def test_build_check_and_plan_handle_a_runtime_and_its_tool(tmp_path, net, monkeypatch, capsys):
+    tool = pure("tinytool", "1.0")
+    make_python_recipe(tmp_path / "recipes" / "tinytool", net, [("tinytool", "1.0", [tool[1]])],
+                       runtime=True)
+    monkeypatch.setattr(build, "fetch", net)
+    fake = FakeTools(downloads={("3.13", "tinytool"): [tool]})
+    out = tmp_path / "dist"
+    common = ["--recipes", str(tmp_path / "recipes"), "--out", str(out)]
+    assert build.main(["build", *common, "--cache", str(tmp_path / "c")], run=fake) == 0
+    idx = tomllib.loads((out / "index.toml").read_text())
+    assert idx["schema"] == 2
+    assert [t["name"] for t in idx["tool"]] == ["python-3.13", "tinytool"]
+    assert build.main(["check", *common]) == 0
+    assert build.main(["plan", "--recipes", str(tmp_path / "recipes")]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert "ok python-3.13-3.13.18-1.zip" in lines and "ok tinytool-1.0.3-1.zip" in lines
+    assert lines[-2:] == [
+        "python-3.13 python-3.13-v3.13.18-1 python-3.13-3.13.18-1.zip",
+        "tinytool tinytool-v1.0.3-1 tinytool-1.0.3-1.zip",
+    ]
+
+
+def test_lock_with_no_names_skips_a_runtime(tmp_path, net, capsys):
+    make_python_recipe(tmp_path / "recipes" / "tinytool", net, [], lock=False, runtime=True)
+    fake = FakeTools(uv={"3.13": UV_LOCK})
+    assert build.main(["lock", "--recipes", str(tmp_path / "recipes")], run=fake) == 0
+    assert [c[0] for c in fake.calls] == ["uv"]
+    assert capsys.readouterr().out.count("ok wrote") == 1
+

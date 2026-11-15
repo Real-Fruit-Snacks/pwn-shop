@@ -25,7 +25,8 @@ from pathlib import Path
 
 import tomli_w
 
-KINDS = ("kali", "upload", "both")
+KINDS = ("kali", "upload", "both", "runtime")
+SCHEMAS = (1, 2)
 COMMAND_TYPES = ("binary", "python-entry", "python-script")
 MANIFEST = "manifest.toml"
 SUMS = "SHA256SUMS.txt"
@@ -36,7 +37,13 @@ MANIFEST_LIMIT = 1024 * 1024
 FETCH_TIMEOUT = 60
 FETCH_DEADLINE = 900.0
 _CHUNK = 1024 * 1024
-_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
+# a dot only between other characters, so a name is never ".", "..", hidden or ends with a dot
+_NAME = re.compile(r"[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*")
+_NAME_RULE = (
+    "must be lower-case letters, digits, hyphens and dots, starting with a letter or digit, "
+    "with no two dots together and none at the end"
+)
+_SERIES = re.compile(r"[0-9]+\.[0-9]+")
 _COMMAND_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 PYTHONS = ("3.12", "3.13", "3.14")
@@ -114,6 +121,9 @@ class Recipe:
     manifest: dict
     folder: Path
     build_from_source: list[str] = field(default_factory=list)
+    requires: list[str] = field(default_factory=list)
+    # a runtime's own series, or the series of the runtime a Python tool requires
+    series: str | None = None
 
 
 Fetch = Callable[[str, Path, int], None]
@@ -211,7 +221,7 @@ def load_recipe(folder: Path) -> Recipe:
     version = recipe.get("version")
     who = folder.name
     if not isinstance(name, str) or not _NAME.fullmatch(name):
-        raise BuildError(f"{who}: name {name!r} must be lower-case letters, digits and hyphens")
+        raise BuildError(f"{who}: name {name!r} {_NAME_RULE}")
     if name != folder.name:
         raise BuildError(f"{who}: the folder name must equal the recipe's name {name!r}")
     # ':' and NUL are not manifest rules, but the index refuses a file name that holds them
@@ -237,14 +247,80 @@ def load_recipe(folder: Path) -> Recipe:
                 f"{who}: {source.to} is the target of more than one source (compared without case)"
             )
         seen.add(source.to.casefold())
-    if manifest.get("schema", 1) != 1:
-        raise BuildError("manifest: schema must be 1")
+    schema = _recipe_schema(manifest, who)
     rest = {k: v for k, v in manifest.items() if k not in ("schema", "name", "version", "build")}
-    filled = {"schema": 1, "name": name, "version": version, "build": build, **rest}
+    filled = {"schema": schema, "name": name, "version": version, "build": build, **rest}
     listed = recipe.get("build_from_source", [])
     if not isinstance(listed, list) or not all(isinstance(n, str) and n for n in listed):
         raise BuildError(f"{who}: build_from_source must be a list of distribution names")
-    return Recipe(name, version, build, sources, filled, folder, [_norm_name(n) for n in listed])
+    requires = []
+    if "requires" in manifest:
+        requires = _check_requires(manifest["requires"], name, f"{who}: requires")
+    series = None
+    if manifest.get("kind") == "runtime":
+        if requires:
+            raise BuildError(f"{who}: requires: a runtime requires nothing")
+        try:
+            archive, _python, series = _runtime_table(manifest)
+        except BuildError as exc:
+            raise BuildError(f"{who}: {exc}") from exc
+        # the upstream archive is carried byte for byte, so it is the one source and is not unpacked
+        if len(sources) != 1:
+            raise BuildError(
+                f"{who}: a runtime has exactly one [[source]], its archive; this one has {len(sources)}"
+            )
+        if sources[0].member is not None:
+            raise BuildError(f"{who}: a runtime's source is carried whole; it takes no member")
+        if sources[0].to != archive:
+            raise BuildError(
+                f"{who}: the source goes to {sources[0].to}, but runtime.archive is {archive}; "
+                "they must be the same path"
+            )
+    elif "python" in manifest:
+        if "requires" in manifest:
+            if len(requires) != 1:
+                raise BuildError(
+                    f"{who}: requires: a Python tool requires exactly one runtime; "
+                    f"this one names {len(requires)}"
+                )
+            series = _required_series(folder.parent, requires[0], who)
+    elif "requires" in manifest:
+        raise BuildError(f"{who}: requires: a tool that is not Python requires nothing")
+    return Recipe(
+        name, version, build, sources, filled, folder, [_norm_name(n) for n in listed],
+        requires, series,
+    )  # fmt: skip
+
+
+def _recipe_schema(manifest: dict, who: str) -> int:
+    """2 for a runtime and for a tool that requires one, else 1; a stated schema must agree."""
+    runtime = manifest.get("kind") == "runtime"
+    schema = 2 if runtime or "requires" in manifest else 1
+    stated = manifest.get("schema", schema)
+    if isinstance(stated, bool) or stated not in SCHEMAS:
+        raise BuildError(f"{who}: manifest schema must be 1 or 2")
+    if stated == 1 and runtime:
+        raise BuildError(f"{who}: kind: a runtime needs schema 2")
+    if stated == 1 and schema == 2:
+        raise BuildError(
+            f"{who}: requires: a schema 1 package cannot require anything; it needs schema 2"
+        )
+    if stated == 2 and schema == 1:
+        raise BuildError(
+            f"{who}: schema: a package that is not a runtime and requires nothing must be schema 1"
+        )
+    return schema
+
+
+def _required_series(recipes: Path, wanted: str, who: str) -> str:
+    """The series of the runtime a tool requires, from that runtime's own recipe."""
+    folder = recipes / wanted
+    if not (folder / "recipe.toml").is_file():
+        raise BuildError(f"{who}: requires {wanted}, but {recipes} has no recipe for it")
+    runtime = load_recipe(folder)
+    if runtime.manifest.get("kind") != "runtime" or runtime.series is None:
+        raise BuildError(f"{who}: requires {wanted}, which is not a runtime")
+    return runtime.series
 
 
 def tag(recipe: Recipe) -> str:
@@ -388,7 +464,14 @@ def _python_manifest(recipe: Recipe) -> tuple[dict, bool]:
         return manifest, False
     if not isinstance(table, dict):
         raise BuildError(f"{recipe.name}: python must be a table")
-    ours = {"versions": list(PYTHONS), "lock": WHEELS_LOCK, "wheels": "wheels"}
+    ours = {"lock": WHEELS_LOCK, "wheels": "wheels"}
+    if recipe.series is None:
+        ours = {"versions": list(PYTHONS), **ours}
+    elif "versions" in table:
+        raise BuildError(
+            f"{recipe.name}: python.versions: schema 2 has no versions; the wheels are for "
+            f"the required runtime's Python {recipe.series}. Leave it out of the recipe's manifest"
+        )
     for key, value in ours.items():
         if key in table and table[key] != value:
             raise BuildError(
@@ -713,6 +796,11 @@ def _wheel_for(
     return wheel
 
 
+def _pythons(recipe: Recipe) -> tuple[str, ...]:
+    """The Pythons a tool's wheels are for: its runtime's series, or PYTHONS in schema 1."""
+    return (recipe.series,) if recipe.series is not None else PYTHONS
+
+
 def collect_wheels(
     recipe: Recipe, staged: Path, *, run: Run = subprocess.run, find_links: Path | None = None
 ) -> list[Path]:
@@ -737,7 +825,7 @@ def collect_wheels(
             for i, pin in enumerate(pins)
             if _norm_name(pin.name) in recipe.build_from_source
         }
-        for python in PYTHONS:
+        for python in _pythons(recipe):
             for i, pin in enumerate(pins):
                 wheel = built[i] if i in built else _wheel_for(pin, python, i, tmp, run, find_links)
                 target = wheels / wheel.name
@@ -780,8 +868,9 @@ def lock(recipe: Recipe, *, run: Run = subprocess.run) -> Path:
         raise BuildError(f"{recipe.name}: the recipe folder has no {REQUIREMENTS_IN}")
     texts: dict[str, bytes] = {}
     resolved: dict[str, dict[str, tuple[str, list[str]]]] = {}
+    pythons = _pythons(recipe)
     with tempfile.TemporaryDirectory(prefix="pwn-shop-lock-") as tmpdir:
-        for python in PYTHONS:
+        for python in pythons:
             out = Path(tmpdir) / f"lock-{python}.txt"
             # not --universal: it cannot be combined with --python-platform, and it writes
             # markers such as sys_platform == 'win32' that pip would judge by the build machine
@@ -802,7 +891,7 @@ def lock(recipe: Recipe, *, run: Run = subprocess.run) -> Path:
             }
     names = sorted({n for pins in resolved.values() for n in pins})
     differing = [
-        _disagreement(n, resolved) for n in names if len({str(r.get(n)) for r in resolved.values()}) > 1
+        _disagreement(n, resolved, pythons) for n in names if len({str(r.get(n)) for r in resolved.values()}) > 1
     ]
     if differing:
         raise BuildError(
@@ -810,7 +899,7 @@ def lock(recipe: Recipe, *, run: Run = subprocess.run) -> Path:
             f"Pin each of them in {REQUIREMENTS_IN} to one version that every Python can use"
         )
     path = recipe.folder / REQUIREMENTS_LOCK
-    _write_bytes(path, texts[PYTHONS[0]])
+    _write_bytes(path, texts[pythons[0]])
     return path
 
 
@@ -818,10 +907,12 @@ def _and(items: list[str]) -> str:
     return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} and {items[-1]}"
 
 
-def _disagreement(name: str, resolved: dict[str, dict[str, tuple[str, list[str]]]]) -> str:
+def _disagreement(
+    name: str, resolved: dict[str, dict[str, tuple[str, list[str]]]], pythons: tuple[str, ...]
+) -> str:
     """name (1.0 on Python 3.12 and 3.13, 1.1 on 3.14): what each Python resolved it to."""
     groups: dict[str, list[str]] = {}
-    for python in PYTHONS:
+    for python in pythons:
         groups.setdefault(str(resolved[python].get(name)), []).append(python)
     parts = []
     versions_said = set()
@@ -862,6 +953,8 @@ def write_zip(staged: Path, out: Path) -> Path:
 
 def card(recipe: Recipe, zip_path: Path) -> dict:
     m = recipe.manifest
+    # requires is left out when empty, so the cards of schema 1 builds stay as published
+    required = {"requires": list(recipe.requires)} if recipe.requires else {}
     return {
         "name": recipe.name,
         "version": recipe.version,
@@ -874,6 +967,7 @@ def card(recipe: Recipe, zip_path: Path) -> dict:
         "arch": m.get("arch", ""),
         "needs_root": bool(m.get("needs_root", False)),
         "commands": [c["name"] for c in m.get("command", []) if isinstance(c, dict) and "name" in c],
+        **required,
         "file": zip_path.name,
         "size": zip_path.stat().st_size,
         "sha256": sha256_file(zip_path),
@@ -927,13 +1021,31 @@ def _check_shared_commands(commands: dict[str, list[str]]) -> None:
                 raise BuildError(f"the command {command} is defined by both {owner[command]} and {tool}")
 
 
+def _check_index_build(name: str, c: dict) -> list[str]:
+    """The rules pwn-broker's index parser applies to one build; returns its requires."""
+    label = f"{name} {c['version']}-{c['build']}"
+    if c["kind"] not in KINDS:
+        raise BuildError(f"{label}: kind must be one of {', '.join(KINDS)}")
+    requires = _check_requires(c.get("requires", []), name, f"{label}: requires")
+    if c["kind"] == "runtime":
+        if c["commands"]:
+            raise BuildError(f"{label}: a runtime has no commands")
+        if requires:
+            raise BuildError(f"{label}: requires: a runtime requires nothing")
+    return requires
+
+
 def build_index(cards: list[dict], *, base_url: str | None) -> dict:
     grouped: dict[str, list[dict]] = {}
     for c in cards:
         grouped.setdefault(c["name"], []).append(c)
     _check_shared_commands({name: rows[-1]["commands"] for name, rows in grouped.items()})
     tools = []
+    # schema 2 only when a build needs it, so an index of schema 1 builds stays as it was
+    schema = 1
     for name, rows in grouped.items():
+        if len({c["kind"] == "runtime" for c in rows}) > 1:
+            raise BuildError(f"{name}: its builds mix kind runtime with other kinds")
         seen = set()
         builds = []
         for c in rows:
@@ -941,6 +1053,9 @@ def build_index(cards: list[dict], *, base_url: str | None) -> dict:
             if key in seen:
                 raise BuildError(f"{name}: build {c['version']}-{c['build']} appears more than once")
             seen.add(key)
+            requires = _check_index_build(name, c)
+            if requires or c["kind"] == "runtime":
+                schema = 2
             builds.append(
                 {
                     "version": c["version"],
@@ -948,6 +1063,7 @@ def build_index(cards: list[dict], *, base_url: str | None) -> dict:
                     "kind": c["kind"],
                     "needs_root": c["needs_root"],
                     "commands": list(c["commands"]),
+                    **({"requires": requires} if requires else {}),
                     "file": c["file"],
                     "url": _url(base_url, name, c["version"], c["build"], c["file"]),
                     "size": c["size"],
@@ -966,10 +1082,10 @@ def build_index(cards: list[dict], *, base_url: str | None) -> dict:
                 "build": builds,
             }
         )
-    return {"schema": 1, "tool": tools}
+    return {"schema": schema, "tool": tools}
 
 
-_CARD_FILE = re.compile(r"[a-z0-9][a-z0-9-]*-[^/\\\s:]+-[1-9][0-9]*\.toml")
+_CARD_FILE = re.compile(_NAME.pattern + r"-[^/\\\s:]+-[1-9][0-9]*\.toml")
 _CARD_FIELDS = {
     "name": str, "version": str, "build": int, "kind": str, "description": str, "tags": list,
     "upstream": str, "licence": str, "needs_root": bool, "commands": list, "file": str,
@@ -985,6 +1101,10 @@ def _read_card(path: Path) -> dict:
         value = data[key]
         if not isinstance(value, kind) or (kind is int and isinstance(value, bool)):
             raise BuildError(f"{path.name}: {key} must be a {kind.__name__}")
+    # a card written before runtimes has no requires, which means none
+    requires = data.get("requires", [])
+    if not isinstance(requires, list) or not all(isinstance(r, str) for r in requires):
+        raise BuildError(f"{path.name}: requires must be a list of strings")
     return data
 
 
@@ -1129,6 +1249,14 @@ def _fence(text: str) -> str:
     return f"{fence}\n{text}\n{fence}"
 
 
+def _notes_requires(card: dict) -> str:
+    if card.get("kind") == "runtime":
+        return "A runtime: pwn-broker installs it with the tools that require it.\n"
+    if card.get("requires"):
+        return f"Requires: {', '.join(card['requires'])}\n"
+    return ""
+
+
 def release_notes(card: dict) -> str:
     return (
         f"{card['name']} {card['version']}, build {card['build']}\n"
@@ -1137,6 +1265,7 @@ def release_notes(card: dict) -> str:
         "\n"
         f"Upstream: {card['upstream']}\n"
         f"Licence: {card['licence']}\n"
+        f"{_notes_requires(card)}"
         f"Package: {card['file']} ({card['size']} bytes)\n"
         f"SHA-256: {card['sha256']}\n"
         "\n"
@@ -1174,13 +1303,53 @@ def _plain(value: str, label: str) -> None:
         raise BuildError(f"{label}: {value!r} must be a plain file name")
 
 
+def _check_requires(value: object, name: str, label: str) -> list[str]:
+    """requires names packages; each name later becomes a folder name in pwn-broker."""
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise BuildError(f"{label}: must be a list of strings")
+    seen = set()
+    for wanted in value:
+        if not _NAME.fullmatch(wanted):
+            raise BuildError(f"{label}: {wanted!r} is not a valid package name")
+        if wanted == name:
+            raise BuildError(f"{label}: {name} cannot require itself")
+        if wanted in seen:
+            raise BuildError(f"{label}: {wanted!r} appears more than once")
+        seen.add(wanted)
+    return list(value)
+
+
+def _runtime_table(data: dict) -> tuple[str, str, str]:
+    """A runtime is nothing but its archive. Returns its archive, interpreter and series."""
+    for key, table in (
+        ("command", "[[command]]"),
+        ("upload", "[[upload]]"),
+        ("data", "[data]"),
+        ("python", "[python]"),
+    ):
+        if key in data:
+            raise BuildError(f"{key}: a runtime has no {table}")
+    table = data.get("runtime")
+    if table is None:
+        raise BuildError("runtime: a runtime package needs a [runtime] table")
+    if not isinstance(table, dict):
+        raise BuildError("runtime: must be a table")
+    archive = _relative(_text(table, "archive", "runtime.archive"), "runtime.archive", under="files")
+    python = _relative(_text(table, "python", "runtime.python"), "runtime.python")
+    series = _text(table, "series", "runtime.series")
+    if not _SERIES.fullmatch(series):
+        raise BuildError(f"runtime.series: {series!r} must be a Python series such as 3.13")
+    return archive, python, series
+
+
 def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
     """Returns the files the manifest names, its wheels folder (or None) and its lock path."""
-    if data.get("schema") != 1 or isinstance(data.get("schema"), bool):
-        raise BuildError("schema: must be 1")
+    schema = data.get("schema")
+    if isinstance(schema, bool) or schema not in SCHEMAS:
+        raise BuildError("schema: must be 1 or 2")
     name = _text(data, "name", "name")
     if not _NAME.fullmatch(name):
-        raise BuildError(f"name: {name!r} must be lower-case letters, digits and hyphens")
+        raise BuildError(f"name: {name!r} {_NAME_RULE}")
     version = _text(data, "version", "version")
     if re.search(r"[/\\\s]", version):
         raise BuildError(f"version: {version!r} must not contain a slash, backslash or space")
@@ -1192,6 +1361,18 @@ def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
         raise BuildError(f"kind: must be one of {', '.join(KINDS)}")
     if not isinstance(data.get("needs_root", False), bool):
         raise BuildError("needs_root: must be true or false")
+    if kind == "runtime" and schema == 1:
+        raise BuildError("kind: a runtime needs schema 2")
+    requires: list[str] = []
+    if "requires" in data:
+        if schema == 1:
+            raise BuildError("requires: a schema 1 package cannot require anything; it needs schema 2")
+        requires = _check_requires(data["requires"], name, "requires")
+    named: list[str] = []
+    if kind == "runtime":
+        if requires:
+            raise BuildError("requires: a runtime requires nothing")
+        named.append(_runtime_table(data)[0])
     for key in ("description", "upstream", "licence", "arch"):
         _text(data, key, key)
     if data["arch"] != "x86_64":
@@ -1199,7 +1380,6 @@ def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
     _strings(data, "tags", "tags")
     _strings(data, "examples", "examples")
 
-    named: list[str] = []
     seen = set()
     commands = _rows(data, "command")
     for i, row in enumerate(commands):
@@ -1270,9 +1450,14 @@ def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
             raise BuildError("python: a [python] table is only for packages with a Python command")
         if not isinstance(table, dict):
             raise BuildError("python: must be a table")
-        versions = _strings(table, "versions", "python.versions")
-        if not versions or not all(versions):
-            raise BuildError("python.versions: needs at least one version")
+        if schema == 1:
+            versions = _strings(table, "versions", "python.versions")
+            if not versions or not all(versions):
+                raise BuildError("python.versions: needs at least one version")
+        elif "versions" in table:
+            raise BuildError(
+                "python.versions: schema 2 has no versions; the wheels are for the required runtime"
+            )
         for key in ("lock", "wheels"):
             value = _relative(_text(table, key, f"python.{key}"), f"python.{key}")
             if value.split("/")[0] == "files":
@@ -1281,6 +1466,18 @@ def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
                 lock.append(value)
             else:
                 wheels = value
+    if schema == 2 and kind != "runtime":
+        # schema 2 is only for what schema 1 cannot say, so published builds stay as they are
+        if table is not None and len(requires) != 1:
+            raise BuildError(
+                f"requires: a Python tool requires exactly one runtime; this one names {len(requires)}"
+            )
+        if table is None and requires:
+            raise BuildError("requires: a tool that is not Python requires nothing")
+        if not requires:
+            raise BuildError(
+                "schema: a package that is not a runtime and requires nothing must be schema 1"
+            )
     home = data.get("data", {})
     if not isinstance(home, dict):
         raise BuildError("data: must be a table")

@@ -6,7 +6,7 @@ import pytest
 import tomli_w
 
 import build
-from conftest import PLAIN_MANIFEST, PY_MANIFEST, make_python_recipe, make_recipe
+from conftest import PLAIN_MANIFEST, PY_MANIFEST, make_python_recipe, make_recipe, make_runtime_recipe
 
 
 def card_of(**changes) -> dict:
@@ -419,3 +419,45 @@ def test_a_description_with_markup_sits_in_a_fenced_block():
     assert lines[start + 1] == "[click](http://evil.invalid) @someone ``` x"
     assert lines[start + 2] == fence
     assert "@someone" not in "\n".join(lines[:start] + lines[start + 3 :])
+
+
+# ---- runtimes and the tools that require one
+
+
+def test_notes_name_what_a_tool_requires():
+    text = build.release_notes(card_of(requires=["python-3.13"]))
+    assert (
+        "Licence: Apache-2.0\nRequires: python-3.13\nPackage: kerbrute-1.0.3-1.zip (100 bytes)\n"
+    ) in text
+    assert "Requires" not in build.release_notes(card_of())
+
+
+def test_notes_say_a_runtime_is_installed_with_its_tools():
+    card = card_of(name="python-3.13", version="3.13.18", kind="runtime", commands=[],
+                   file="python-3.13-3.13.18-1.zip")
+    text = build.release_notes(card)
+    assert text.splitlines()[0] == "python-3.13 3.13.18, build 1"
+    assert (
+        "A runtime: pwn-broker installs it with the tools that require it.\n"
+        "Package: python-3.13-3.13.18-1.zip (100 bytes)\n"
+    ) in text
+    assert "!" not in text
+
+
+def test_compare_finds_a_changed_requires(tmp_path, net):
+    recipe = recipe_for(tmp_path, net)
+    one = write_card(tmp_path / "a.toml", card_of(requires=["python-3.13"]))
+    two = write_card(tmp_path / "b.toml", card_of())
+    with pytest.raises(build.BuildError, match="requires"):
+        build.compare_cards(one, two, recipe)
+
+
+def test_compare_command_handles_a_runtime(tmp_path, net, capsys):
+    make_runtime_recipe(tmp_path / "recipes" / "python-3.13", net)
+    card = card_of(name="python-3.13", version="3.13.18", kind="runtime", commands=[],
+                   file="python-3.13-3.13.18-1.zip")
+    one = write_card(tmp_path / "a.toml", card)
+    two = write_card(tmp_path / "b.toml", card)
+    args = ["compare", str(one), str(two), str(one), str(two), "--recipes", str(tmp_path / "recipes")]
+    assert build.main(args) == 0
+    assert capsys.readouterr().out.startswith("ok python-3.13 3.13.18-1 matches")
