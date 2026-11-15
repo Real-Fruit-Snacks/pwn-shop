@@ -64,9 +64,10 @@ Kind `kali` puts a command on the machine, `upload` puts files in a folder to ca
 
 This section is updated by hand after each CI run. As of 2026-11-15:
 
-- The unit tests: passed in CI on Ubuntu 24.04 under Python 3.11, 3.12 and 3.13, and on Windows 11 with Python 3.13 (494 passed and 3 skipped; the skips need a POSIX file system), warnings treated as errors.
-- All six packages: built by CI on Ubuntu 24.04, passed `build.py check`, and were installed with pwn-broker's own code under Python 3.12 and 3.13, then removed with nothing left behind. `certipy`, `kerbrute`, `ligolo-proxy` and `targetedKerberoast` each answered `--help`. The upload files of `ligolo-ng`, `pspy` and `peass-ng` were present at the right sizes and were not run.
-- `certipy` and `targetedkerberoast` built on Windows 11 with Python 3.13 are byte-identical to the CI builds.
+- The unit tests: passed in CI on Ubuntu 24.04 under Python 3.11, 3.12 and 3.13, and on Windows 11 with Python 3.13 (516 passed and 3 skipped; the skips need a POSIX file system), warnings treated as errors. CI now runs them under Python 3.14 as well; no result from that is recorded here yet.
+- All six packages, build 1: built by CI on Ubuntu 24.04, passed `build.py check`, and were installed with pwn-broker's own code under Python 3.12 and 3.13, then removed with nothing left behind. `certipy`, `kerbrute`, `ligolo-proxy` and `targetedKerberoast` each answered `--help`. The upload files of `ligolo-ng`, `pspy` and `peass-ng` were present at the right sizes and were not run.
+- Build 1 of `certipy` and `targetedkerberoast` built on Windows 11 with Python 3.13 is byte-identical to the CI builds.
+- Python 3.14 has been added. Build 2 of `certipy` and `targetedkerberoast` built on Windows 11 with Python 3.13 and passed `build.py check`; each lists Python 3.12, 3.13 and 3.14 and carries a wheel that fits each of them for every dependency. CI now installs every package under Python 3.14 as well as 3.12 and 3.13; no result from that is recorded here yet.
 - Published from that run: one release per package and the `index` release.
 - `fetch.sh`: `sh -n`, `dash -n` and `shellcheck` are clean and its tests run with a stand-in `gh`. It has not been run against the real releases.
 - Not tested: any package installed or run on Kali.
@@ -82,7 +83,7 @@ This section is updated by hand after each CI run. As of 2026-11-15:
 - Nothing has been installed on Kali yet.
 - Antivirus on a Windows build machine removes several upstream files during a build. Build on Linux, or let CI do it.
 - If an upstream file is removed or replaced, CI warns and keeps testing the published package; the recipe can no longer be rebuilt until it is repinned with a raised `build`.
-- Packages are x86_64 only. Python tools carry wheels for Python 3.12 and 3.13 only, and are refused on any other Python.
+- Packages are x86_64 only. Python tools carry wheels for Python 3.12, 3.13 and 3.14 only (build 1 of `certipy` and `targetedkerberoast`: 3.12 and 3.13), and are refused on any other Python.
 - The workflow checks out pwn-broker with a deploy key, so it cannot run on a pull request from a fork.
 - When the index changes, `index.toml` is briefly missing from the `index` release while the new one is uploaded. CI skips the upload when nothing changed. `fetch.sh` fails cleanly if it runs in that gap; run it again.
 

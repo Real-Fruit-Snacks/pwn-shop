@@ -16,7 +16,7 @@ python3 -m venv .venv
 .venv/bin/python -m pytest -q -W error
 ```
 
-The tests need no network and do not import pwn-broker. CI runs them on Python 3.11, 3.12 and 3.13, checks `fetch.sh` with `sh -n`, `dash -n` and `shellcheck`, then builds every package and installs it with pwn-broker's own code. Build on Linux. Antivirus on a Windows machine removes several upstream files while a build runs.
+The tests need no network and do not import pwn-broker. CI runs them on Python 3.11, 3.12, 3.13 and 3.14, checks `fetch.sh` with `sh -n`, `dash -n` and `shellcheck`, then builds every package and installs it with pwn-broker's own code. Build on Linux. Antivirus on a Windows machine removes several upstream files while a build runs.
 
 ## Adding a tool
 
@@ -43,7 +43,7 @@ The tests need no network and do not import pwn-broker. CI runs them on Python 3
    python build.py lock <name>
    ```
 
-   This needs `uv`. It writes `requirements.lock`, which you commit. A build downloads only what the lock names and checks each hash. Leave `versions`, `lock` and `wheels` out of the `[python]` table: the builder fills them.
+   This needs `uv`. It resolves the dependencies once for each Python the wheels cover (3.12, 3.13 and 3.14), and they must come out the same on all three. If they do not, it names each dependency that differs and what each Python resolved it to; pin that one in `requirements.in` to a version that has a wheel for all three. It writes `requirements.lock`, which you commit. A build downloads only what the lock names and checks each hash. Leave `versions`, `lock` and `wheels` out of the `[python]` table: the builder fills them.
 6. Build and check it:
 
    ```sh
