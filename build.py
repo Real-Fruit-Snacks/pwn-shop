@@ -63,7 +63,7 @@ RESERVED_ENV = ("data", "box", "run", "pid")
 RESERVED_COMMANDS = (
     "sh", "bash", "dash", "zsh", "fish", "sudo", "su", "doas", "env", "python", "python3", "pip",
     "pip3", "sed", "cut", "mkdir", "kill", "cat", "rm", "ls", "cp", "mv", "ln", "tar", "vim", "vi",
-    "pwn-broker",
+    "pwn-broker", "record", "asciinema", "openvpn", "ping", "ip",
 )  # fmt: skip
 # folders other programs own, which a tool may not claim as its own data
 HOME_TREES = (".ssh", ".gnupg")

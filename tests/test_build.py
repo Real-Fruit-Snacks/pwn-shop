@@ -1544,8 +1544,14 @@ def test_validate_refuses_a_newline_or_nul_in_a_script_or_entry(tmp_path, bad):
 
 RESERVED = (
     "sh bash dash zsh fish sudo su doas env python python3 pip pip3 sed cut mkdir kill "
-    "cat rm ls cp mv ln tar vim vi pwn-broker"
+    "cat rm ls cp mv ln tar vim vi pwn-broker record asciinema openvpn ping ip"
 ).split()
+
+
+def test_reserved_commands_equal_the_apps_list():
+    # a literal copy of pwn-broker's toolpkg.RESERVED_COMMANDS
+    assert set(build.RESERVED_COMMANDS) == set(RESERVED)
+    assert len(build.RESERVED_COMMANDS) == len(set(build.RESERVED_COMMANDS))
 
 
 @pytest.mark.parametrize("name", RESERVED)
