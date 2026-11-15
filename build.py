@@ -338,7 +338,10 @@ def _required_series(recipes: Path, wanted: str, who: str) -> str:
     folder = recipes / wanted
     if not (folder / "recipe.toml").is_file():
         raise BuildError(f"{who}: requires {wanted}, but {recipes} has no recipe for it")
-    manifest = _read_toml(folder / MANIFEST)
+    try:
+        manifest = _read_toml(folder / MANIFEST)
+    except BuildError as exc:
+        raise BuildError(f"{who}: requires {wanted}: {exc}") from exc
     if manifest.get("kind") != "runtime":
         raise BuildError(f"{who}: requires {wanted}, which is not a runtime")
     try:

@@ -2060,6 +2060,20 @@ def test_a_required_runtime_with_a_bad_runtime_table_is_named(tmp_path, net):
         build.load_recipe(folder)
 
 
+@pytest.mark.parametrize("damage", ["missing", "not toml"])
+def test_a_required_runtime_whose_manifest_cannot_be_read_names_the_tool(tmp_path, net, damage):
+    folder = requiring(tmp_path, net, ["python-3.13"])
+    manifest = tmp_path / "recipes" / "python-3.13" / "manifest.toml"
+    if damage == "missing":
+        manifest.unlink()
+    else:
+        manifest.write_text("kind = [runtime", encoding="utf-8")
+    with pytest.raises(build.BuildError) as err:
+        build.load_recipe(folder)
+    assert str(err.value).startswith("tinytool: requires python-3.13: ")
+    assert "manifest.toml" in str(err.value)
+
+
 def test_a_stated_schema_must_agree_with_what_the_recipe_is(tmp_path, net):
     with pytest.raises(build.BuildError, match="a schema 1 package cannot require anything"):
         build.load_recipe(requiring(tmp_path, net, ["python-3.13"], schema=1))
