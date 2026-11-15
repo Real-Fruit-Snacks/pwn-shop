@@ -1,6 +1,7 @@
 """Checks on the committed recipes that need no network and no build."""
 
 import re
+import shutil
 from pathlib import Path
 
 import pytest
@@ -65,3 +66,115 @@ def test_no_two_recipes_share_a_command():
         for command in recipe.manifest.get("command", []):
             assert command["name"] not in seen, f"{recipe.name} and {seen[command['name']]}"
             seen[command["name"]] = recipe.name
+
+
+# ---- file names and lock lines
+
+_HASH = r"--hash=sha256:[0-9a-f]{64}"
+_LOCK_LINE = re.compile(rf"[A-Za-z0-9][A-Za-z0-9._-]*==[A-Za-z0-9][A-Za-z0-9.!+_-]*(?: {_HASH})+")
+
+
+def unsourced_files(recipe) -> set[str]:
+    """Files the manifest names that no source of the recipe puts in the package."""
+    manifest, _ = build._python_manifest(recipe)
+    named, _wheels, _lock = build._check_manifest(manifest)
+    return set(named) - {s.to for s in recipe.sources}
+
+
+def lock_problems(lock: Path, build_from_source: list[str]) -> list[str]:
+    problems = []
+    logical, current = [], ""
+    for raw in lock.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.endswith("\\"):
+            current += line[:-1].strip() + " "
+            continue
+        logical.append((current + line).strip())
+        current = ""
+    if current.strip():
+        logical.append(current.strip())
+    pinned = set()
+    for line in logical:
+        if line.startswith("-"):
+            problems.append(f"option line: {line[:40]}")
+        elif ";" in line:
+            problems.append(f"environment marker: {line[:40]}")
+        elif not _LOCK_LINE.fullmatch(line):
+            problems.append(f"not name==version with sha256 hashes: {line[:40]}")
+        else:
+            pinned.add(build._norm_name(line.split("==")[0]))
+    if not pinned:
+        problems.append("pins nothing")
+    problems += [f"build_from_source {n} is not pinned" for n in build_from_source if n not in pinned]
+    return problems
+
+
+def test_manifest_files_come_from_sources(loaded):
+    assert unsourced_files(loaded) == set()
+
+
+def test_lock_lines_are_plain_hashed_pins(loaded):
+    lock = loaded.folder / build.REQUIREMENTS_LOCK
+    if "python" in loaded.manifest or lock.exists():
+        assert lock_problems(lock, loaded.build_from_source) == []
+
+
+def copy_recipe(name: str, dest: Path) -> Path:
+    shutil.copytree(RECIPES / name, dest / name)
+    return dest / name
+
+
+def test_unsourced_command_path_is_caught(tmp_path):
+    folder = copy_recipe("kerbrute", tmp_path)
+    manifest = folder / "manifest.toml"
+    manifest.write_text(
+        manifest.read_text().replace("files/kerbrute_linux_amd64", "files/kerbrute"), encoding="utf-8"
+    )
+    assert unsourced_files(build.load_recipe(folder)) == {"files/kerbrute"}
+
+
+def test_unsourced_upload_path_is_caught(tmp_path):
+    folder = copy_recipe("pspy", tmp_path)
+    manifest = folder / "manifest.toml"
+    manifest.write_text(manifest.read_text().replace('"files/pspy32s"', '"files/other"'), encoding="utf-8")
+    assert unsourced_files(build.load_recipe(folder)) == {"files/other"}
+
+
+def test_unsourced_script_is_caught(tmp_path):
+    folder = copy_recipe("targetedkerberoast", tmp_path)
+    manifest = folder / "manifest.toml"
+    manifest.write_text(
+        manifest.read_text().replace('script = "files/targetedKerberoast.py"', 'script = "files/x.py"'),
+        encoding="utf-8",
+    )
+    assert unsourced_files(build.load_recipe(folder)) == {"files/x.py"}
+
+
+def broken_lock(tmp_path, edit):
+    folder = copy_recipe("certipy", tmp_path)
+    lock = folder / build.REQUIREMENTS_LOCK
+    lines = lock.read_text(encoding="utf-8").splitlines()
+    lock.write_text("\n".join(edit(lines)) + "\n", encoding="utf-8")
+    return lock
+
+
+def test_lock_marker_is_caught(tmp_path):
+    lock = broken_lock(tmp_path, lambda ls: [ls[0].replace("\\", "; sys_platform == 'win32' \\", 1), *ls[1:]])
+    assert any("environment marker" in p for p in lock_problems(lock, []))
+
+
+def test_lock_pin_without_hash_is_caught(tmp_path):
+    lock = broken_lock(tmp_path, lambda ls: [*ls, "extra==1.0"])
+    assert any("sha256" in p for p in lock_problems(lock, []))
+
+
+def test_lock_option_line_is_caught(tmp_path):
+    lock = broken_lock(tmp_path, lambda ls: ["--index-url https://example.invalid/simple", *ls])
+    assert any("option line" in p for p in lock_problems(lock, []))
+
+
+def test_lock_unpinned_source_build_is_caught(tmp_path):
+    lock = broken_lock(tmp_path, lambda ls: ls)
+    assert lock_problems(lock, ["nothere"]) == ["build_from_source nothere is not pinned"]
