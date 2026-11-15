@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/Real-Fruit-Snacks/pwn-shop/security/advisories/new
+    about: Anything that gets a package past pwn-broker's checks, puts different files under a published tag, or touches fetch.sh's hash check goes here, not in a public issue
+  - name: pwn-broker
+    url: https://github.com/Real-Fruit-Snacks/pwn-broker/issues
+    about: The app itself (the prompt, boxes, tool install and remove) is reported there
+  - name: Hack The Box support
+    url: https://help.hackthebox.com/
+    about: Hack The Box itself (accounts, machines, the platform)

@@ -1,0 +1,216 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # A push is never cancelled: a later push must not stop an earlier one half way through
+  # publishing. Only a pull request run gives way to a newer one.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  lint:
+    # fetch.sh runs on a machine with nothing but sh, so it is read by sh and dash as well as
+    # shellcheck; the two Python files are only compiled here (the tests and the packages
+    # job run them).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Syntax
+        run: |
+          sh -n fetch.sh
+          dash -n fetch.sh
+      - name: shellcheck
+        run: shellcheck fetch.sh
+      - name: Compile
+        run: python -m py_compile build.py .github/scripts/install-check.py
+
+  test:
+    # The unit tests need no network and no pwn-broker. build.py needs 3.11 or later.
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: python -m pip install pytest tomli-w
+      - name: Tests
+        run: python -m pytest -q -W error
+
+  packages:
+    # Both Pythons build or download every package and install it with pwn-broker's own code.
+    # Nothing in the build proves that a Python tool's lock is its whole dependency set; the
+    # install, which uses no index, does.
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: python -m pip install tomli-w
+      - name: Build or download each package
+        # A build that has a release is tested from the published bytes, so CI and a user never
+        # see different files under one tag. It is still built again, into fresh/, and the
+        # card of that build must equal the published card: a recipe that changed without its
+        # build number going up fails here.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p dist fresh
+          python build.py plan > plan.txt
+          gh release list --limit 1000 --json tagName --jq '.[].tagName' > releases.txt
+          to_build=()
+          published=()
+          while read -r tool tag file; do
+            if grep -Fxq -- "$tag" releases.txt; then
+              card="${file%.zip}.toml"
+              gh release download "$tag" --dir dist --pattern "$file" --pattern "$card" </dev/null
+              want="$(sed -n 's/^sha256 = "\(.*\)"$/\1/p' "dist/$card")"
+              echo "$want  dist/$file" | sha256sum -c -
+              published+=("$tool")
+              echo "$tool $card" >> published.txt
+              echo "ok    $tag is published; testing the published zip"
+            else
+              to_build+=("$tool")
+              echo "ok    $tag has no release; building it"
+            fi
+          done < plan.txt
+          if [ "${#to_build[@]}" -gt 0 ]; then
+            python build.py build "${to_build[@]}" --out dist
+          fi
+          if [ "${#published[@]}" -gt 0 ]; then
+            python build.py build "${published[@]}" --out fresh
+            while read -r tool card; do
+              python build.py compare "fresh/$card" "dist/$card" </dev/null
+            done < published.txt
+          fi
+          python build.py index dist --out dist/index.toml
+      - name: Check
+        run: python build.py check
+      - name: Check out pwn-broker
+        # pwn-broker is private for now. The key is read-only and used by this step alone.
+        uses: actions/checkout@v5
+        with:
+          repository: Real-Fruit-Snacks/pwn-broker
+          ref: ${{ vars.PWN_BROKER_REF || 'main' }}
+          ssh-key: ${{ secrets.PWN_BROKER_DEPLOY_KEY }}
+          path: pwn-broker
+          persist-credentials: false
+      - name: Install pwn-broker
+        run: |
+          python -m venv "$RUNNER_TEMP/broker"
+          "$RUNNER_TEMP/broker/bin/python" -m pip install --quiet ./pwn-broker
+      - name: Install each package and start its commands
+        run: '"$RUNNER_TEMP/broker/bin/python" .github/scripts/install-check.py dist'
+      - name: Keep the packages for publish
+        # One leg's files are published. Wheels for both Pythons are collected whichever
+        # Python runs the build, and the zip is built the same way on both.
+        if: matrix.python == '3.13'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    # Main only, after the tests and the install check. It uploads what the packages job
+    # installed, not a second build. Two pushes queue; neither cancels the other.
+    needs: [test, packages]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: publish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install
+        run: python -m pip install tomli-w
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Check each zip against its card
+        run: |
+          for zip in dist/*.zip; do
+            want="$(sed -n 's/^sha256 = "\(.*\)"$/\1/p' "${zip%.zip}.toml")"
+            echo "$want  $zip" | sha256sum -c -
+          done
+      - name: Publish each build that has no release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          python build.py plan > plan.txt
+          gh release list --limit 1000 --json tagName --jq '.[].tagName' > releases.txt
+          while read -r tool tag file; do
+            if grep -Fxq -- "$tag" releases.txt; then
+              echo "ok    $tag is already published"
+              continue
+            fi
+            card="${file%.zip}.toml"
+            python build.py notes "dist/$card" > "notes-$tool.txt"
+            gh release create "$tag" "dist/$file" "dist/sums/$tag/SHA256SUMS.txt" "dist/$card" \
+              --title "$tag" --notes-file "notes-$tool.txt" --target "$COMMIT" --latest=false </dev/null
+            echo "ok    published $tag"
+          done < plan.txt
+      - name: Replace the index
+        # The index is rebuilt from the card of every release, so a withdrawn build (a deleted
+        # release) drops out of it. The index release is made once and never marked latest.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT: ${{ github.sha }}
+          BASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/download/{tag}/{file}
+        run: |
+          gh release list --limit 1000 --json tagName --jq '.[].tagName' > releases.txt
+          mkdir cards
+          while read -r tag; do
+            if [ "$tag" != index ]; then
+              gh release download "$tag" --dir cards --pattern '*.toml' </dev/null
+            fi
+          done < releases.txt
+          python build.py index cards --base-url "$BASE_URL" --out index.toml
+          if ! grep -Fxq index releases.txt; then
+            gh release create index --title index --target "$COMMIT" --latest=false \
+              --notes "The index of the published packages. CI replaces index.toml here after each publish." </dev/null
+          fi
+          gh release upload index index.toml --clobber

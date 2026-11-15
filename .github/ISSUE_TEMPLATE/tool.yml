@@ -1,0 +1,40 @@
+name: Tool
+description: Ask for a tool to be packaged
+labels: [tool]
+body:
+  - type: input
+    id: name
+    attributes:
+      label: Name
+      description: Lower-case letters, digits and hyphens
+      placeholder: chisel
+    validations:
+      required: true
+  - type: input
+    id: upstream
+    attributes:
+      label: Upstream URL
+      description: Where its releases are published
+      placeholder: https://github.com/jpillora/chisel
+    validations:
+      required: true
+  - type: input
+    id: licence
+    attributes:
+      label: Licence
+      description: The upstream licence, as upstream states it. A licence that does not allow redistribution rules the tool out.
+      placeholder: MIT
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why Kali's copy is not enough
+      description: Not packaged by Kali, too old, or you need a pinned version. If Kali's copy does the job, use that.
+    validations:
+      required: true
+  - type: textarea
+    id: shape
+    attributes:
+      label: What you would run
+      description: The command, or the files you carry to a target. Optional.

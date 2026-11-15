@@ -921,6 +921,47 @@ def write_index_from_cards(folder: Path, out: Path, *, base_url: str | None) -> 
     return out
 
 
+# ---- publishing helpers (CI)
+
+
+def has_bundled_wheels(recipe: Recipe) -> bool:
+    return "python" in recipe.manifest
+
+
+def card_changes(built: dict, published: dict, *, ignore: tuple[str, ...] = ()) -> list[str]:
+    keys = sorted((set(built) | set(published)) - set(ignore))
+    return [k for k in keys if built.get(k) != published.get(k)]
+
+
+def compare_cards(built: Path, published: Path, recipe: Recipe) -> None:
+    # a package with bundled wheels may differ in size and hash between two builds, since the
+    # wheels come from the index at build time; every other field must be the same
+    ignore = ("size", "sha256") if has_bundled_wheels(recipe) else ()
+    changed = card_changes(_read_card(built), _read_card(published), ignore=ignore)
+    if changed:
+        raise BuildError(
+            f"{recipe.name} {recipe.version}-{recipe.build} differs from its published build "
+            f"in {', '.join(changed)}; raise build in recipes/{recipe.folder.name}/recipe.toml, "
+            "because a published build is never replaced"
+        )
+
+
+def release_notes(card: dict) -> str:
+    return (
+        f"{card['name']} {card['version']}, build {card['build']}\n"
+        "\n"
+        f"{card['description']}\n"
+        "\n"
+        f"Upstream: {card['upstream']}\n"
+        f"Licence: {card['licence']}\n"
+        f"Package: {card['file']} ({card['size']} bytes)\n"
+        f"SHA-256: {card['sha256']}\n"
+        "\n"
+        "Built from the upstream files pinned in the recipe. pwn-broker checks the SHA-256 "
+        "above before it installs the package.\n"
+    )
+
+
 # ---- validation (the checks of pwn-broker's toolpkg.parse_manifest and unpack)
 
 
@@ -1189,6 +1230,14 @@ def main(argv: list[str] | None = None, *, run: Run = subprocess.run) -> int:
         p.add_argument("--out", default="dist")
         p.add_argument("--recipes", default="recipes")
         p.add_argument("--cache", default=".cache")
+    p = sub.add_parser("plan")
+    p.add_argument("--recipes", default="recipes")
+    p = sub.add_parser("compare")
+    p.add_argument("built")
+    p.add_argument("published")
+    p.add_argument("--recipes", default="recipes")
+    p = sub.add_parser("notes")
+    p.add_argument("card")
     p = sub.add_parser("index")
     p.add_argument("cards")
     p.add_argument("--base-url", default=None)
@@ -1198,6 +1247,20 @@ def main(argv: list[str] | None = None, *, run: Run = subprocess.run) -> int:
         if args.cmd == "index":
             path = write_index_from_cards(Path(args.cards), Path(args.out), base_url=args.base_url)
             print(f"ok wrote {path}")
+        elif args.cmd == "plan":
+            folders = _recipe_folders(Path(args.recipes), [])
+            if not folders:
+                raise BuildError(f"no recipes in {args.recipes}")
+            for folder in folders:
+                recipe = load_recipe(folder)
+                print(recipe.name, tag(recipe), zip_name(recipe.name, recipe.version, recipe.build))
+        elif args.cmd == "compare":
+            name = _read_card(Path(args.built))["name"]
+            recipe = load_recipe(_recipe_folders(Path(args.recipes), [name])[0])
+            compare_cards(Path(args.built), Path(args.published), recipe)
+            print(f"ok {recipe.name} {recipe.version}-{recipe.build} matches its published build")
+        elif args.cmd == "notes":
+            sys.stdout.write(release_notes(_read_card(Path(args.card))))
         elif args.cmd == "build":
             out, cache = Path(args.out), Path(args.cache)
             for folder in _recipe_folders(Path(args.recipes), args.tool):
