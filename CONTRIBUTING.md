@@ -16,11 +16,11 @@ python3 -m venv .venv
 .venv/bin/python -m pytest -q -W error
 ```
 
-The tests need no network and do not import pwn-broker. CI runs them on Python 3.11, 3.12, 3.13 and 3.14, checks `fetch.sh` with `sh -n`, `dash -n` and `shellcheck`, then builds every package and installs it with pwn-broker's own code. Build on Linux. Antivirus on a Windows machine removes several upstream files while a build runs.
+The tests need no network and do not import pwn-broker. CI runs them on Python 3.11, 3.12, 3.13 and 3.14, checks `fetch.sh` and `.github/scripts/kali-packages.sh` with `sh -n`, `dash -n` and `shellcheck`, then builds every package and installs it with pwn-broker's own code: on Ubuntu, and then inside the Kali image with the container's network off. Nothing is published until both pass. Build on Linux. Antivirus on a Windows machine removes several upstream files while a build runs.
 
 ## Adding a tool
 
-1. Make `recipes/<name>/`. The name is lower-case letters, digits and hyphens, and the folder name is the tool's name.
+1. Make `recipes/<name>/`. The name is lower-case letters, digits, hyphens and dots, starting with a letter or digit, with no two dots together and none at the end, and the folder name is the tool's name.
 2. Write `recipe.toml`: the upstream version, your build number, and one `[[source]]` for each upstream file.
 
    ```toml
@@ -37,13 +37,13 @@ The tests need no network and do not import pwn-broker. CI runs them on Python 3
    Download the file once, and take its size and hash from the file: `wc -c < file` and `sha256sum file`. If upstream publishes checksums, compare them, and say in a comment when it does not. A source may be a bare file, or one member of a `tar.gz` or `zip` (`member = "proxy"`). A tool with no releases is pinned to a full commit hash in the URL, and its version is the commit's date.
 3. Copy the upstream licence text, unchanged, to `LICENSE`.
 4. Write `manifest.toml`: the manifest that goes into the package (see below).
-5. For a Python tool, list the tool and its direct dependencies in `requirements.in`, then pin everything:
+5. For a Python tool, name the runtime it runs on in `manifest.toml`, with `schema = 2`, `requires = ["python-3.13"]` and an empty `[python]` table. List the tool and its direct dependencies in `requirements.in`, then pin everything:
 
    ```sh
    python build.py lock <name>
    ```
 
-   This needs `uv`. It resolves the dependencies once for each Python the wheels cover (3.12, 3.13 and 3.14), and they must come out the same on all three. If they do not, it names each dependency that differs and what each Python resolved it to; pin that one in `requirements.in` to a version that has a wheel for all three. It writes `requirements.lock`, which you commit. A build downloads only what the lock names and checks each hash. Leave `versions`, `lock` and `wheels` out of the `[python]` table: the builder fills them.
+   This needs `uv`. It resolves the dependencies once, for the runtime's Python series on x86_64 Linux, and writes `requirements.lock`, which you commit. A build downloads only what the lock names, checks each hash, and refuses a wheel that does not fit that series. Leave `lock` and `wheels` out of the `[python]` table: the builder fills them. There is no `versions` key any more; `build` refuses a recipe that has one.
 6. Build and check it:
 
    ```sh
@@ -52,7 +52,21 @@ The tests need no network and do not import pwn-broker. CI runs them on Python 3
    ```
 
    `build` writes `dist/<name>-<version>-<build>.zip`, its card and its sums. `check` reads the recipe and every zip in `dist/` against pwn-broker's package rules.
-7. Add the tool to the table in `README.md` and a line to `CHANGELOG.md`, and open a pull request. CI builds it, installs it with pwn-broker and starts every command.
+7. Add the tool to the table in `README.md` and a line to `CHANGELOG.md`, and open a pull request. CI builds it, installs it with pwn-broker, after its runtime, and starts every command, on Ubuntu and then in Kali with the network off.
+
+## Adding a runtime
+
+A runtime is a Python for the tools that require it, named for its series: `python-3.13`. Its recipe has one `[[source]]`: python-build-standalone's `install_only_stripped` archive for `x86_64-unknown-linux-gnu`, pinned by size and SHA-256 (compare the hash with the release's `SHA256SUMS`) and carried whole to `files/python.tar.gz`, with no `member`. Its manifest is `schema = 2` and `kind = "runtime"` with a `[runtime]` table: `archive`, the path of the archive in the package; `python`, the interpreter inside the unpacked archive; and `series`, the Python the requiring tools' wheels are built for. It has no `[[command]]`, `[[upload]]`, `[data]` or `[python]`, and requires nothing. See `recipes/python-3.13/`.
+
+The stripped archive has none of the licences of the libraries it bundles. Download the `pgo+lto-full` distribution of the same CPython from the same release, check it against `SHA256SUMS`, and write `LICENSE` from the two archives:
+
+```sh
+python tools/runtime-licence.py <stripped archive> <full distribution> > recipes/<name>/LICENSE
+```
+
+The full distribution is a `.tar.zst`, so this needs the `zstandard` package; give it the file under its upstream name, which the headings quote. It only reads the archives. Name the full distribution and its SHA-256 in a comment in `recipe.toml`.
+
+A tool moves to a new runtime by naming it in `requires` and raising its `build`.
 
 ## Changing a tool
 
@@ -65,12 +79,14 @@ A build is withdrawn by deleting its release and its git tag. Then either raise 
 `python build.py check` enforces these, using the same rules as pwn-broker. The ones that catch people:
 
 - `name`, `version` and `build` may be left out of `manifest.toml`; the recipe supplies them. If you write them they must equal the recipe's. A version has no slash, backslash, colon or space.
-- `kind` is `kali`, `upload` or `both`. A `kali` package needs a `[[command]]` and no `[[upload]]`. An `upload` package needs an `[[upload]]` and no `[[command]]`. `both` needs one of each.
+- `kind` is `kali`, `upload`, `both` or `runtime`. A `kali` package needs a `[[command]]` and no `[[upload]]`. An `upload` package needs an `[[upload]]` and no `[[command]]`. `both` needs one of each. A `runtime` has neither (see above).
+- `schema` is 2 for a runtime and for a tool that requires one, and 1 for everything else; the builder works it out, and a `schema` you write must agree. A schema 1 package cannot have `requires` or be a runtime.
+- `requires` is a list of runtime names. A Python tool names exactly one; a tool that is not Python names none. A name may not repeat, may not be the tool's own, and must be a runtime with a recipe beside this one.
 - `description`, `upstream`, `licence` and `arch` are required and not empty. `arch` must be `x86_64`, because pwn-broker refuses a package for another processor, and `check` refuses anything else.
 - Every path (`path`, `script`, the recipe's `to`) is relative, starts with `files/`, names a file and has no `..`, no backslash and no drive letter.
 - A command's `name` starts with a letter or digit and holds only letters, digits, `.`, `_` and `-`. No two commands in one package share a name, and no two tools share one. A command may not be named `sh bash dash zsh fish sudo su doas env python python3 pip pip3 sed cut mkdir kill cat rm ls cp mv ln tar vim vi` or `pwn-broker`, since its launcher would shadow a system command.
 - A command's `type` is `binary` (with `path`), `python-script` (with `script`) or `python-entry` (with `entry`, a plain console-script name). `env` is a table of strings whose names match `[A-Za-z_][A-Za-z0-9_]*` and are not `data`, `box`, `run` or `pid`, and `args` is a list of strings. No `args` or `env` value, and no path, holds a newline or NUL. `{data}` in either stands for the box's `tooldata/<tool>/` folder.
-- A `python-script` or `python-entry` command needs a `[python]` table, and a `[python]` table is only for a package that has one.
+- A `python-script` or `python-entry` command needs a `[python]` table, and a `[python]` table is only for a package that has one. A package with either kind of command is a Python tool.
 - An `[[upload]]`'s `as` is a plain file name with no slash, and no two uploads share one.
 - Every file the manifest names must be in the package, so it must be some source's `to`. Two sources cannot share a `to`, even in a different case.
 - A `member` must match exactly one regular file in its archive. A link or a directory is refused.
