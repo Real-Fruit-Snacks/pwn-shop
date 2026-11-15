@@ -74,6 +74,10 @@ def test_manifest_text_for_the_user(loaded):
     m = loaded.manifest
     assert not re.search(r"[!\u2600-\U0001faff]", m["description"])
     assert m["description"][0].isupper() and not m["description"].endswith(".")
+    if m["kind"] == "runtime":
+        # a runtime is never listed, searched or run, so it has no tags and no examples
+        assert "tags" not in m and "examples" not in m
+        return
     assert m["tags"] and all(re.fullmatch(r"[a-z0-9]+", t) for t in m["tags"])
     assert 2 <= len(m["examples"]) <= 3
     for example in m["examples"]:
