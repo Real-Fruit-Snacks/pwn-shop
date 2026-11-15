@@ -1,0 +1,19 @@
+schema = 1
+kind = "kali"
+description = "Active Directory certificate services enumeration and abuse"
+tags = ["ad", "adcs", "certificates", "enum", "privesc"]
+upstream = "https://github.com/ly4k/Certipy"
+licence = "MIT"
+arch = "x86_64"
+examples = [
+  "certipy find -u user@{domain} -p 'password' -dc-ip {ip} -vulnerable -stdout",
+  "certipy req -u user@{domain} -p 'password' -dc-ip {ip} -target {hostname} -ca CA-NAME -template User",
+  "certipy auth -pfx administrator.pfx -dc-ip {ip}",
+]
+
+[[command]]
+name = "certipy"
+type = "python-entry"
+entry = "certipy"
+
+[python]

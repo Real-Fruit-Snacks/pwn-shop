@@ -1,0 +1,19 @@
+schema = 1
+kind = "kali"
+description = "Kerberoasting that sets a temporary SPN on accounts that have none"
+tags = ["ad", "kerberos", "kerberoast", "enum"]
+upstream = "https://github.com/ShutdownRepo/targetedKerberoast"
+licence = "GPL-3.0"
+arch = "x86_64"
+examples = [
+  "targetedKerberoast -d {domain} -u user -p 'password' --dc-ip {ip}",
+  "targetedKerberoast -d {domain} -u user -p 'password' --dc-ip {ip} --request-user svc_sql -o hashes.txt",
+  "targetedKerberoast -d {domain} -u user -H :NTHASH --dc-ip {ip} --only-abuse",
+]
+
+[[command]]
+name = "targetedKerberoast"
+type = "python-script"
+script = "files/targetedKerberoast.py"
+
+[python]
