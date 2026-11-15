@@ -95,6 +95,14 @@ class BuildError(Exception):
     pass
 
 
+class MissingRuntime(BuildError):
+    """A build requires a runtime that is not among the cards the index is made from."""
+
+    def __init__(self, message: str, wanted: str):
+        super().__init__(message)
+        self.wanted = wanted
+
+
 class FetchError(BuildError):
     """An upstream file could not be fetched, or is not the file the recipe pins.
 
@@ -1071,7 +1079,9 @@ def build_index(cards: list[dict], *, base_url: str | None) -> dict:
     runtimes = {name for name, rows in grouped.items() if rows[0]["kind"] == "runtime"}
     for name, build_id, wanted in needs:
         if wanted not in grouped:
-            raise BuildError(f"{name} {build_id}: requires {wanted}, which is not in the index")
+            raise MissingRuntime(
+                f"{name} {build_id}: requires {wanted}, which is not in the index", wanted
+            )
         if wanted not in runtimes:
             raise BuildError(f"{name} {build_id}: requires {wanted}, which is not a runtime")
     return {"schema": schema, "tool": tools}
@@ -1648,6 +1658,9 @@ def main(argv: list[str] | None = None, *, run: Run = subprocess.run) -> int:
         p.add_argument("--out", default="dist")
         p.add_argument("--recipes", default="recipes")
         p.add_argument("--cache", default=".cache")
+        if name == "build":
+            # for a tool built alone, as CI rebuilds a published one: its runtime is not in --out
+            p.add_argument("--skip-index", action="store_true")
     p = sub.add_parser("plan")
     p.add_argument("--recipes", default="recipes")
     p = sub.add_parser("compare")
@@ -1692,8 +1705,15 @@ def main(argv: list[str] | None = None, *, run: Run = subprocess.run) -> int:
             for folder in _recipe_folders(Path(args.recipes), args.tool):
                 zip_path = build_one(load_recipe(folder), out, cache, run=run)
                 print(f"ok built {zip_path}")
-            write_index_from_cards(out, out / INDEX, base_url=None)
-            print(f"ok wrote {out / INDEX}")
+            if not args.skip_index:
+                try:
+                    write_index_from_cards(out, out / INDEX, base_url=None)
+                except MissingRuntime as exc:
+                    raise BuildError(
+                        f"{exc}. {out / INDEX} was not written: build {exc.wanted} into {out} "
+                        "as well, or pass --skip-index"
+                    ) from exc
+                print(f"ok wrote {out / INDEX}")
         elif args.cmd == "check":
             for folder in _recipe_folders(Path(args.recipes), args.tool):
                 recipe = load_recipe(folder)

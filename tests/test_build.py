@@ -2201,6 +2201,55 @@ def test_build_check_and_plan_handle_a_runtime_and_its_tool(tmp_path, net, monke
     ]
 
 
+def _tinytool_alone(tmp_path, net, monkeypatch):
+    """A tool on a runtime, built by name into a folder that does not hold the runtime."""
+    tool = pure("tinytool", "1.0")
+    make_python_recipe(tmp_path / "recipes" / "tinytool", net, [("tinytool", "1.0", [tool[1]])])
+    monkeypatch.setattr(build, "fetch", net)
+    fake = FakeTools(downloads={("3.13", "tinytool"): [tool]})
+    out = tmp_path / "fresh"
+    argv = ["build", "tinytool", "--recipes", str(tmp_path / "recipes"), "--out", str(out),
+            "--cache", str(tmp_path / "c")]
+    return argv, fake, out
+
+
+def test_skip_index_builds_a_tool_without_its_runtime(tmp_path, net, monkeypatch, capsys):
+    # CI rebuilds each published package alone, to compare it with the published one
+    argv, fake, out = _tinytool_alone(tmp_path, net, monkeypatch)
+    assert build.main([*argv, "--skip-index"], run=fake) == 0
+    assert (out / "tinytool-1.0.3-1.zip").is_file() and (out / "tinytool-1.0.3-1.toml").is_file()
+    assert not (out / "index.toml").exists()
+    captured = capsys.readouterr()
+    assert captured.out.splitlines() == [f"ok built {out / 'tinytool-1.0.3-1.zip'}"]
+    assert captured.err == ""
+
+
+def test_a_tool_built_without_its_runtime_says_how_to_finish_the_folder(
+    tmp_path, net, monkeypatch, capsys
+):
+    argv, fake, out = _tinytool_alone(tmp_path, net, monkeypatch)
+    assert build.main(argv, run=fake) == 1
+    captured = capsys.readouterr()
+    assert captured.out.splitlines() == [f"ok built {out / 'tinytool-1.0.3-1.zip'}"]
+    assert captured.err == (
+        "fail tinytool 1.0.3-1: requires python-3.13, which is not in the index. "
+        f"{out / 'index.toml'} was not written: build python-3.13 into {out} as well, "
+        "or pass --skip-index\n"
+    )
+    assert (out / "tinytool-1.0.3-1.zip").is_file()
+    assert not (out / "index.toml").exists()
+
+
+def test_the_index_command_gives_no_build_advice_for_a_missing_runtime(tmp_path, capsys):
+    (tmp_path / "kerbrute-1.0.3-1.toml").write_text(
+        tomli_w.dumps({**cardf(), "requires": ["python-3.13"]})
+    )
+    assert build.main(["index", str(tmp_path), "--out", str(tmp_path / "index.toml")]) == 1
+    assert capsys.readouterr().err == (
+        "fail kerbrute 1.0.3-1: requires python-3.13, which is not in the index\n"
+    )
+
+
 def test_lock_with_no_names_skips_a_runtime(tmp_path, net, capsys):
     make_python_recipe(tmp_path / "recipes" / "tinytool", net, [], lock=False)
     fake = FakeTools(uv={"3.13": UV_LOCK})

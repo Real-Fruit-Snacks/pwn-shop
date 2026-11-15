@@ -51,7 +51,7 @@ The tests need no network and do not import pwn-broker. CI runs them on Python 3
    python build.py check <name>
    ```
 
-   `build` writes `dist/<name>-<version>-<build>.zip`, its card and its sums. `check` reads the recipe and every zip in `dist/` against pwn-broker's package rules.
+   `build` writes `dist/<name>-<version>-<build>.zip`, its card and its sums, then `dist/index.toml`. An index is refused if a tool in it requires a runtime that is not there, so for a Python tool name its runtime too, unless `dist/` already holds it: `python build.py build <name> python-3.13`. `check` reads the recipe and every zip in `dist/` against pwn-broker's package rules.
 7. Add the tool to the table in `README.md` and a line to `CHANGELOG.md`, and open a pull request. CI builds it, installs it with pwn-broker, after its runtime, and starts every command, on Ubuntu and then in Kali with the network off.
 
 ## Adding a runtime

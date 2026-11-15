@@ -93,10 +93,11 @@ jobs:
         # A build that has a release is tested from the published bytes, so CI and a user never
         # see different files under one tag. It is still built again, into fresh/, one tool at
         # a time, and the card of that build must equal the published card: a recipe that
-        # changed without its build number going up fails here. If the rebuild cannot fetch an
-        # upstream file (build.py exits 3), that tool gets a warning and its published zip is
-        # still tested; any other failure, and any difference, fails the job. A build with no
-        # release must build.
+        # changed without its build number going up fails here. --skip-index, because fresh/
+        # is never an index: a tool is rebuilt there without the runtime it requires. If the
+        # rebuild cannot fetch an upstream file (build.py exits 3), that tool gets a warning and
+        # its published zip is still tested; any other failure, and any difference, fails the
+        # job. A build with no release must build.
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -125,7 +126,7 @@ jobs:
           fi
           while read -r tool tag file; do
             card="${file%.zip}.toml"
-            if python build.py build "$tool" --out fresh </dev/null 2> "rebuild-$tool.err"; then
+            if python build.py build "$tool" --out fresh --skip-index </dev/null 2> "rebuild-$tool.err"; then
               status=0
             else
               status=$?
