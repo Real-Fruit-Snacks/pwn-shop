@@ -64,7 +64,7 @@ Kind `kali` puts a command on the machine, `upload` puts files in a folder to ca
 
 This section is updated by hand after each CI run. As of 2026-11-15:
 
-- The unit tests: passed in CI on Ubuntu 24.04 under Python 3.11, 3.12 and 3.13, and on Windows 11 with Python 3.13 (492 passed and 3 skipped; the skips need a POSIX file system), warnings treated as errors.
+- The unit tests: passed in CI on Ubuntu 24.04 under Python 3.11, 3.12 and 3.13, and on Windows 11 with Python 3.13 (494 passed and 3 skipped; the skips need a POSIX file system), warnings treated as errors.
 - All six packages: built by CI on Ubuntu 24.04, passed `build.py check`, and were installed with pwn-broker's own code under Python 3.12 and 3.13, then removed with nothing left behind. `certipy`, `kerbrute`, `ligolo-proxy` and `targetedKerberoast` each answered `--help`. The upload files of `ligolo-ng`, `pspy` and `peass-ng` were present at the right sizes and were not run.
 - `certipy` and `targetedkerberoast` built on Windows 11 with Python 3.13 are byte-identical to the CI builds.
 - Published from that run: one release per package and the `index` release.

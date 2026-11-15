@@ -1352,9 +1352,12 @@ def _check_lock(zf: zipfile.ZipFile, info: zipfile.ZipInfo) -> None:
         text = zf.read(info).decode("utf-8")
     except UnicodeDecodeError as exc:
         raise BuildError(f"{name} is not UTF-8 text ({exc})") from exc
+    if not text:
+        raise BuildError(f"{name} is empty")
+    if not text.endswith("\n"):
+        raise BuildError(f"{name} does not end with a line break")
     lines = text.split("\n")
-    if lines[-1] == "":
-        lines.pop()
+    lines.pop()
     for number, line in enumerate(lines, 1):
         if not _LOCK_LINE.fullmatch(line):
             raise BuildError(

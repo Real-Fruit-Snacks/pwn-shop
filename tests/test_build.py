@@ -377,6 +377,17 @@ def test_validate_python_lock_and_wheels_missing(tmp_path):
         build.validate(pkg(tmp_path, PY_ENTRY, {"wheels.lock": GOOD_LOCK}))
 
 
+@pytest.mark.parametrize(
+    ("lock", "message"),
+    [(b"", "empty"), (GOOD_LOCK.rstrip(b"\n"), "line break")],
+)
+def test_validate_refuses_an_empty_lock_and_one_with_no_final_line_break(tmp_path, lock, message):
+    # pwn-broker refuses both at install, so neither may be published
+    files = {"wheels.lock": lock, "wheels/a.whl": b"w"}
+    with pytest.raises(build.BuildError, match=message):
+        build.validate(pkg(tmp_path, PY_ENTRY, files))
+
+
 def test_validate_python_lock_under_files_refused(tmp_path):
     m = {
         "command": PY_ENTRY["command"],
