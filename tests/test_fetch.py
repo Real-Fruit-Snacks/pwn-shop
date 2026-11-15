@@ -25,6 +25,11 @@ case "$1 $2" in
         [ -z "${FAKE_GH_SIGNED_OUT:-}" ] || exit 1
         exit 0
         ;;
+    "release view")
+        [ -z "${FAKE_GH_SIGNED_OUT:-}" ] || exit 1
+        [ -d "$FAKE_RELEASES/$3" ] || exit 1
+        exit 0
+        ;;
     "release download")
         tag="$3"
         shift 3
@@ -257,7 +262,7 @@ def test_a_corrupt_copy_already_there_is_replaced(tmp_path, shop):
     assert "alpha-v1.0-1 alpha-1.0-1.zip" in calls
 
 
-def test_a_corrupt_copy_is_removed_when_the_download_is_wrong_too(tmp_path, shop):
+def test_a_file_already_there_is_kept_when_the_download_is_wrong_too(tmp_path, shop):
     releases, _, _ = shop
     (releases / "alpha-v1.0-1" / "alpha-1.0-1.zip").write_bytes(b"swapped")
     folder = tmp_path / "packages"
@@ -265,7 +270,21 @@ def test_a_corrupt_copy_is_removed_when_the_download_is_wrong_too(tmp_path, shop
     (folder / "alpha-1.0-1.zip").write_bytes(b"corrupt")
     result, _ = run_fetch(tmp_path, shop, folder)
     assert result.returncode != 0
-    assert not (folder / "alpha-1.0-1.zip").exists()
+    assert (folder / "alpha-1.0-1.zip").read_bytes() == b"corrupt"
+    assert [p.name for p in folder.iterdir() if p.name.startswith(".")] == []
+
+
+def test_stale_work_folders_from_a_killed_run_are_removed(tmp_path, shop):
+    folder = tmp_path / "packages"
+    stale = folder / ".fetch.AbC123"
+    stale.mkdir(parents=True)
+    (stale / "half.zip").write_bytes(b"half")
+    other = folder / ".keep-me"
+    other.mkdir()
+    result, _ = run_fetch(tmp_path, shop, folder)
+    assert result.returncode == 0, result.stderr
+    assert not stale.exists()
+    assert other.is_dir()
 
 
 def test_a_missing_release_fails_without_an_index(tmp_path, shop):
@@ -283,7 +302,18 @@ def test_signed_out_gh_stops_before_touching_the_folder(tmp_path, shop):
     result, calls = run_fetch(tmp_path, shop, folder, signed_out=True)
     assert result.returncode != 0
     assert "gh auth login" in result.stderr
+    assert "you can access the repository" in result.stderr
     assert calls == []
+    assert not folder.exists()
+
+
+def test_an_unreadable_index_release_stops_before_touching_the_folder(tmp_path, shop):
+    releases, _, _ = shop
+    shutil.rmtree(releases / "index")
+    folder = tmp_path / "packages"
+    result, calls = run_fetch(tmp_path, shop, folder)
+    assert result.returncode != 0
+    assert "cannot read the index release" in result.stderr
     assert not folder.exists()
 
 

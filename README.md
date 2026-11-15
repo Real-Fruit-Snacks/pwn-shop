@@ -63,7 +63,7 @@ Kind `kali` puts a command on the machine, `upload` puts files in a folder to ca
 
 This section is updated by hand after each CI run. As of 2026-11-15:
 
-- The unit tests, on Windows 11 with Python 3.13: 321 passed, 2 skipped, with warnings treated as errors. The two skips need a POSIX file system. They run no recipe and install nothing.
+- The unit tests, on Windows 11 with Python 3.13: 358 passed, 2 skipped, with warnings treated as errors. The two skips need a POSIX file system. They run no recipe and install nothing.
 - `certipy` and `targetedkerberoast`: built on a Windows 11 development machine with Python 3.13. The zips pass `build.py check` and pwn-broker's package checks (the size and hash check, the unpack and the manifest reader). They have not been installed.
 - `fetch.sh`: its index parsing and the whole script, with a stand-in `gh`, under `sh` on that machine. `dash -n` and `shellcheck` are clean.
 - *Not* tested: `kerbrute`, `pspy`, `ligolo-ng` and `peass-ng` have recipes with pinned sizes and hashes, but have not been built anywhere. Antivirus on the development machine deletes their upstream files, so CI is the first place they are built and installed.
@@ -80,6 +80,7 @@ This section is updated by hand after each CI run. As of 2026-11-15:
 - Antivirus on a Windows build machine removes several upstream files during a build (`kerbrute`, `pspy`, `ligolo-ng`, `peass-ng` among them). Build on Linux, or let CI do it.
 - Packages are x86_64 only. Python tools carry wheels for Python 3.12 and 3.13 only, and are refused on any other Python.
 - The workflow checks out pwn-broker with a deploy key, so it cannot run on a pull request from a fork.
+- While a new index is uploaded, `index.toml` is briefly missing from the `index` release. `fetch.sh` fails cleanly then; run it again.
 
 ## Configuration
 
@@ -92,7 +93,7 @@ This section is updated by hand after each CI run. As of 2026-11-15:
 
 CI runs on pushes to `main` and on pull requests. On `main` it publishes one GitHub release per new build, tagged `<tool>-v<version>-<build>` and holding the zip, `SHA256SUMS.txt` and a card, then rebuilds the index from every release's card and replaces `index.toml` on the release tagged `index`. Do not turn on immutable releases for this repository: the index file could not be replaced.
 
-Withdrawing a build is deleting its release. The next index leaves it out.
+A build is withdrawn by deleting its release and its git tag. Then either raise `build` in the recipe, which publishes a replacement, or remove the recipe. If neither is done, the next push to `main` builds and publishes that same build again. The index is rebuilt from the releases that exist, so a deleted release leaves the index at the next publish.
 
 ## License
 

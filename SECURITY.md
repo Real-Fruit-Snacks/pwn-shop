@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-The latest published build of each tool. A published build is never changed or replaced; a fix ships as a new build, and a build that should not be used is withdrawn by deleting its release.
+The latest published build of each tool. A published build is never changed or replaced; a fix ships as a new build, and a build that should not be used is withdrawn by deleting its release and its git tag, then raising `build` in the recipe or removing the recipe; otherwise the next push to `main` publishes the same build again.
 
 ## Reporting
 
@@ -17,7 +17,7 @@ This is a one-person project. I read reports within a week. If it's real, the fi
 - Before a package is built, each upstream file is downloaded and refused unless its size and SHA-256 equal the recipe's. A recipe does not follow a "latest" link; it names one file.
 - The finished zip is checked with the same rules pwn-broker applies when it unpacks one: the manifest's schema and fields, every file the manifest names present, nothing compressed, no link or special file, no entry that would land outside the tool's folder, and the zip's name matching the manifest.
 - A Python tool's `requirements.lock` must pin every dependency to one version with the SHA-256 of each upstream file, with no markers, ranges or URLs. Every bundled wheel is checked against the lock, must fit Python 3.12 or 3.13 on x86_64 Linux, and its contents must agree with its name. The package records each bundled wheel in `wheels.lock`.
-- In CI, every package is installed with pwn-broker's own code into a temporary folder under Python 3.12 and 3.13, with no network for the Python tools, and each command is started once. A published build is tested from its published bytes.
+- In CI, every package is installed with pwn-broker's own code into a temporary folder under Python 3.12 and 3.13, with a Python tool's dependencies installed from the bundled wheels with `--no-index`, and each command is started once. A published build is tested from its published bytes.
 - A recipe that changes without its `build` going up fails CI, so a published build cannot quietly differ from its recipe.
 - pwn-broker checks the zip against the size and SHA-256 in the index before it uses it, and installs a Python tool's wheels with `pip --no-index --only-binary :all: --require-hashes`.
 
@@ -29,6 +29,10 @@ This is a one-person project. I read reports within a week. If it's real, the fi
 - A Python dependency listed in a recipe's `build_from_source` is built into a wheel from a hash-checked source archive, but the build requirements of that archive (setuptools and the like) are fetched without hashes, and its build code runs on the build machine. That is why it is opt-in for each recipe. None of the six recipes uses it: all their dependencies come as pinned wheels.
 - A wheel's code is not read. The bundled wheels run no code while they are installed, but the tool will run them when you use it.
 - Licences are copied from upstream and I do not assess them. PEASS-ng's carries terms beyond the GPL; read it before redistributing.
+
+## CI
+
+The workflow reads `pwn-broker` through a read-only deploy key. A pull request from a branch of this repository can change the workflow, and so can read that key, which is why only the owner has write access. Pull requests from forks get no secrets, so their `packages` job fails until `pwn-broker` is public.
 
 ## What counts
 

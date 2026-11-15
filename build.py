@@ -933,11 +933,78 @@ def card_changes(built: dict, published: dict, *, ignore: tuple[str, ...] = ()) 
     return [k for k in keys if built.get(k) != published.get(k)]
 
 
-def compare_cards(built: Path, published: Path, recipe: Recipe) -> None:
+WHEELS_LOCK_LIMIT = 8 * 1024 * 1024
+
+
+def _zip_member(zip_path: Path, name: str, limit: int) -> bytes | None:
+    """The bytes of one named member, or None when the zip has none."""
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            found = [i for i in zf.infolist() if i.filename == name]
+            if len(found) > 1:
+                raise BuildError(f"{zip_path.name}: {name} appears more than once")
+            if not found:
+                return None
+            info = found[0]
+            if info.is_dir():
+                raise BuildError(f"{zip_path.name}: {name} is a folder")
+            if info.file_size > limit:
+                raise BuildError(f"{zip_path.name}: {name} is too large")
+            with zf.open(info) as src:
+                data = src.read(limit + 1)
+            if len(data) > limit:
+                raise BuildError(f"{zip_path.name}: {name} is too large")
+            return data
+    except (zipfile.BadZipFile, OSError) as exc:
+        raise BuildError(f"{zip_path.name}: cannot be read as a zip ({exc})") from exc
+
+
+def _lock_lines(data: bytes, left_out: list[str]) -> list[str]:
+    kept = []
+    for line in data.decode("utf-8", errors="replace").splitlines():
+        if line and _norm_name(line.split("==", 1)[0]) in left_out:
+            continue
+        kept.append(line)
+    return kept
+
+
+def zip_changes(built_zip: Path, published_zip: Path, recipe: Recipe) -> list[str]:
+    """Which of manifest.toml and wheels.lock differ between two zips of one build."""
+    changed = []
+    if _zip_member(built_zip, MANIFEST, MANIFEST_LIMIT) != _zip_member(
+        published_zip, MANIFEST, MANIFEST_LIMIT
+    ):
+        changed.append(MANIFEST)
+    new = _zip_member(built_zip, WHEELS_LOCK, WHEELS_LOCK_LIMIT)
+    old = _zip_member(published_zip, WHEELS_LOCK, WHEELS_LOCK_LIMIT)
+    # the hash of a wheel built from source differs between builds by nature
+    if (new is None) != (old is None) or (
+        new is not None
+        and old is not None
+        and _lock_lines(new, recipe.build_from_source) != _lock_lines(old, recipe.build_from_source)
+    ):
+        changed.append(WHEELS_LOCK)
+    return changed
+
+
+def compare_cards(
+    built: Path,
+    published: Path,
+    recipe: Recipe,
+    built_zip: Path | None = None,
+    published_zip: Path | None = None,
+) -> None:
     # a package with bundled wheels may differ in size and hash between two builds, since the
-    # wheels come from the index at build time; every other field must be the same
-    ignore = ("size", "sha256") if has_bundled_wheels(recipe) else ()
+    # wheels come from the index at build time, so its card cannot show a change to the
+    # manifest or to a pin; the manifest and wheels.lock inside the two zips are compared
+    # instead. Without wheels the card's size and hash already cover the whole zip.
+    wheels = has_bundled_wheels(recipe)
+    ignore = ("size", "sha256") if wheels else ()
     changed = card_changes(_read_card(built), _read_card(published), ignore=ignore)
+    if wheels:
+        if built_zip is None or published_zip is None:
+            raise BuildError(f"{recipe.name}: comparing a package with wheels needs both zips")
+        changed += zip_changes(built_zip, published_zip, recipe)
     if changed:
         raise BuildError(
             f"{recipe.name} {recipe.version}-{recipe.build} differs from its published build "
@@ -946,11 +1013,18 @@ def compare_cards(built: Path, published: Path, recipe: Recipe) -> None:
         )
 
 
+def _fence(text: str) -> str:
+    # a fenced block shows the text literally; the fence is longer than any run of backticks in it
+    longest = max((len(m) for m in re.findall(r"`+", text)), default=0)
+    fence = "`" * max(3, longest + 1)
+    return f"{fence}\n{text}\n{fence}"
+
+
 def release_notes(card: dict) -> str:
     return (
         f"{card['name']} {card['version']}, build {card['build']}\n"
         "\n"
-        f"{card['description']}\n"
+        f"{_fence(card['description'])}\n"
         "\n"
         f"Upstream: {card['upstream']}\n"
         f"Licence: {card['licence']}\n"
@@ -1235,6 +1309,8 @@ def main(argv: list[str] | None = None, *, run: Run = subprocess.run) -> int:
     p = sub.add_parser("compare")
     p.add_argument("built")
     p.add_argument("published")
+    p.add_argument("built_zip")
+    p.add_argument("published_zip")
     p.add_argument("--recipes", default="recipes")
     p = sub.add_parser("notes")
     p.add_argument("card")
@@ -1257,7 +1333,10 @@ def main(argv: list[str] | None = None, *, run: Run = subprocess.run) -> int:
         elif args.cmd == "compare":
             name = _read_card(Path(args.built))["name"]
             recipe = load_recipe(_recipe_folders(Path(args.recipes), [name])[0])
-            compare_cards(Path(args.built), Path(args.published), recipe)
+            compare_cards(
+                Path(args.built), Path(args.published), recipe,
+                Path(args.built_zip), Path(args.published_zip),
+            )  # fmt: skip
             print(f"ok {recipe.name} {recipe.version}-{recipe.build} matches its published build")
         elif args.cmd == "notes":
             sys.stdout.write(release_notes(_read_card(Path(args.card))))

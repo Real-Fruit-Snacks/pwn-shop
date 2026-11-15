@@ -98,7 +98,7 @@ jobs:
               want="$(sed -n 's/^sha256 = "\(.*\)"$/\1/p' "dist/$card")"
               echo "$want  dist/$file" | sha256sum -c -
               published+=("$tool")
-              echo "$tool $card" >> published.txt
+              echo "$tool $card $file" >> published.txt
               echo "ok    $tag is published; testing the published zip"
             else
               to_build+=("$tool")
@@ -110,8 +110,8 @@ jobs:
           fi
           if [ "${#published[@]}" -gt 0 ]; then
             python build.py build "${published[@]}" --out fresh
-            while read -r tool card; do
-              python build.py compare "fresh/$card" "dist/$card" </dev/null
+            while read -r tool card file; do
+              python build.py compare "fresh/$card" "dist/$card" "fresh/$file" "dist/$file" </dev/null
             done < published.txt
           fi
           python build.py index dist --out dist/index.toml

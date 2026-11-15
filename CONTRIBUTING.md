@@ -56,9 +56,9 @@ The tests need no network and do not import pwn-broker. CI runs them on Python 3
 
 ## Changing a tool
 
-A published build is never changed or replaced. If a recipe changes in any way that changes the package (a different upstream version, a re-pinned dependency, a new description), raise `build` in `recipe.toml`. CI builds the recipe again, compares its card with the published one, and fails with the field that differs if `build` did not go up. For a Python tool, a different size or hash alone is allowed, because the wheels come from the index at build time; the other fields are not.
+A published build is never changed or replaced. If a recipe changes in any way that changes the package (a different upstream version, a re-pinned dependency, a new description), raise `build` in `recipe.toml`. CI builds the recipe again, compares its card with the published one, and fails with the field that differs if `build` did not go up. For a Python tool, a different size or hash alone is allowed, because the wheels come from the index at build time; the manifest and `wheels.lock` inside the two zips must still be equal, apart from the lines for any distribution in `build_from_source`.
 
-To drop a build, delete its release. The next index leaves it out.
+A build is withdrawn by deleting its release and its git tag. Then either raise `build` in the recipe, which publishes a replacement, or remove the recipe. If neither is done, the next push to `main` builds and publishes that same build again. The index is rebuilt from the releases that exist, so a deleted release leaves the index at the next publish.
 
 ## Manifest rules
 

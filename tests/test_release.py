@@ -89,7 +89,7 @@ def test_compare_ignores_size_and_hash_with_wheels(tmp_path, net):
     recipe = recipe_for(tmp_path, net, python=True)
     one = write_card(tmp_path / "a.toml", card_of(size=1, sha256="c" * 64))
     two = write_card(tmp_path / "b.toml", card_of())
-    build.compare_cards(one, two, recipe)
+    build.compare_cards(one, two, recipe, pkg(tmp_path / "1.zip"), pkg(tmp_path / "2.zip"))
 
 
 def test_compare_with_wheels_still_fails_on_other_fields(tmp_path, net):
@@ -97,7 +97,7 @@ def test_compare_with_wheels_still_fails_on_other_fields(tmp_path, net):
     one = write_card(tmp_path / "a.toml", card_of(size=1, description="new words"))
     two = write_card(tmp_path / "b.toml", card_of())
     with pytest.raises(build.BuildError) as err:
-        build.compare_cards(one, two, recipe)
+        build.compare_cards(one, two, recipe, pkg(tmp_path / "1.zip"), pkg(tmp_path / "2.zip"))
     assert "description" in str(err.value)
     assert "size" not in str(err.value)
 
@@ -106,7 +106,7 @@ def test_compare_command_names_the_recipe_and_exits_1(tmp_path, net, capsys):
     make_recipe(tmp_path / "recipes" / "kerbrute", net)
     one = write_card(tmp_path / "a.toml", card_of(licence="MIT"))
     two = write_card(tmp_path / "b.toml", card_of())
-    code = build.main(["compare", str(one), str(two), "--recipes", str(tmp_path / "recipes")])
+    code = build.main(["compare", str(one), str(two), str(one), str(two), "--recipes", str(tmp_path / "recipes")])
     assert code == 1
     assert "licence" in capsys.readouterr().err
 
@@ -115,7 +115,7 @@ def test_compare_command_succeeds_on_a_match(tmp_path, net, capsys):
     make_recipe(tmp_path / "recipes" / "kerbrute", net)
     one = write_card(tmp_path / "a.toml", card_of())
     two = write_card(tmp_path / "b.toml", card_of())
-    assert build.main(["compare", str(one), str(two), "--recipes", str(tmp_path / "recipes")]) == 0
+    assert build.main(["compare", str(one), str(two), str(one), str(two), "--recipes", str(tmp_path / "recipes")]) == 0
     assert capsys.readouterr().out.startswith("ok kerbrute 1.0.3-1")
 
 
@@ -123,7 +123,7 @@ def test_compare_command_refuses_a_card_with_no_recipe(tmp_path, net, capsys):
     (tmp_path / "recipes").mkdir()
     one = write_card(tmp_path / "a.toml", card_of())
     two = write_card(tmp_path / "b.toml", card_of())
-    assert build.main(["compare", str(one), str(two), "--recipes", str(tmp_path / "recipes")]) == 1
+    assert build.main(["compare", str(one), str(two), str(one), str(two), "--recipes", str(tmp_path / "recipes")]) == 1
     assert "kerbrute" in capsys.readouterr().err
 
 
@@ -188,3 +188,146 @@ def test_python_manifest_helper_marks_wheel_packages(tmp_path, net):
     assert "python" in PY_MANIFEST
     assert build.has_bundled_wheels(recipe_for(tmp_path, net, python=True))
     assert not build.has_bundled_wheels(recipe_for(tmp_path / "x", net))
+
+
+# ---- the contents of two zips with wheels
+
+
+LOCK = "alpha==1.0 --hash=sha256:" + "a" * 64 + "\nbeta==2.0 --hash=sha256:" + "b" * 64 + "\n"
+
+
+def pkg(path, *, manifest="name = 'x'\nexamples = ['one']\n", lock=LOCK, extra=()):
+    import zipfile
+
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as zf:
+        zf.writestr("manifest.toml", manifest)
+        if lock is not None:
+            zf.writestr("wheels.lock", lock)
+        for name in extra:
+            zf.writestr(name, "again")
+    return path
+
+
+@pytest.fixture
+def wheel_recipe(tmp_path, net):
+    return recipe_for(tmp_path, net, python=True)
+
+
+def compare_zips(tmp_path, recipe, built, published):
+    one = write_card(tmp_path / "a.toml", card_of())
+    two = write_card(tmp_path / "b.toml", card_of())
+    build.compare_cards(one, two, recipe, built, published)
+
+
+def test_equal_packages_pass(tmp_path, wheel_recipe):
+    compare_zips(tmp_path, wheel_recipe, pkg(tmp_path / "1.zip"), pkg(tmp_path / "2.zip"))
+
+
+def test_a_changed_example_in_the_manifest_fails(tmp_path, wheel_recipe):
+    new = pkg(tmp_path / "1.zip", manifest="name = 'x'\nexamples = ['two']\n")
+    with pytest.raises(build.BuildError) as err:
+        compare_zips(tmp_path, wheel_recipe, new, pkg(tmp_path / "2.zip"))
+    assert "manifest.toml" in str(err.value)
+    assert "wheels.lock" not in str(err.value)
+    assert "raise build in recipes/pytool/recipe.toml" in str(err.value)
+
+
+def test_a_changed_pin_in_wheels_lock_fails(tmp_path, wheel_recipe):
+    new = pkg(tmp_path / "1.zip", lock=LOCK.replace("alpha==1.0", "alpha==1.1"))
+    with pytest.raises(build.BuildError) as err:
+        compare_zips(tmp_path, wheel_recipe, new, pkg(tmp_path / "2.zip"))
+    assert "wheels.lock" in str(err.value)
+    assert "manifest.toml" not in str(err.value)
+
+
+def test_both_differing_are_both_named(tmp_path, wheel_recipe):
+    new = pkg(tmp_path / "1.zip", manifest="x = 1\n", lock="alpha==9 --hash=sha256:" + "c" * 64 + "\n")
+    with pytest.raises(build.BuildError) as err:
+        compare_zips(tmp_path, wheel_recipe, new, pkg(tmp_path / "2.zip"))
+    assert "manifest.toml" in str(err.value) and "wheels.lock" in str(err.value)
+
+
+def test_a_differing_hash_for_a_build_from_source_name_passes(tmp_path, net):
+    folder = make_python_recipe(tmp_path / "pytool", net, [], build_from_source=("beta",))
+    recipe = build.load_recipe(folder)
+    new = pkg(tmp_path / "1.zip", lock=LOCK.replace("b" * 64, "c" * 64))
+    compare_zips(tmp_path, recipe, new, pkg(tmp_path / "2.zip"))
+
+
+def test_a_differing_version_of_a_build_from_source_name_passes(tmp_path, net):
+    recipe = build.load_recipe(make_python_recipe(tmp_path / "pytool", net, [], build_from_source=("beta",)))
+    new = pkg(tmp_path / "1.zip", lock=LOCK.replace("beta==2.0", "beta==2.1"))
+    compare_zips(tmp_path, recipe, new, pkg(tmp_path / "2.zip"))
+
+
+def test_a_different_pin_for_another_name_still_fails_with_build_from_source(tmp_path, net):
+    recipe = build.load_recipe(make_python_recipe(tmp_path / "pytool", net, [], build_from_source=("beta",)))
+    new = pkg(tmp_path / "1.zip", lock=LOCK.replace("a" * 64, "c" * 64))
+    with pytest.raises(build.BuildError):
+        compare_zips(tmp_path, recipe, new, pkg(tmp_path / "2.zip"))
+
+
+def test_a_published_zip_with_no_wheels_lock_fails(tmp_path, wheel_recipe):
+    old = pkg(tmp_path / "2.zip", lock=None)
+    with pytest.raises(build.BuildError) as err:
+        compare_zips(tmp_path, wheel_recipe, pkg(tmp_path / "1.zip"), old)
+    assert "wheels.lock" in str(err.value)
+
+
+def test_a_zip_with_the_member_twice_is_refused(tmp_path, wheel_recipe):
+    import warnings, zipfile
+
+    path = tmp_path / "1.zip"
+    with zipfile.ZipFile(path, "w") as zf, warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        zf.writestr("manifest.toml", "a")
+        zf.writestr("manifest.toml", "b")
+        zf.writestr("wheels.lock", LOCK)
+    with pytest.raises(build.BuildError) as err:
+        compare_zips(tmp_path, wheel_recipe, path, pkg(tmp_path / "2.zip"))
+    assert "more than once" in str(err.value)
+
+
+def test_an_oversized_member_is_refused(tmp_path, wheel_recipe):
+    big = pkg(tmp_path / "1.zip", manifest="#" * (build.MANIFEST_LIMIT + 1))
+    with pytest.raises(build.BuildError) as err:
+        compare_zips(tmp_path, wheel_recipe, big, pkg(tmp_path / "2.zip"))
+    assert "too large" in str(err.value)
+
+
+def test_without_wheels_the_zips_are_not_read(tmp_path, net):
+    recipe = recipe_for(tmp_path, net)
+    one = write_card(tmp_path / "a.toml", card_of())
+    two = write_card(tmp_path / "b.toml", card_of())
+    build.compare_cards(one, two, recipe, tmp_path / "nope1.zip", tmp_path / "nope2.zip")
+
+
+def test_wheels_without_zips_is_an_error(tmp_path, wheel_recipe):
+    one = write_card(tmp_path / "a.toml", card_of())
+    with pytest.raises(build.BuildError):
+        build.compare_cards(one, one, wheel_recipe)
+
+
+def test_compare_command_takes_the_zips(tmp_path, net, capsys):
+    make_python_recipe(tmp_path / "recipes" / "pytool", net, [])
+    one = write_card(tmp_path / "a.toml", card_of(name="pytool", file="pytool-1.0.3-1.zip"))
+    a, b = pkg(tmp_path / "1.zip"), pkg(tmp_path / "2.zip", manifest="x = 1\n")
+    args = ["compare", str(one), str(one), str(a), str(b), "--recipes", str(tmp_path / "recipes")]
+    assert build.main(args) == 1
+    assert "manifest.toml" in capsys.readouterr().err
+    args[4] = str(a)
+    assert build.main(args) == 0
+
+
+# ---- notes keep the description literal
+
+
+def test_a_description_with_markup_sits_in_a_fenced_block():
+    text = build.release_notes(card_of(description="[click](http://evil.invalid) @someone ``` x"))
+    lines = text.splitlines()
+    start = next(i for i, line in enumerate(lines) if set(line) == {"`"})
+    fence = lines[start]
+    assert len(fence) >= 4
+    assert lines[start + 1] == "[click](http://evil.invalid) @someone ``` x"
+    assert lines[start + 2] == fence
+    assert "@someone" not in "\n".join(lines[:start] + lines[start + 3 :])

@@ -97,6 +97,18 @@ def leftovers(opt: Path, name: str, commands: list[str]) -> list[str]:
     return found
 
 
+def launcher_env(source, opt: Path, box_home: Path, user_home: Path) -> dict:
+    """What a launcher gets: not the runner's whole environment, which holds tokens."""
+    env = {"PATH": source.get("PATH", os.defpath)}
+    for key in ("LANG", "LC_ALL"):
+        if key in source:
+            env[key] = source[key]
+    env["HOME"] = str(user_home)
+    env["PWN_BROKER_OPT"] = str(opt)
+    env["PWN_BROKER_HOME"] = str(box_home)
+    return env
+
+
 def load_broker():
     try:
         from pwn_broker import boxes, config, toolindex, toolinstall, toolstate
@@ -121,12 +133,7 @@ def check_tool(broker, folder: Path, name: str, now: datetime) -> str:
         for made in (opt, box_home, user_home):
             made.mkdir()
         broker.write_toml(opt / "config.toml", {"tools_index": str(folder.resolve())})
-        env = {
-            **os.environ,
-            "PWN_BROKER_OPT": str(opt),
-            "PWN_BROKER_HOME": str(box_home),
-            "HOME": str(user_home),
-        }
+        env = launcher_env(os.environ, opt, box_home, user_home)
         paths, settings = broker.config.load(env, user_home)
 
         index = broker.toolindex.load_index(paths, settings, now=now)

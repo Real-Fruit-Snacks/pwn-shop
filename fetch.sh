@@ -17,7 +17,7 @@ that zip's own release, into <folder> (created if it is missing). Each zip is ch
 against the SHA-256 in the index before it is kept; one that fails is removed and the
 script stops. A zip that is already there with the right hash is not downloaded again.
 
-Needs gh, signed in with access to the repository, and sha256sum.
+Needs gh, signed in with access to the repository (gh auth login), and sha256sum.
 PWN_SHOP_REPO sets the repository (default Real-Fruit-Snacks/pwn-shop).
 
 It changes nothing else on this machine. At the end it prints the line to put in
@@ -123,7 +123,8 @@ main() {
     case "$REPO" in
         *[!A-Za-z0-9._/-]*) fail "PWN_SHOP_REPO must look like owner/name, not $REPO" ;;
     esac
-    gh auth status >/dev/null 2>&1 || fail "gh is not signed in. run: gh auth login"
+    gh release view index --repo "$REPO" >/dev/null 2>&1 ||
+        fail "cannot read the index release of $REPO. sign in with gh auth login, or check that you can access the repository"
 
     mkdir -p -- "$1" || fail "cannot create $1"
     FOLDER="$(cd -- "$1" && pwd -P)" || fail "cannot enter $1"
@@ -132,6 +133,11 @@ main() {
     case "$FOLDER" in
         *"$QUOTE"* | *"$BACKSLASH"*) fail "the folder path holds a quote or a backslash, which config.toml would need escaped: $FOLDER" ;;
     esac
+
+    # work folders left by an earlier run that was killed
+    for OLD in "$FOLDER"/.fetch.??????; do
+        if [ -d "$OLD" ] && [ ! -L "$OLD" ]; then rm -rf -- "$OLD"; fi
+    done
 
     WORK="$(mktemp -d "$FOLDER/.fetch.XXXXXX")" || fail "cannot write to $FOLDER"
     trap 'rm -rf "$WORK"' EXIT
@@ -156,7 +162,8 @@ main() {
             fail "cannot download $FILE from the release $TAG"
         fi
         if [ ! -f "$WORK/$FILE" ] || [ "$(hash_of "$WORK/$FILE")" != "$SHA" ]; then
-            rm -f "$WORK/$FILE" "$DEST"
+            # only the file just downloaded; a copy already in the folder is left as it was
+            rm -f "$WORK/$FILE"
             fail "$FILE does not match the SHA-256 in the index, so it was removed"
         fi
         mv -f "$WORK/$FILE" "$DEST"

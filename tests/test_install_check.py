@@ -229,3 +229,25 @@ def test_main_stops_at_the_import_before_reading_the_folder(check, monkeypatch, 
     monkeypatch.setitem(sys.modules, "pwn_broker", None)
     with pytest.raises(SystemExit):
         check.main([str(tmp_path / "nowhere")])
+
+
+# ---- the environment a launcher gets
+
+
+def test_a_launcher_gets_a_small_environment(check, tmp_path):
+    caller = {
+        "PATH": "/usr/bin", "HOME": "/runner", "LANG": "C.UTF-8", "GH_TOKEN": "secret",
+        "GITHUB_TOKEN": "secret", "ACTIONS_RUNTIME_TOKEN": "x", "PWN_BROKER_OPT": "/elsewhere",
+    }
+    env = check.launcher_env(caller, tmp_path / "opt", tmp_path / "boxes", tmp_path / "home")
+    assert env == {
+        "PATH": "/usr/bin", "HOME": str(tmp_path / "home"), "LANG": "C.UTF-8",
+        "PWN_BROKER_OPT": str(tmp_path / "opt"), "PWN_BROKER_HOME": str(tmp_path / "boxes"),
+    }
+
+
+def test_lc_all_is_passed_only_when_set(check, tmp_path):
+    base = {"PATH": "/bin"}
+    args = (tmp_path, tmp_path, tmp_path)
+    assert "LC_ALL" not in check.launcher_env(base, *args)
+    assert check.launcher_env({**base, "LC_ALL": "C"}, *args)["LC_ALL"] == "C"
