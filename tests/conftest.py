@@ -66,6 +66,19 @@ def zip_bytes(members: dict[str, bytes]) -> bytes:
     return buf.getvalue()
 
 
+PLAIN_MANIFEST = {
+    "kind": "kali",
+    "description": "Kerberos user enumeration",
+    "tags": ["kerberos"],
+    "upstream": "https://github.com/ropnop/kerbrute",
+    "licence": "Apache-2.0",
+    "arch": "x86_64",
+    "needs_root": False,
+    "examples": ["kerbrute userenum"],
+    "command": [{"name": "kerbrute", "type": "binary", "path": "files/kerbrute"}],
+}
+
+
 def make_recipe(folder: Path, net: FakeNet, *, sources: list[dict] | None = None,
                 manifest: dict | None = None, licence: bool = True, version="1.0.3", name=None, build_no=1) -> Path:
     folder.mkdir(parents=True, exist_ok=True)
@@ -79,17 +92,7 @@ def make_recipe(folder: Path, net: FakeNet, *, sources: list[dict] | None = None
         head = {"name": name, **head}
     (folder / "recipe.toml").write_bytes(tomli_w.dumps(head).encode())
     if manifest is None:
-        manifest = {
-            "kind": "kali",
-            "description": "Kerberos user enumeration",
-            "tags": ["kerberos"],
-            "upstream": "https://github.com/ropnop/kerbrute",
-            "licence": "Apache-2.0",
-            "arch": "x86_64",
-            "needs_root": False,
-            "examples": ["kerbrute userenum"],
-            "command": [{"name": "kerbrute", "type": "binary", "path": "files/kerbrute"}],
-        }
+        manifest = PLAIN_MANIFEST
     (folder / "manifest.toml").write_bytes(tomli_w.dumps(manifest).encode())
     if licence:
         (folder / "LICENSE").write_bytes(b"licence text\n")

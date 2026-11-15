@@ -323,8 +323,11 @@ def test_validate_accepts_a_good_package(tmp_path):
     build.validate(pkg(tmp_path))
 
 
+GOOD_LOCK = b"a==1.0 --hash=sha256:" + b"a" * 64 + b"\n"
+
+
 def test_validate_accepts_python_package(tmp_path):
-    files = {"wheels.lock": b"x", "wheels/a.whl": b"w"}
+    files = {"wheels.lock": GOOD_LOCK, "wheels/a.whl": b"w"}
     build.validate(pkg(tmp_path, PY_ENTRY, files, drop=("files/kerbrute",)))
 
 
@@ -371,7 +374,7 @@ def test_validate_python_lock_and_wheels_missing(tmp_path):
     with pytest.raises(build.BuildError, match="lock"):
         build.validate(pkg(tmp_path, PY_ENTRY, {"wheels/a": b"w"}))
     with pytest.raises(build.BuildError, match="no wheels"):
-        build.validate(pkg(tmp_path, PY_ENTRY, {"wheels.lock": b"x"}))
+        build.validate(pkg(tmp_path, PY_ENTRY, {"wheels.lock": GOOD_LOCK}))
 
 
 def test_validate_python_lock_under_files_refused(tmp_path):
@@ -461,7 +464,7 @@ def test_main_reports_failure_with_a_fail_line(tmp_path, capsys):
     assert capsys.readouterr().err.startswith("fail ")
 
 
-# ---- review fixes: recipe fields, atomic build, version order, members
+# ---- recipe fields, atomic build, version order, members
 
 
 @pytest.mark.parametrize(
@@ -1284,3 +1287,325 @@ def test_python_tool_builds_from_local_wheels_and_installs_offline(tmp_path, net
     script = python.parent / ("tinytool.exe" if os.name == "nt" else "tinytool")
     out = subprocess.run([str(script)], capture_output=True, text=True)
     assert out.returncode == 0 and out.stdout.strip() == "tinytool dependency"
+
+
+# ---- upstream failures have their own class and exit status
+
+
+def test_fetch_and_pin_failures_are_their_own_error_class():
+    assert issubclass(build.FetchError, build.BuildError)
+    assert build.FetchError is not build.BuildError
+
+
+def test_a_wrong_size_or_hash_is_a_fetch_error(tmp_path, net):
+    s = src_for(net, b"abc")
+    s.size = 4
+    with pytest.raises(build.FetchError, match="size"):
+        build.fetch_source(s, tmp_path / "c", fetch=net)
+    s = src_for(net, b"abc")
+    s.sha256 = "0" * 64
+    with pytest.raises(build.FetchError, match="SHA-256"):
+        build.fetch_source(s, tmp_path / "c", fetch=net)
+
+
+def test_a_failed_download_is_a_fetch_error(tmp_path):
+    def gone(url, path, limit):
+        raise OSError("404 not found")
+
+    s = build.Source("https://e.invalid/a", 3, "0" * 64, "files/a")
+    with pytest.raises(build.FetchError, match="cannot download"):
+        build.fetch_source(s, tmp_path / "c", fetch=gone)
+
+
+def test_a_download_over_its_size_is_a_fetch_error(tmp_path, monkeypatch):
+    class Response:
+        def __init__(self):
+            self.chunks = [b"abcd"]
+
+        def read(self, n):
+            return self.chunks.pop() if self.chunks else b""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class Opener:
+        def open(self, request, timeout):
+            return Response()
+
+    monkeypatch.setattr(build.urllib.request, "build_opener", lambda *handlers: Opener())
+    with pytest.raises(build.FetchError, match="more than"):
+        build.fetch("https://e.invalid/a", tmp_path / "a", 3)
+
+
+def test_a_refused_scheme_is_not_a_fetch_error(tmp_path):
+    with pytest.raises(build.BuildError) as err:
+        build.fetch("http://e.invalid/a", tmp_path / "a", 3)
+    assert not isinstance(err.value, build.FetchError)
+
+
+def test_a_missing_pinned_wheel_or_a_changed_one_is_a_fetch_error(tmp_path, net):
+    good = pure("dep", "1.0")
+    r = py_recipe(tmp_path, net, [("dep", "1.0", [good[1]])])
+    with pytest.raises(build.FetchError, match="No matching distribution"):
+        build.collect_wheels(r, staged_dir(tmp_path), run=FakeTools())
+    other = (good[0], wheel_bytes("dep", "1.0", body="x = 1\n"))
+    fake = FakeTools(downloads=two_pythons(("dep", [other])))
+    with pytest.raises(build.FetchError, match="SHA-256"):
+        build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+
+
+def test_a_wheel_of_another_version_is_not_a_fetch_error(tmp_path, net):
+    wrong = pure("dep", "2.0")
+    fake = FakeTools(downloads=two_pythons(("dep", [wrong])))
+    r = py_recipe(tmp_path, net, [("dep", "1.0", [wrong[1]])])
+    with pytest.raises(build.BuildError) as err:
+        build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+    assert not isinstance(err.value, build.FetchError)
+
+
+def test_pip_missing_says_so_and_does_not_blame_the_recipe(tmp_path, net):
+    def no_pip(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 1, "", "python: No module named pip")
+
+    tool = pure("tinytool", "1.0")
+    r = py_recipe(tmp_path, net, [("tinytool", "1.0", [tool[1]])])
+    with pytest.raises(build.BuildError) as err:
+        build.collect_wheels(r, staged_dir(tmp_path), run=no_pip)
+    text = str(err.value)
+    assert "pip is not installed" in text
+    assert "build_from_source" not in text
+    assert not isinstance(err.value, build.FetchError)
+
+
+def test_main_exits_3_when_an_upstream_file_cannot_be_fetched(tmp_path, net, monkeypatch, capsys):
+    recipes = tmp_path / "recipes"
+    make_recipe(recipes / "kerbrute", net)
+    net.files["https://example.invalid/kerbrute"] = b"changed upstream"
+    monkeypatch.setattr(build, "fetch", net)
+    args = ["build", "kerbrute", "--recipes", str(recipes), "--out", str(tmp_path / "o"),
+            "--cache", str(tmp_path / "c")]
+    assert build.main(args) == 3
+    err = capsys.readouterr().err
+    assert err.startswith("fail ") and err.count("\n") == 1
+
+
+def test_main_exits_1_for_any_other_build_error(tmp_path, net, monkeypatch, capsys):
+    recipes = tmp_path / "recipes"
+    make_recipe(recipes / "kerbrute", net, licence=False)
+    monkeypatch.setattr(build, "fetch", net)
+    args = ["build", "--recipes", str(recipes), "--out", str(tmp_path / "o"),
+            "--cache", str(tmp_path / "c")]
+    assert build.main(args) == 1
+    assert capsys.readouterr().err.startswith("fail ")
+
+
+# ---- a built zip is readable by others
+
+
+def test_the_zip_is_made_readable_before_it_is_moved_into_place(tmp_path, net, monkeypatch):
+    calls = []
+    real = os.chmod
+
+    def spy(path, mode):
+        calls.append((Path(path).name, mode))
+        real(path, mode)
+
+    monkeypatch.setattr(os, "chmod", spy)
+    recipe = build.load_recipe(make_recipe(tmp_path / "recipes" / "kerbrute", net))
+    build.build_one(recipe, tmp_path / "dist", tmp_path / "c", fetch_fn=net)
+    assert any(name.startswith(".build-") and mode == 0o644 for name, mode in calls)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="file modes need a POSIX file system")
+def test_the_built_zip_is_not_left_owner_only(tmp_path, net):
+    recipe = build.load_recipe(make_recipe(tmp_path / "recipes" / "kerbrute", net))
+    final = build.build_one(recipe, tmp_path / "dist", tmp_path / "c", fetch_fn=net)
+    assert stat.S_IMODE(final.stat().st_mode) == 0o644
+
+
+# ---- manifest rules pwn-broker applies at install
+
+H = "--hash=sha256:" + "a" * 64
+
+
+def lock_case(tmp_path, lock):
+    return pkg(tmp_path, PY_ENTRY, {"wheels.lock": lock, "wheels/a": b"w"}, drop=("files/kerbrute",))
+
+
+def test_validate_accepts_the_shape_write_wheels_lock_makes(tmp_path):
+    lock = f"a-b==1.0 {H} {H}\nc.d==2!1.0+local_1 {H}\n".encode()
+    build.validate(lock_case(tmp_path, lock))
+
+
+@pytest.mark.parametrize(
+    "lock",
+    [
+        f"a==1.0 {H}\n\nb==1.0 {H}\n".encode(),
+        f"a==1.0 {H}\n\n".encode(),
+        f"# comment\na==1.0 {H}\n".encode(),
+        f"a==1.0 {H}\r\nb==1.0 {H}\r\n".encode(),
+        b"a==1.0\n",
+        f"a==1.0 --hash=sha256:{'A' * 64}\n".encode(),
+        f"a==1.0 --hash=sha256:{'a' * 63}\n".encode(),
+        f"a>=1.0 {H}\n".encode(),
+        f"-a==1.0 {H}\n".encode(),
+        f"a==1.0  {H}\n".encode(),
+        f"a==1.0 {H} \n".encode(),
+        f"a==1.0 {H} \\\n  {H}\n".encode(),
+        f"a==1.0 ; python_version > '3' {H}\n".encode(),
+        b"\xff\xfe\n",
+        b"\n",
+    ],
+)
+def test_validate_refuses_a_bad_wheels_lock(tmp_path, lock):
+    with pytest.raises(build.BuildError, match="wheels.lock"):
+        build.validate(lock_case(tmp_path, lock))
+
+
+def test_validate_refuses_a_wheels_lock_over_1_mib(tmp_path):
+    line = f"a==1.0 {H}\n"
+    big = (line * (1024 * 1024 // len(line) + 1)).encode()
+    assert len(big) > 1024 * 1024
+    with pytest.raises(build.BuildError, match="too large"):
+        build.validate(lock_case(tmp_path, big))
+
+
+def test_validate_refuses_a_wrong_arch(tmp_path):
+    with pytest.raises(build.BuildError, match="x86_64"):
+        build.validate(pkg(tmp_path, {"arch": "arm64"}))
+
+
+def test_validate_refuses_two_uploads_with_one_name(tmp_path):
+    rows = [{"path": "files/kerbrute", "as": "a"}, {"path": "files/other", "as": "a"}]
+    with pytest.raises(build.BuildError, match="more than once"):
+        build.validate(pkg(tmp_path, {"kind": "both", "upload": rows}, {"files/other": b"y"}))
+
+
+def command_with(**extra):
+    return {"command": [{"name": "k", "type": "binary", "path": "files/kerbrute", **extra}]}
+
+
+@pytest.mark.parametrize("name", ["1x", "a-b", "a b", "", "x\n"])
+def test_validate_refuses_a_bad_env_name(tmp_path, name):
+    with pytest.raises(build.BuildError, match="env"):
+        build.validate(pkg(tmp_path, command_with(env={name: "v"})))
+
+
+@pytest.mark.parametrize("name", ["data", "box", "run", "pid"])
+def test_validate_refuses_a_reserved_env_name(tmp_path, name):
+    with pytest.raises(build.BuildError, match="reserved"):
+        build.validate(pkg(tmp_path, command_with(env={name: "v"})))
+
+
+def test_validate_accepts_an_env_name_and_value(tmp_path):
+    env = {"_A1": "{data}/x", "DATA": "1"}
+    build.validate(pkg(tmp_path, command_with(env=env, args=["-d", "{data}"])))
+
+
+@pytest.mark.parametrize("bad", ["a\nb", "a\0b", "\n"])
+def test_validate_refuses_a_newline_or_nul_in_args_env_and_paths(tmp_path, bad):
+    cases = [
+        command_with(args=[bad]),
+        command_with(env={"A": bad}),
+        {"command": [{"name": "k", "type": "binary", "path": f"files/{bad}"}]},
+        {"kind": "both", "upload": [{"path": f"files/{bad}", "as": "a"}]},
+        {"data": {"home": [bad]}},
+    ]
+    for manifest in cases:
+        with pytest.raises(build.BuildError):
+            build.validate(pkg(tmp_path, manifest, {f"files/{bad}": b"x"}))
+
+
+@pytest.mark.parametrize("bad", ["a\nb", "a\0b"])
+def test_validate_refuses_a_newline_or_nul_in_a_script_or_entry(tmp_path, bad):
+    script = {"command": [{"name": "k", "type": "python-script", "script": f"files/{bad}"}],
+              "python": PY_ENTRY["python"]}
+    entry = {"command": [{"name": "k", "type": "python-entry", "entry": bad}],
+             "python": PY_ENTRY["python"]}
+    files = {"wheels.lock": f"a==1.0 {H}\n".encode(), "wheels/a": b"w", f"files/{bad}": b"x"}
+    for manifest in (script, entry):
+        with pytest.raises(build.BuildError):
+            build.validate(pkg(tmp_path, manifest, files))
+
+
+RESERVED = (
+    "sh bash dash zsh fish sudo su doas env python python3 pip pip3 sed cut mkdir kill "
+    "cat rm ls cp mv ln tar vim vi pwn-broker"
+).split()
+
+
+@pytest.mark.parametrize("name", RESERVED)
+def test_validate_refuses_a_reserved_command_name(tmp_path, name):
+    manifest = {"command": [{"name": name, "type": "binary", "path": "files/kerbrute"}]}
+    with pytest.raises(build.BuildError, match="reserved"):
+        build.validate(pkg(tmp_path, manifest))
+
+
+def test_validate_accepts_names_that_only_look_reserved(tmp_path):
+    manifest = {"command": [{"name": "shell", "type": "binary", "path": "files/kerbrute"},
+                            {"name": "Sh", "type": "binary", "path": "files/kerbrute"}]}
+    build.validate(pkg(tmp_path, manifest))
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [".ssh", ".ssh/id", ".ssh/a/b", ".gnupg", ".gnupg/x", ".config", ".local", ".local/share",
+     ".local/bin", ".cache", ".bashrc", ".zshrc", ".profile", ".bash_profile", ".bash_history",
+     ".zsh_history", ".vimrc", ".gitconfig", "Desktop", "Documents", "Downloads"],
+)
+def test_validate_refuses_a_shared_home_folder(tmp_path, entry):
+    with pytest.raises(build.BuildError, match="home"):
+        build.validate(pkg(tmp_path, {"data": {"home": [entry]}}))
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [".ligolo-proxy", ".config/tool", ".local/share/tool", ".cache/tool", ".sshx",
+     "Documents/tool", ".ssh-tool"],
+)
+def test_validate_accepts_a_tools_own_home_folder(tmp_path, entry):
+    build.validate(pkg(tmp_path, {"data": {"home": [entry]}}))
+
+
+# ---- two tools may not share a command
+
+
+def card_with(name, commands, **kw):
+    return {
+        "name": name, "version": "1.0", "build": 1, "kind": "kali", "description": "d",
+        "tags": [], "upstream": "u", "licence": "l", "needs_root": False, "commands": commands,
+        "file": f"{name}-1.0-1.zip", "size": 1, "sha256": "a" * 64, **kw,
+    }
+
+
+def test_the_index_refuses_two_tools_with_one_command():
+    cards = [card_with("one", ["shared"]), card_with("two", ["shared", "own"])]
+    with pytest.raises(build.BuildError, match="shared") as err:
+        build.build_index(cards, base_url=None)
+    assert "one" in str(err.value) and "two" in str(err.value)
+
+
+def test_the_index_allows_one_tool_to_keep_a_command_across_builds():
+    cards = [card_with("one", ["x"]), card_with("one", ["x"], build=2)]
+    build.build_index(cards, base_url=None)
+
+
+def test_plan_refuses_two_recipes_with_one_command(tmp_path, net, capsys):
+    make_recipe(tmp_path / "recipes" / "kerbrute", net)
+    make_recipe(tmp_path / "recipes" / "other", net)
+    assert build.main(["plan", "--recipes", str(tmp_path / "recipes")]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("fail ") and "kerbrute" in err and "other" in err
+
+
+def test_what_write_wheels_lock_writes_passes_validate(tmp_path):
+    staged = tmp_path / "staged"
+    make_wheel(staged / "wheels", "My_Dep.x", "2.0.post1", tag="cp312-cp312-manylinux2014_x86_64")
+    make_wheel(staged / "wheels", "my-dep.x", "2.0.post1", tag="cp313-cp313-manylinux_2_28_x86_64")
+    make_wheel(staged / "wheels", "aaa", "1!2.0+local.1")
+    lock = build.write_wheels_lock(staged)
+    files = {"wheels.lock": lock.read_bytes(), "wheels/a": b"w"}
+    build.validate(pkg(tmp_path, PY_ENTRY, files, drop=("files/kerbrute",)))

@@ -52,6 +52,26 @@ COMMAND_TIMEOUT = 900
 REQUIREMENTS_IN = "requirements.in"
 REQUIREMENTS_LOCK = "requirements.lock"
 WHEELS_LOCK = "wheels.lock"
+# the package's own lock: pwn-broker reads exactly this shape and nothing else
+LOCK_LIMIT = 1024 * 1024
+_LOCK_LINE = re.compile(
+    r"[A-Za-z0-9][A-Za-z0-9._-]*==[A-Za-z0-9][A-Za-z0-9.!+_-]*( --hash=sha256:[0-9a-f]{64})+"
+)
+_ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+RESERVED_ENV = ("data", "box", "run", "pid")
+# names a launcher must not shadow on PATH
+RESERVED_COMMANDS = (
+    "sh", "bash", "dash", "zsh", "fish", "sudo", "su", "doas", "env", "python", "python3", "pip",
+    "pip3", "sed", "cut", "mkdir", "kill", "cat", "rm", "ls", "cp", "mv", "ln", "tar", "vim", "vi",
+    "pwn-broker",
+)  # fmt: skip
+# folders other programs own, which a tool may not claim as its own data
+HOME_TREES = (".ssh", ".gnupg")
+HOME_SHARED = (
+    ".config", ".local", ".local/share", ".local/bin", ".cache", ".bashrc", ".zshrc", ".profile",
+    ".bash_profile", ".bash_history", ".zsh_history", ".vimrc", ".gitconfig", "Desktop",
+    "Documents", "Downloads",
+)  # fmt: skip
 UV_PLATFORM = "x86_64-unknown-linux-gnu"
 _TOP_FILES = (MANIFEST, "LICENSE", "wheels.lock")
 _TOP_FOLDERS = ("files", "wheels")
@@ -63,6 +83,17 @@ _ZIP_ATTR = (stat.S_IFREG | 0o644) << 16
 
 class BuildError(Exception):
     pass
+
+
+class FetchError(BuildError):
+    """An upstream file could not be fetched, or is not the file the recipe pins.
+
+    main exits with FETCH_FAILED for it, so CI can tell a file that went missing upstream
+    from every other failure.
+    """
+
+
+FETCH_FAILED = 3
 
 
 @dataclass
@@ -100,6 +131,7 @@ def _relative(value: object, label: str, *, under: str = "") -> str:
         value.startswith("/")
         or "\\" in value
         or "\0" in value
+        or "\n" in value
         or any(p in ("", ".", "..") for p in parts)
         or parts[0].endswith(":")
     ):
@@ -248,9 +280,9 @@ def fetch(url: str, path: Path, limit: int) -> None:
         while chunk := response.read(_CHUNK):
             total += len(chunk)
             if total > limit:
-                raise BuildError(f"{url}: more than the {limit} bytes the recipe gives")
+                raise FetchError(f"{url}: more than the {limit} bytes the recipe gives")
             if time.monotonic() > deadline:
-                raise BuildError(f"{url}: the download took too long")
+                raise FetchError(f"{url}: the download took too long")
             out.write(chunk)
 
 
@@ -270,12 +302,12 @@ def fetch_source(source: Source, cache: Path, *, fetch: Fetch = fetch) -> Path:
         except BuildError:
             raise
         except Exception as exc:
-            raise BuildError(f"cannot download {source.url}: {str(exc) or type(exc).__name__}") from exc
+            raise FetchError(f"cannot download {source.url}: {str(exc) or type(exc).__name__}") from exc
         actual = part.stat().st_size
         if actual != source.size:
-            raise BuildError(f"{source.url}: size is {actual} bytes, the recipe says {source.size}")
+            raise FetchError(f"{source.url}: size is {actual} bytes, the recipe says {source.size}")
         if sha256_file(part) != source.sha256:
-            raise BuildError(f"{source.url}: SHA-256 differs from the recipe")
+            raise FetchError(f"{source.url}: SHA-256 differs from the recipe")
         os.replace(part, target)
     except BaseException:
         _unlink(part)
@@ -572,7 +604,7 @@ def _check_wheel(path: Path, pin: Pin, python: str | None) -> None:
             f"{label}: {path.name} does not fit CPython {python} on x86_64 Linux ({PLATFORM})"
         )
     if sha256_file(path) not in pin.hashes:
-        raise BuildError(f"{label}: {path.name} has a SHA-256 that requirements.lock does not list")
+        raise FetchError(f"{label}: {path.name} has a SHA-256 that requirements.lock does not list")
 
 
 def _tool_env(tool: str) -> dict[str, str]:
@@ -592,10 +624,16 @@ def _sh(run: Run, cmd: list[str], cwd: Path | None = None):
     uv = cmd[0] == "uv"
     label = " ".join(cmd[:3]) if uv else f"pip {cmd[3]}"
     try:
-        return run(
+        done = run(
             cmd, capture_output=True, text=True, cwd=cwd,
             env=_tool_env("uv" if uv else "pip"), timeout=COMMAND_TIMEOUT,
         )  # fmt: skip
+        if not uv and done.returncode != 0 and "No module named pip" in (done.stderr or ""):
+            raise BuildError(
+                f"pip is not installed for {sys.executable}; install it (python -m ensurepip) "
+                "and run the build again"
+            )
+        return done
     except subprocess.TimeoutExpired as exc:
         raise BuildError(f"{label} timed out after {COMMAND_TIMEOUT} seconds") from exc
     except FileNotFoundError as exc:
@@ -636,12 +674,12 @@ def _wheel_from_source(pin: Pin, index: int, tmp: Path, run: Run, find_links: Pa
              "-r", str(req), "--dest", str(src)),
     )  # fmt: skip
     if done.returncode != 0:
-        raise BuildError(f"{label}: the pinned source archive cannot be fetched ({_tail(done.stderr)})")
+        raise FetchError(f"{label}: the pinned source archive cannot be fetched ({_tail(done.stderr)})")
     archive = _only_file(src, label, "source archive")
     if archive.name.endswith(".whl"):
         raise BuildError(f"{label}: got a wheel where a source archive was expected")
     if sha256_file(archive) not in pin.hashes:
-        raise BuildError(f"{label}: {archive.name} has a SHA-256 that requirements.lock does not list")
+        raise FetchError(f"{label}: {archive.name} has a SHA-256 that requirements.lock does not list")
     out = tmp / f"built-{index}"
     out.mkdir()
     done = _sh(run, _pip("wheel", find_links, "--no-deps", "--wheel-dir", str(out), str(archive)))
@@ -666,7 +704,7 @@ def _wheel_for(
              "--dest", str(dest), "-r", str(tmp / f"req-{index}.txt")),
     )  # fmt: skip
     if done.returncode != 0:
-        raise BuildError(
+        raise FetchError(
             f"{label}: no wheel could be downloaded for Python {python} ({_tail(done.stderr)}). "
             "If the distribution publishes no wheel, add it to build_from_source in the recipe."
         )
@@ -853,10 +891,20 @@ def _url(base_url: str | None, name: str, version: str, build: int, file: str) -
     return base_url.replace("{tag}", _tag(name, version, build)).replace("{file}", file)
 
 
+def _check_shared_commands(commands: dict[str, list[str]]) -> None:
+    """commands maps a tool to the commands of its latest build."""
+    owner: dict[str, str] = {}
+    for tool, names in commands.items():
+        for command in names:
+            if owner.setdefault(command, tool) != tool:
+                raise BuildError(f"the command {command} is defined by both {owner[command]} and {tool}")
+
+
 def build_index(cards: list[dict], *, base_url: str | None) -> dict:
     grouped: dict[str, list[dict]] = {}
     for c in cards:
         grouped.setdefault(c["name"], []).append(c)
+    _check_shared_commands({name: rows[-1]["commands"] for name, rows in grouped.items()})
     tools = []
     for name, rows in grouped.items():
         seen = set()
@@ -959,6 +1007,39 @@ def _zip_member(zip_path: Path, name: str, limit: int) -> bytes | None:
         raise BuildError(f"{zip_path.name}: cannot be read as a zip ({exc})") from exc
 
 
+def _zip_digests(zip_path: Path, left_out: list[str]) -> dict[str, tuple[int, str]]:
+    """Name -> (size, SHA-256) of every file in a zip, except the wheels of left_out."""
+    found: dict[str, tuple[int, str]] = {}
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            infos = [i for i in zf.infolist() if not i.is_dir()]
+            if sum(i.file_size for i in infos) > MAX_UNPACKED_BYTES:
+                raise BuildError(f"{zip_path.name}: unpacks to more than {MAX_UNPACKED_BYTES} bytes")
+            for info in infos:
+                name = info.filename
+                limits = {MANIFEST: MANIFEST_LIMIT, WHEELS_LOCK: WHEELS_LOCK_LIMIT}
+                if name in limits and info.file_size > limits[name]:
+                    raise BuildError(f"{zip_path.name}: {name} is too large")
+                if name in found:
+                    raise BuildError(f"{zip_path.name}: {name} appears more than once")
+                if _left_out_wheel(name, left_out):
+                    continue
+                digest = hashlib.sha256()
+                with zf.open(info) as src:
+                    while chunk := src.read(_CHUNK):
+                        digest.update(chunk)
+                found[name] = (info.file_size, digest.hexdigest())
+    except (zipfile.BadZipFile, OSError) as exc:
+        raise BuildError(f"{zip_path.name}: cannot be read as a zip ({exc})") from exc
+    return found
+
+
+def _left_out_wheel(name: str, left_out: list[str]) -> bool:
+    folder, _, base = name.rpartition("/")
+    found = _WHEEL.fullmatch(base)
+    return folder == "wheels" and found is not None and _norm_name(found["name"]) in left_out
+
+
 def _lock_lines(data: bytes, left_out: list[str]) -> list[str]:
     kept = []
     for line in data.decode("utf-8", errors="replace").splitlines():
@@ -969,21 +1050,23 @@ def _lock_lines(data: bytes, left_out: list[str]) -> list[str]:
 
 
 def zip_changes(built_zip: Path, published_zip: Path, recipe: Recipe) -> list[str]:
-    """Which of manifest.toml and wheels.lock differ between two zips of one build."""
-    changed = []
-    if _zip_member(built_zip, MANIFEST, MANIFEST_LIMIT) != _zip_member(
-        published_zip, MANIFEST, MANIFEST_LIMIT
-    ):
-        changed.append(MANIFEST)
-    new = _zip_member(built_zip, WHEELS_LOCK, WHEELS_LOCK_LIMIT)
-    old = _zip_member(published_zip, WHEELS_LOCK, WHEELS_LOCK_LIMIT)
-    # the hash of a wheel built from source differs between builds by nature
-    if (new is None) != (old is None) or (
-        new is not None
-        and old is not None
-        and _lock_lines(new, recipe.build_from_source) != _lock_lines(old, recipe.build_from_source)
-    ):
+    """The members that differ between two zips of one build.
+
+    Every member counts (name, size, SHA-256) except the wheels of the distributions in
+    build_from_source, whose bytes differ between builds by nature, and those distributions'
+    lines in wheels.lock.
+    """
+    left_out = recipe.build_from_source
+    new = _zip_digests(built_zip, left_out)
+    old = _zip_digests(published_zip, left_out)
+    changed = sorted(n for n in new.keys() | old.keys() if new.get(n) != old.get(n) and n != WHEELS_LOCK)
+    if (WHEELS_LOCK in new) != (WHEELS_LOCK in old):
         changed.append(WHEELS_LOCK)
+    elif WHEELS_LOCK in new and new[WHEELS_LOCK] != old[WHEELS_LOCK]:
+        newer = _zip_member(built_zip, WHEELS_LOCK, WHEELS_LOCK_LIMIT) or b""
+        older = _zip_member(published_zip, WHEELS_LOCK, WHEELS_LOCK_LIMIT) or b""
+        if _lock_lines(newer, left_out) != _lock_lines(older, left_out):
+            changed.append(WHEELS_LOCK)
     return changed
 
 
@@ -994,16 +1077,15 @@ def compare_cards(
     built_zip: Path | None = None,
     published_zip: Path | None = None,
 ) -> None:
-    # a package with bundled wheels may differ in size and hash between two builds, since the
-    # wheels come from the index at build time, so its card cannot show a change to the
-    # manifest or to a pin; the manifest and wheels.lock inside the two zips are compared
-    # instead. Without wheels the card's size and hash already cover the whole zip.
-    wheels = has_bundled_wheels(recipe)
-    ignore = ("size", "sha256") if wheels else ()
+    # The card's size and SHA-256 cover the whole zip, and a zip is reproducible: the same
+    # recipe gives the same bytes on any machine. Only a distribution built from source
+    # differs between builds, so only then are the two zips compared member by member.
+    listed = bool(recipe.build_from_source)
+    ignore = ("size", "sha256") if listed else ()
     changed = card_changes(_read_card(built), _read_card(published), ignore=ignore)
-    if wheels:
+    if listed:
         if built_zip is None or published_zip is None:
-            raise BuildError(f"{recipe.name}: comparing a package with wheels needs both zips")
+            raise BuildError(f"{recipe.name}: comparing a package with build_from_source needs both zips")
         changed += zip_changes(built_zip, published_zip, recipe)
     if changed:
         raise BuildError(
@@ -1061,7 +1143,7 @@ def _rows(data: dict, key: str) -> list[dict]:
 
 
 def _plain(value: str, label: str) -> None:
-    if "/" in value or "\\" in value or "\0" in value or value in (".", ".."):
+    if "/" in value or "\\" in value or "\0" in value or "\n" in value or value in (".", ".."):
         raise BuildError(f"{label}: {value!r} must be a plain file name")
 
 
@@ -1085,6 +1167,8 @@ def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
         raise BuildError("needs_root: must be true or false")
     for key in ("description", "upstream", "licence", "arch"):
         _text(data, key, key)
+    if data["arch"] != "x86_64":
+        raise BuildError(f"arch: {data['arch']!r} must be x86_64")
     _strings(data, "tags", "tags")
     _strings(data, "examples", "examples")
 
@@ -1098,6 +1182,8 @@ def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
             raise BuildError(f"{label}.name: {cname!r} is not a valid command name")
         if cname in seen:
             raise BuildError(f"command.name: {cname!r} appears more than once")
+        if cname in RESERVED_COMMANDS:
+            raise BuildError(f"{label}.name: {cname!r} is reserved; it would shadow a system command")
         seen.add(cname)
         ctype = row.get("type")
         if ctype not in COMMAND_TYPES:
@@ -1107,7 +1193,16 @@ def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
             isinstance(k, str) and isinstance(v, str) for k, v in env.items()
         ):
             raise BuildError(f"{label}.env: must be a table of strings")
-        _strings(row, "args", f"{label}.args")
+        for key, value in env.items():
+            if not _ENV_NAME.fullmatch(key):
+                raise BuildError(f"{label}.env: {key!r} is not a valid variable name")
+            if key in RESERVED_ENV:
+                raise BuildError(f"{label}.env: {key!r} is reserved for the launcher")
+            if "\n" in value or "\0" in value:
+                raise BuildError(f"{label}.env: the value of {key} holds a newline or NUL")
+        for value in _strings(row, "args", f"{label}.args"):
+            if "\n" in value or "\0" in value:
+                raise BuildError(f"{label}.args: {value!r} holds a newline or NUL")
         if ctype == "binary":
             named.append(_relative(_text(row, "path", f"{label}.path"), f"{label}.path", under="files"))
         elif ctype == "python-script":
@@ -1117,10 +1212,14 @@ def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
         else:
             _plain(_text(row, "entry", f"{label}.entry"), f"{label}.entry")
     uploads = _rows(data, "upload")
+    shown_as = set()
     for i, row in enumerate(uploads):
         label = f"upload[{i}]"
         named.append(_relative(_text(row, "path", f"{label}.path"), f"{label}.path", under="files"))
         _plain(_text(row, "as", f"{label}.as"), f"{label}.as")
+        if row["as"] in shown_as:
+            raise BuildError(f"upload.as: {row['as']!r} appears more than once")
+        shown_as.add(row["as"])
         if not isinstance(row.get("note", ""), str):
             raise BuildError(f"{label}.note: must be a string")
     if kind in ("kali", "both") and not commands:
@@ -1160,6 +1259,8 @@ def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
         raise BuildError("data: must be a table")
     for entry in _strings(home, "home", "data.home"):
         _relative(entry, "data.home")
+        if entry in HOME_SHARED or any(entry == t or entry.startswith(t + "/") for t in HOME_TREES):
+            raise BuildError(f"data.home: {entry!r} is a home folder other programs use")
     return named, wheels, lock
 
 
@@ -1224,6 +1325,8 @@ def validate(zip_path: Path, *, file_name: str | None = None) -> None:
             for name in named + lock:
                 if name not in seen or seen[name].is_dir():
                     raise BuildError(f"{name}: named in the manifest but missing from the package")
+            for name in lock:
+                _check_lock(zf, seen[name])
             if wheels is not None:
                 prefix = wheels + "/"
                 if not any(not i.is_dir() and b.startswith(prefix) for b, i in seen.items()):
@@ -1238,6 +1341,26 @@ def validate(zip_path: Path, *, file_name: str | None = None) -> None:
                     _check_size(zf, i)
     except (zipfile.BadZipFile, OSError) as exc:
         raise BuildError(f"{zip_path.name}: cannot be read as a zip ({exc})") from exc
+
+
+def _check_lock(zf: zipfile.ZipFile, info: zipfile.ZipInfo) -> None:
+    """One pin per line, each with hashes, and nothing else: the shape pwn-broker reads."""
+    name = info.filename
+    if info.file_size > LOCK_LIMIT:
+        raise BuildError(f"{name} is too large")
+    try:
+        text = zf.read(info).decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise BuildError(f"{name} is not UTF-8 text ({exc})") from exc
+    lines = text.split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    for number, line in enumerate(lines, 1):
+        if not _LOCK_LINE.fullmatch(line):
+            raise BuildError(
+                f"{name}: line {number} must be name==version followed by --hash=sha256: "
+                "options, with no blank lines, comments or carriage returns"
+            )
 
 
 def _check_size(zf: zipfile.ZipFile, info: zipfile.ZipInfo) -> None:
@@ -1287,6 +1410,8 @@ def build_one(
         try:
             write_zip(staged, part)
             validate(part, file_name=final.name)
+            # mkstemp makes the file owner-only; a zip is published and shared
+            os.chmod(part, 0o644)
             os.replace(part, final)
         finally:
             _unlink(part)
@@ -1327,8 +1452,11 @@ def main(argv: list[str] | None = None, *, run: Run = subprocess.run) -> int:
             folders = _recipe_folders(Path(args.recipes), [])
             if not folders:
                 raise BuildError(f"no recipes in {args.recipes}")
-            for folder in folders:
-                recipe = load_recipe(folder)
+            recipes = [load_recipe(folder) for folder in folders]
+            _check_shared_commands(
+                {r.name: [c["name"] for c in r.manifest.get("command", [])] for r in recipes}
+            )
+            for recipe in recipes:
                 print(recipe.name, tag(recipe), zip_name(recipe.name, recipe.version, recipe.build))
         elif args.cmd == "compare":
             name = _read_card(Path(args.built))["name"]
@@ -1365,6 +1493,9 @@ def main(argv: list[str] | None = None, *, run: Run = subprocess.run) -> int:
         else:
             parser.print_help()
             return 2
+    except FetchError as exc:
+        print(f"fail {exc}", file=sys.stderr)
+        return FETCH_FAILED
     except (BuildError, OSError) as exc:
         print(f"fail {exc}", file=sys.stderr)
         return 1
