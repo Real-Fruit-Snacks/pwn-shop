@@ -5,11 +5,19 @@ build = 1
 # python-build-standalone release 20261110. The SHA-256 matches the one in that release's
 # SHA256SUMS file. The archive is carried as it is; pwn-broker unpacks it.
 #
-# The archive has no licences of the libraries it bundles. LICENSE carries them, copied from
-# python/licenses/ of the full distribution of the same build from the same release,
-# cpython-3.13.18+20261110-x86_64-unknown-linux-gnu-pgo+lto-full.tar.zst (SHA-256
-# dec4f6d23031233beddfe91b99751977ef96e90642109836b1f9ad80b0019a68, as in SHA256SUMS), with
-# pip's from the archive itself. tools/runtime-licence.py prints LICENSE from the two files.
+# The archive has no licences of the libraries it bundles. LICENSE carries, each copied byte
+# for byte:
+# - CPython's licence and pip's licences, from the archive itself;
+# - the licences in python/licenses/ that python/PYTHON.json names, from the full distribution
+#   of the same build from the same release,
+#   cpython-3.13.18+20261110-x86_64-unknown-linux-gnu-pgo+lto-full.tar.zst (113048202 bytes,
+#   SHA-256 dec4f6d23031233beddfe91b99751977ef96e90642109836b1f9ad80b0019a68, as in SHA256SUMS);
+# - from the CPython source at the tag v3.13.18, for what is compiled into the interpreter:
+#   Doc/license.rst, whole (58181 bytes, SHA-256
+#   952ac05720d7f1dcb63589b35eb0931b1442eb250230a4ad31198eddf0ad6abc), which carries mimalloc's
+#   notice; and the leading comment of Modules/_hacl/Hacl_Hash_SHA2.c (36131 bytes, SHA-256
+#   30638efb75c8b185bb09c3df6977e3f3c5d21a1e696218cf7ade6bc4d5201b31), the HACL* notice.
+# tools/runtime-licence.py prints LICENSE from the four files.
 [[source]]
 url = "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.13.18+20261110-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
 size = 35596130

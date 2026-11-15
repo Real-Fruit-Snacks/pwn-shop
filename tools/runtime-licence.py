@@ -1,6 +1,6 @@
-"""Prints the LICENSE of a Python runtime package, from the two upstream archives.
+"""Prints the LICENSE of a Python runtime package, from upstream's own files.
 
-    runtime-licence.py <runtime archive> <full distribution>
+    runtime-licence.py <runtime archive> <full distribution> <license.rst> <Hacl_Hash_SHA2.c>
 
 The runtime archive is the install_only_stripped build the recipe carries as
 files/python.tar.gz. The full distribution is the pgo+lto-full build of the same CPython from
@@ -8,16 +8,24 @@ the same python-build-standalone release (a .tar.zst; reading it needs the zstan
 under its upstream file name, which the headings give as where each licence came from.
 The stripped archive has no licences of the libraries it bundles; the full one has them in
 python/licenses/, and its python/PYTHON.json says which belongs to which part of the build.
+PYTHON.json names licences for extension modules only, so two files from the CPython source
+at the build's own tag (v<python_version>) cover what is compiled into the interpreter itself:
+Doc/license.rst, CPython's statement of the software it incorporates (mimalloc among it), and
+Modules/_hacl/Hacl_Hash_SHA2.c, whose leading comment is the notice of the vendored HACL* code.
 
 The file printed holds, each under a one-line heading and copied byte for byte:
 
 1. CPython's licence, from the runtime archive;
-2. CPython's licence with the software incorporated in it, as PYTHON.json names it;
-3. each licence PYTHON.json names for an extension module, in order of path;
-4. pip's licence and those of the libraries it vendors, from the runtime archive.
+2. the licence PYTHON.json names for CPython;
+3. Doc/license.rst, whole;
+4. the leading comment of Hacl_Hash_SHA2.c, from its first byte to the end of the comment;
+5. each licence PYTHON.json names for an extension module, in order of path;
+6. pip's licence and those of the libraries it vendors, from the runtime archive.
 
-To check the committed file, compare the output with recipes/python-<series>/LICENSE. The
-archives are only read: nothing is unpacked and nothing in them is run.
+Each licence in the full distribution's python/licenses/ that PYTHON.json names for nothing is
+left out, and said so on stderr. To check the committed file, compare the output with
+recipes/python-<series>/LICENSE. The inputs are only read: nothing is unpacked and nothing in
+them is run.
 """
 
 import json
@@ -31,11 +39,15 @@ from pathlib import Path
 MEMBER_LIMIT = 1024 * 1024
 PYTHON_JSON = "python/PYTHON.json"
 PYTHON_JSON_LIMIT = 16 * 1024 * 1024
+SOURCE_LIMIT = 1024 * 1024
+LICENSES = "python/licenses/"
+LEFT_OUT = "PYTHON.json names it for no part of this build"
 RUNTIME = "files/python.tar.gz"
 _ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
 _CPYTHON = re.compile(r"python/lib/python3\.[0-9]+/LICENSE\.txt")
 _PIP = re.compile(r"python/lib/python3\.[0-9]+/site-packages/pip-[^/]+\.dist-info/licenses/(.+)")
 _LICENCE_PATH = re.compile(r"licenses/LICENSE\.([A-Za-z0-9][A-Za-z0-9._-]*)\.txt")
+_VERSION = re.compile(r"3\.[0-9]+\.[0-9]+")
 
 
 class LicenceError(Exception):
@@ -110,6 +122,39 @@ def _read(path: Path, wanted) -> dict[str, bytes]:
     return found
 
 
+def _read_file(path: Path) -> bytes:
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read(SOURCE_LIMIT + 1)
+    except OSError as exc:
+        raise LicenceError(f"{path.name} cannot be read ({exc})") from exc
+    if len(data) > SOURCE_LIMIT:
+        raise LicenceError(f"{path.name} is larger than {SOURCE_LIMIT} bytes")
+    return data
+
+
+def leading_comment(data: bytes, name: str) -> bytes:
+    """A C file's leading comment, from its first byte to the end of the comment, if it is a
+    licence notice: a copyright line and the permission text."""
+    if not data.startswith(b"/*"):
+        raise LicenceError(f"{name} does not start with a comment")
+    end = data.find(b"*/", 2)
+    if end < 0:
+        raise LicenceError(f"{name}: the leading comment never ends")
+    notice = data[: end + 2]
+    if b"Copyright" not in notice or b"Permission" not in notice:
+        raise LicenceError(f"{name}: the leading comment is not a licence notice")
+    return notice
+
+
+def _tag(data: dict) -> str:
+    """The CPython source tag of the build, from PYTHON.json's python_version."""
+    version = data.get("python_version")
+    if not isinstance(version, str) or not _VERSION.fullmatch(version):
+        raise LicenceError(f"PYTHON.json's python_version {version!r} is not a CPython version")
+    return f"v{version}"
+
+
 def _licence_path(value: object) -> str:
     if not isinstance(value, str) or not _LICENCE_PATH.fullmatch(value):
         raise LicenceError(
@@ -142,14 +187,15 @@ def _one(found: dict[str, bytes], pattern: re.Pattern, what: str) -> tuple[str, 
     return names[0], found[names[0]]
 
 
-def licence(runtime: Path, full: Path) -> bytes:
+def compose(runtime: Path, full: Path, license_rst: Path, hacl: Path) -> tuple[bytes, list[str]]:
+    """The file, and a line for each licence in upstream's folder that it leaves out."""
     def from_runtime(name: str) -> int | None:
         return MEMBER_LIMIT if _CPYTHON.fullmatch(name) or _PIP.fullmatch(name) else None
 
     def from_full(name: str) -> int | None:
         if name == PYTHON_JSON:
             return PYTHON_JSON_LIMIT
-        return MEMBER_LIMIT if name.startswith("python/licenses/") else None
+        return MEMBER_LIMIT if name.startswith(LICENSES) else None
 
     ours = _read(runtime, from_runtime)
     theirs = _read(full, from_full)
@@ -161,7 +207,10 @@ def licence(runtime: Path, full: Path) -> bytes:
         raise LicenceError(f"{PYTHON_JSON} cannot be read ({exc})") from exc
     if not isinstance(data, dict):
         raise LicenceError(f"{PYTHON_JSON} is not in the form expected")
+    tag = _tag(data)
     cpython_path, components = _components(data)
+    rst = _read_file(license_rst)
+    notice = leading_comment(_read_file(hacl), hacl.name)
 
     def from_full_distribution(component: str, path: str) -> Section:
         name = posixpath.join("python", path)
@@ -172,7 +221,13 @@ def licence(runtime: Path, full: Path) -> bytes:
     name, body = _one(ours, _CPYTHON, "CPython's LICENSE.txt")
     sections = [
         Section("CPython", f"{name} in {RUNTIME}", body),
-        from_full_distribution("CPython and the software incorporated in it", cpython_path),
+        from_full_distribution("CPython, the licence PYTHON.json names", cpython_path),
+        Section("The software incorporated in CPython", f"Doc/license.rst at CPython {tag}", rst),
+        Section(
+            "HACL* (compiled into libpython)",
+            f"the leading comment of Modules/_hacl/Hacl_Hash_SHA2.c at CPython {tag}",
+            notice,
+        ),
     ]
     for path, modules in components.items():
         component = _LICENCE_PATH.fullmatch(path).group(1)
@@ -185,19 +240,32 @@ def licence(runtime: Path, full: Path) -> bytes:
     for name, inner in pip:
         component = posixpath.dirname(inner).removeprefix("src/") if "/" in inner else "pip"
         sections.append(Section(component, f"{name} in {RUNTIME}", ours[name]))
-    return assemble(sections)
+    used = {posixpath.join("python", p) for p in (cpython_path, *components)}
+    unused = [n for n in sorted(theirs) if n.startswith(LICENSES) and n not in used]
+    left = [f"left out {n}: {LEFT_OUT}" for n in unused]
+    return assemble(sections), left
+
+
+def licence(runtime: Path, full: Path, license_rst: Path, hacl: Path) -> bytes:
+    return compose(runtime, full, license_rst, hacl)[0]
 
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
-    if len(args) != 2:
-        print("usage: runtime-licence.py <runtime archive> <full distribution>", file=sys.stderr)
+    if len(args) != 4:
+        print(
+            "usage: runtime-licence.py <runtime archive> <full distribution> <license.rst> "
+            "<Hacl_Hash_SHA2.c>",
+            file=sys.stderr,
+        )
         return 2
     try:
-        text = licence(Path(args[0]), Path(args[1]))
+        text, left = compose(*(Path(a) for a in args))
     except LicenceError as exc:
         print(f"fail {exc}", file=sys.stderr)
         return 1
+    for line in left:
+        print(f"warn {line}", file=sys.stderr)
     sys.stdout.buffer.write(text)
     sys.stdout.buffer.flush()
     return 0
