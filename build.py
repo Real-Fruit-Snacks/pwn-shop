@@ -1023,9 +1023,12 @@ def build_index(cards: list[dict], *, base_url: str | None) -> dict:
         grouped.setdefault(c["name"], []).append(c)
     _check_shared_commands({name: rows[-1]["commands"] for name, rows in grouped.items()})
     tools = []
+    needs: list[tuple[str, str, str]] = []
     # schema 2 only when a build needs it, so an index of schema 1 builds stays as it was
     schema = 1
     for name, rows in grouped.items():
+        if not _NAME.fullmatch(name):
+            raise BuildError(f"name {name!r} {_NAME_RULE}")
         if len({c["kind"] == "runtime" for c in rows}) > 1:
             raise BuildError(f"{name}: its builds mix kind runtime with other kinds")
         seen = set()
@@ -1036,6 +1039,7 @@ def build_index(cards: list[dict], *, base_url: str | None) -> dict:
                 raise BuildError(f"{name}: build {c['version']}-{c['build']} appears more than once")
             seen.add(key)
             requires = _check_index_build(name, c)
+            needs.extend((name, f"{c['version']}-{c['build']}", wanted) for wanted in requires)
             if requires or c["kind"] == "runtime":
                 schema = 2
             builds.append(
@@ -1064,6 +1068,12 @@ def build_index(cards: list[dict], *, base_url: str | None) -> dict:
                 "build": builds,
             }
         )
+    runtimes = {name for name, rows in grouped.items() if rows[0]["kind"] == "runtime"}
+    for name, build_id, wanted in needs:
+        if wanted not in grouped:
+            raise BuildError(f"{name} {build_id}: requires {wanted}, which is not in the index")
+        if wanted not in runtimes:
+            raise BuildError(f"{name} {build_id}: requires {wanted}, which is not a runtime")
     return {"schema": schema, "tool": tools}
 
 

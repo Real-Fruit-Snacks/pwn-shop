@@ -2208,3 +2208,35 @@ def test_lock_with_no_names_skips_a_runtime(tmp_path, net, capsys):
     assert [c[0] for c in fake.calls] == ["uv"]
     assert capsys.readouterr().out.count("ok wrote") == 1
 
+
+
+# ---- the index holds what it requires
+
+
+def requiring_card(name="certipy", build_no=3, wanted="python-3.13"):
+    return {**cardf(name=name, build_no=build_no), "requires": [wanted]}
+
+
+def test_the_index_refuses_a_build_that_requires_a_runtime_it_does_not_hold():
+    with pytest.raises(build.BuildError, match="certipy 1.0.3-3: requires python-3.13, which is not in the index"):
+        build.build_index([requiring_card(), cardf()], base_url=None)
+
+
+def test_the_index_refuses_a_build_that_requires_a_tool():
+    cards = [requiring_card(wanted="kerbrute"), cardf()]
+    with pytest.raises(build.BuildError, match="certipy 1.0.3-3: requires kerbrute, which is not a runtime"):
+        build.build_index(cards, base_url=None)
+
+
+def test_the_index_holds_the_real_case():
+    cards = [cardf(name="certipy", build_no=n) for n in (1, 2)] + [requiring_card("certipy", 3)]
+    cards += [cardf(name="targetedkerberoast", build_no=n) for n in (1, 2)]
+    cards += [requiring_card("targetedkerberoast", 3)]
+    cards += [cardf(name=n) for n in ("kerbrute", "ligolo-ng", "peass-ng", "pspy")] + [runtime_card()]
+    idx = build.build_index(build.card_order(cards), base_url=None)
+    assert idx["schema"] == 2 and len(idx["tool"]) == 7
+
+
+def test_the_index_refuses_a_card_whose_name_breaks_the_name_rule():
+    with pytest.raises(build.BuildError, match="name 'Bad_Name' must be lower-case"):
+        build.build_index([cardf(name="Bad_Name")], base_url=None)
