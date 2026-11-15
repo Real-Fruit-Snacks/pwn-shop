@@ -54,7 +54,7 @@ Build 3 of `certipy` and `targetedkerberoast` requires `python-3.13` (`requires 
 The runtime's `LICENSE` holds these parts, each under a heading that names it and where it came from, each copied byte for byte:
 
 - CPython's licence, from the archive.
-- The licence files that the build's own `PYTHON.json` names for the libraries it links (OpenSSL, SQLite, zlib, expat, libffi, Tcl and others), from upstream's full distribution of the same build.
+- The licence files that the build's own `PYTHON.json` names for CPython itself and for the libraries it links (OpenSSL, SQLite, zlib, expat, libffi, Tcl and others), from upstream's full distribution of the same build.
 - CPython's `Doc/license.rst` at the tag `v3.13.18`, its own statement of the software incorporated into the interpreter, mimalloc's notice among it.
 - The HACL* notice, from the leading comment of `Modules/_hacl/Hacl_Hash_SHA2.c` at the same tag.
 - pip's licences and those of the libraries pip vendors, from the archive.
