@@ -1,12 +1,21 @@
+import hashlib
+import os
 import stat
+import subprocess
+import sys
 import tomllib
+import venv
 import zipfile
+from pathlib import Path
 
 import pytest
 import tomli_w
 
 import build
-from conftest import digest, make_recipe, tar_gz, zip_bytes
+from conftest import (
+    PY_MANIFEST, FakeTools, digest, lock_text, make_python_recipe, make_recipe, make_wheel,
+    tar_gz, wheel_bytes, wheel_name, zip_bytes,
+)
 
 
 def built(recipe, tmp_path, net):
@@ -656,3 +665,460 @@ def test_every_subcommand_turns_build_errors_into_one_fail_line(tmp_path, capsys
         assert build.main(argv) == 1, argv
         err = capsys.readouterr().err
         assert err.startswith("fail ") and err.count("\n") == 1 and "Traceback" not in err, argv
+
+
+# ---- Python tools
+
+
+def staged_dir(tmp_path):
+    (tmp_path / "staged").mkdir(exist_ok=True)
+    return tmp_path / "staged"
+
+
+def py_recipe(tmp_path, net, pins, **kw):
+    return build.load_recipe(make_python_recipe(tmp_path / "recipes" / "tinytool", net, pins, **kw))
+
+
+def pure(name, version):
+    return wheel_name(name, version), wheel_bytes(name, version)
+
+
+def test_constants():
+    assert build.PYTHONS == ("3.12", "3.13")
+    assert build.PLATFORM == "manylinux_2_28_x86_64"
+
+
+def test_write_wheels_lock_one_line_per_distribution(tmp_path):
+    staged = staged_dir(tmp_path)
+    make_wheel(staged / "wheels", "My_Dep.x", "2.0", tag="cp312-cp312-manylinux2014_x86_64")
+    make_wheel(staged / "wheels", "my-dep.x", "2.0", tag="cp313-cp313-manylinux_2_28_x86_64")
+    make_wheel(staged / "wheels", "aaa", "1.0")
+    path = build.write_wheels_lock(staged)
+    assert path == staged / "wheels.lock"
+    raw = path.read_bytes()
+    assert b"\r" not in raw and raw.endswith(b"\n") and b"#" not in raw
+    lines = raw.decode().splitlines()
+    assert [ln.split()[0] for ln in lines] == ["aaa==1.0", "my-dep-x==2.0"]
+    hashes = sorted(
+        hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in (staged / "wheels").iterdir()
+        if p.name.lower().startswith("my_dep.x-")
+    )
+    assert lines[1].split()[1:] == [f"--hash=sha256:{h}" for h in hashes]
+    assert len(lines[1].split()) == 3
+
+
+def test_write_wheels_lock_refuses_two_versions_of_one_distribution(tmp_path):
+    staged = staged_dir(tmp_path)
+    make_wheel(staged / "wheels", "dep", "1.0")
+    make_wheel(staged / "wheels", "dep", "1.1")
+    with pytest.raises(build.BuildError, match="dep"):
+        build.write_wheels_lock(staged)
+
+
+def test_write_wheels_lock_refuses_no_wheels(tmp_path):
+    with pytest.raises(build.BuildError, match="no wheels"):
+        build.write_wheels_lock(staged_dir(tmp_path))
+
+
+@pytest.mark.parametrize(
+    "tag, python, fits",
+    [
+        ("py3-none-any", "3.12", True),
+        ("py2.py3-none-any", "3.13", True),
+        ("py2-none-any", "3.12", False),
+        ("py312-none-any", "3.13", True),
+        ("py313-none-any", "3.12", False),
+        ("cp312-cp312-manylinux_2_28_x86_64", "3.12", True),
+        ("cp312-cp312-manylinux_2_28_x86_64", "3.13", False),
+        ("cp311-abi3-manylinux2014_x86_64", "3.13", True),
+        ("cp313-abi3-manylinux2014_x86_64", "3.12", False),
+        ("cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64", "3.12", True),
+        ("py3-none-manylinux_2_17_x86_64", "3.12", True),
+        ("cp312-cp312-win_amd64", "3.12", False),
+        ("cp312-cp312-macosx_11_0_arm64", "3.12", False),
+        ("cp312-cp312-musllinux_1_2_x86_64", "3.12", False),
+        ("cp312-cp312-manylinux2014_aarch64", "3.12", False),
+        ("cp312-cp312-manylinux_2_34_x86_64", "3.12", False),
+        ("pp312-pypy312_pp73-manylinux2014_x86_64", "3.12", False),
+    ],
+)
+def test_wheel_tags_that_fit(tag, python, fits):
+    assert build._wheel_fits(f"x-1.0-{tag}.whl", python) is fits
+
+
+def two_pythons(*files):
+    return {(py, dist): list(items) for py in build.PYTHONS for dist, items in files}
+
+
+def test_collect_wheels_runs_pip_for_each_python_and_bundles_the_union(tmp_path, net):
+    t312, t313 = "cp312-cp312-manylinux_2_28_x86_64", "cp313-cp313-manylinux_2_28_x86_64"
+    dep312 = (wheel_name("dep", "1.0", t312), wheel_bytes("dep", "1.0", tag=t312))
+    dep313 = (wheel_name("dep", "1.0", t313), wheel_bytes("dep", "1.0", tag=t313))
+    tool = pure("tinytool", "1.0")
+    pins = [("dep", "1.0", [dep312[1], dep313[1]]), ("tinytool", "1.0", [tool[1]])]
+    fake = FakeTools(
+        downloads={
+            ("3.12", "dep"): [dep312], ("3.13", "dep"): [dep313],
+            ("3.12", "tinytool"): [tool], ("3.13", "tinytool"): [tool],
+        }
+    )
+    r = py_recipe(tmp_path, net, pins)
+    staged = staged_dir(tmp_path)
+    got = build.collect_wheels(r, staged, run=fake)
+    assert [p.name for p in got] == sorted([dep312[0], dep313[0], tool[0]])
+    assert all(p.parent == staged / "wheels" for p in got)
+    assert (staged / "wheels" / tool[0]).read_bytes() == tool[1]
+    downloads = [c for c in fake.calls if c[3] == "download"]
+    assert len(downloads) == 4
+    first = downloads[0]
+    assert first[:4] == [sys.executable, "-m", "pip", "download"]
+    for flag in ("--no-deps", "--require-hashes", "--only-binary", "--implementation"):
+        assert flag in first
+    assert first[first.index("--only-binary") + 1] == ":all:"
+    assert first[first.index("--platform") + 1] == "manylinux_2_28_x86_64"
+    assert first[first.index("--implementation") + 1] == "cp"
+    versions = [c[c.index("--python-version") + 1] for c in downloads]
+    assert sorted(versions) == ["3.12", "3.12", "3.13", "3.13"]
+    assert "--no-index" not in first
+
+
+def test_each_pip_download_carries_only_its_own_pin(tmp_path, net):
+    seen = []
+    tool = pure("tinytool", "1.0")
+    dep = pure("dep", "2.0")
+
+    class Spy(FakeTools):
+        def __call__(self, cmd, **kw):
+            if cmd[3] == "download":
+                seen.append(Path(cmd[cmd.index("-r") + 1]).read_text())
+            return super().__call__(cmd, **kw)
+
+    pins = [("dep", "2.0", [dep[1]]), ("tinytool", "1.0", [tool[1]])]
+    fake = Spy(downloads=two_pythons(("tinytool", [tool]), ("dep", [dep])))
+    build.collect_wheels(py_recipe(tmp_path, net, pins), staged_dir(tmp_path), run=fake)
+    assert len(seen) == 4
+    assert all(s.count("==") == 1 and s.endswith("\n") for s in seen)
+    assert sum(s.startswith("dep==2.0 --hash=sha256:") for s in seen) == 2
+
+
+def test_collect_wheels_local_folder_adds_no_index(tmp_path, net):
+    tool = pure("tinytool", "1.0")
+    fake = FakeTools(downloads=two_pythons(("tinytool", [tool])))
+    r = py_recipe(tmp_path, net, [("tinytool", "1.0", [tool[1]])])
+    build.collect_wheels(r, staged_dir(tmp_path), run=fake, find_links=tmp_path / "local")
+    first = fake.calls[0]
+    assert first[first.index("--no-index") + 1] == "--find-links"
+    assert first[first.index("--find-links") + 1] == str(tmp_path / "local")
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "colorama==0.4.6 ; sys_platform == 'win32'",
+        "dep==1.0 ; python_version < '3.13'",
+        "dep==1.0;python_version>'3.12'",
+    ],
+)
+def test_lock_line_with_a_marker_is_refused(tmp_path, net, line):
+    tool = pure("tinytool", "1.0")
+    r = py_recipe(tmp_path, net, [("tinytool", "1.0", [tool[1]])])
+    h = "--hash=sha256:" + "a" * 64
+    (r.folder / "requirements.lock").write_text(f"{line} \\\n    {h}\n")
+    fake = FakeTools()
+    with pytest.raises(build.BuildError, match="marker") as err:
+        build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+    assert "python build.py lock tinytool" in str(err.value)
+    assert fake.calls == []
+
+
+HASH_A = "--hash=sha256:" + "a" * 64
+HASH_B = "--hash=sha256:" + "b" * 64
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        f"dep>=1.0 {HASH_A}\n",
+        "dep==1.0\n",
+        "dep==1.0 --hash=sha1:abc\n",
+        "-e git+https://x/y#egg=dep\n",
+        "--index-url https://x/simple\n",
+        "dep @ https://x/dep.whl\n",
+        f"dep==1.0 {HASH_A}\nDep==2.0 {HASH_B}\n",
+        "# only a comment\n",
+        "",
+    ],
+)
+def test_lock_must_be_pinned_hashed_and_plain(tmp_path, net, text):
+    tool = pure("tinytool", "1.0")
+    r = py_recipe(tmp_path, net, [("tinytool", "1.0", [tool[1]])])
+    (r.folder / "requirements.lock").write_text(text)
+    with pytest.raises(build.BuildError):
+        build.collect_wheels(r, staged_dir(tmp_path), run=FakeTools())
+
+
+def test_comments_and_continued_lines_in_the_lock_are_read(tmp_path, net):
+    tool = pure("tinytool", "1.0")
+    fake = FakeTools(downloads=two_pythons(("tinytool", [tool])))
+    r = py_recipe(tmp_path, net, [("tinytool", "1.0", [tool[1]])])
+    text = lock_text([("tinytool", "1.0", [tool[1]])]).replace("\n", "\n    # via -r x\n", 1)
+    (r.folder / "requirements.lock").write_text("# header\n" + text)
+    assert len(build.collect_wheels(r, staged_dir(tmp_path), run=fake)) == 1
+
+
+def test_missing_lock_says_to_run_lock(tmp_path, net):
+    r = py_recipe(tmp_path, net, [], lock=False)
+    with pytest.raises(build.BuildError, match="python build.py lock tinytool"):
+        build.collect_wheels(r, staged_dir(tmp_path), run=FakeTools())
+
+
+@pytest.mark.parametrize(
+    "tag",
+    ["cp312-cp312-win_amd64", "cp311-cp311-manylinux_2_28_x86_64",
+     "cp312-cp312-musllinux_1_2_x86_64", "cp313-cp313-manylinux_2_28_x86_64"],
+)
+def test_wheel_that_does_not_fit_the_target_is_an_error(tmp_path, net, tag):
+    data = wheel_bytes("dep", "1.0", tag=tag)
+    item = (wheel_name("dep", "1.0", tag), data)
+    # the same wheel is offered for both Pythons, as a download that ignored the target would
+    fake = FakeTools(downloads=two_pythons(("dep", [item])))
+    r = py_recipe(tmp_path, net, [("dep", "1.0", [data])])
+    with pytest.raises(build.BuildError, match="dep"):
+        build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+
+
+def test_downloaded_wheel_with_a_hash_not_in_the_lock_is_an_error(tmp_path, net):
+    good = pure("dep", "1.0")
+    other = (good[0], wheel_bytes("dep", "1.0", body="x = 1\n"))
+    fake = FakeTools(downloads=two_pythons(("dep", [other])))
+    r = py_recipe(tmp_path, net, [("dep", "1.0", [good[1]])])
+    with pytest.raises(build.BuildError, match="SHA-256"):
+        build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+
+
+def test_downloaded_wheel_of_another_version_is_an_error(tmp_path, net):
+    wrong = pure("dep", "2.0")
+    fake = FakeTools(downloads=two_pythons(("dep", [wrong])))
+    r = py_recipe(tmp_path, net, [("dep", "1.0", [wrong[1]])])
+    with pytest.raises(build.BuildError, match="dep"):
+        build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+
+
+def test_dependency_without_a_wheel_is_built_once_from_its_pinned_source(tmp_path, net):
+    sdist = ("docopt-0.6.2.tar.gz", b"source archive")
+    built = pure("docopt", "0.6.2")
+    fake = FakeTools(sdists={"docopt": sdist}, built={"docopt": built})
+    r = py_recipe(tmp_path, net, [("docopt", "0.6.2", [sdist[1]])])
+    got = build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+    assert [p.name for p in got] == [built[0]]
+    sources = [c for c in fake.calls if "--no-binary" in c]
+    wheels = [c for c in fake.calls if c[3] == "wheel"]
+    assert len(sources) == 1 and len(wheels) == 1
+    src = sources[0]
+    for flag in ("--no-deps", "--require-hashes"):
+        assert flag in src
+    assert src[src.index("--no-binary") + 1] == "docopt"
+    assert "--platform" not in src
+    assert wheels[0][:4] == [sys.executable, "-m", "pip", "wheel"] and "--no-deps" in wheels[0]
+    assert wheels[0][-1].endswith("docopt-0.6.2.tar.gz")
+
+
+def test_source_archive_with_a_hash_not_in_the_lock_is_an_error(tmp_path, net):
+    sdist = ("docopt-0.6.2.tar.gz", b"tampered")
+    fake = FakeTools(sdists={"docopt": sdist}, built={"docopt": pure("docopt", "0.6.2")})
+    r = py_recipe(tmp_path, net, [("docopt", "0.6.2", [b"original"])])
+    with pytest.raises(build.BuildError, match="SHA-256"):
+        build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+
+
+def test_source_built_wheel_that_is_not_pure_python_is_an_error(tmp_path, net):
+    sdist = ("native-1.0.tar.gz", b"source")
+    tag = "cp313-cp313-win_amd64"
+    built = (wheel_name("native", "1.0", tag), wheel_bytes("native", "1.0", tag=tag))
+    fake = FakeTools(sdists={"native": sdist}, built={"native": built})
+    r = py_recipe(tmp_path, net, [("native", "1.0", [sdist[1]])])
+    with pytest.raises(build.BuildError, match="native.*pure Python"):
+        build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+
+
+def test_dependency_with_no_wheel_and_no_source_is_an_error_naming_it(tmp_path, net):
+    tool = pure("tinytool", "1.0")
+    fake = FakeTools(downloads={(py, "tinytool"): [tool] for py in build.PYTHONS})
+    r = py_recipe(tmp_path, net, [("tinytool", "1.0", [tool[1]]), ("gone", "3.1", [b"x"])])
+    with pytest.raises(build.BuildError, match="gone 3.1"):
+        build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+
+
+def test_wheel_missing_for_only_one_python_is_an_error(tmp_path, net):
+    tool = pure("tinytool", "1.0")
+    fake = FakeTools(downloads={("3.12", "tinytool"): [tool]})
+    r = py_recipe(tmp_path, net, [("tinytool", "1.0", [tool[1]])])
+    with pytest.raises(build.BuildError, match="tinytool 1.0"):
+        build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+
+
+def test_stage_collects_wheels_and_sets_the_python_table(tmp_path, net):
+    tool = pure("tinytool", "1.0")
+    fake = FakeTools(downloads=two_pythons(("tinytool", [tool])))
+    r = py_recipe(tmp_path, net, [("tinytool", "1.0", [tool[1]])])
+    staged = build.stage(r, tmp_path / "w", tmp_path / "c", fetch=net, run=fake)
+    manifest = tomllib.loads((staged / "manifest.toml").read_text())
+    assert manifest["python"] == {
+        "versions": ["3.12", "3.13"], "lock": "wheels.lock", "wheels": "wheels"
+    }
+    assert (staged / "wheels" / tool[0]).read_bytes() == tool[1]
+    lock = (staged / "wheels.lock").read_text()
+    assert lock == f"tinytool==1.0 --hash=sha256:{digest(tool[1])}\n"
+    assert r.manifest["python"] == {}
+
+
+@pytest.mark.parametrize(
+    "table", [{"versions": ["3.13"]}, {"lock": "other.lock"}, {"wheels": "w"}]
+)
+def test_manifest_python_fields_that_disagree_are_refused(tmp_path, net, table):
+    manifest = {**PY_MANIFEST, "python": table}
+    tool = pure("tinytool", "1.0")
+    r = py_recipe(tmp_path, net, [("tinytool", "1.0", [tool[1]])], manifest=manifest)
+    with pytest.raises(build.BuildError, match="python"):
+        build.stage(r, tmp_path / "w", tmp_path / "c", fetch=net, run=FakeTools())
+
+
+def test_manifest_python_fields_that_agree_are_accepted(tmp_path, net):
+    table = {"versions": ["3.12", "3.13"], "lock": "wheels.lock", "wheels": "wheels"}
+    tool = pure("tinytool", "1.0")
+    r = py_recipe(tmp_path, net, [("tinytool", "1.0", [tool[1]])], manifest={**PY_MANIFEST, "python": table})
+    fake = FakeTools(downloads=two_pythons(("tinytool", [tool])))
+    build.stage(r, tmp_path / "w", tmp_path / "c", fetch=net, run=fake)
+
+
+def test_tool_without_python_table_collects_nothing(recipe, tmp_path, net):
+    fake = FakeTools()
+    staged = build.stage(recipe, tmp_path / "w", tmp_path / "c", fetch=net, run=fake)
+    assert fake.calls == [] and not (staged / "wheels").exists()
+    assert not (staged / "wheels.lock").exists()
+
+
+# ---- lock
+
+UV_LOCK = (
+    "click==8.1.7 \\\n    --hash=sha256:" + "a" * 64 + " \\\n    --hash=sha256:" + "b" * 64 + "\n"
+    "tinytool==1.0 \\\n    --hash=sha256:" + "c" * 64 + "\n"
+).encode()
+
+
+def test_lock_runs_uv_for_linux_on_each_python_and_writes_the_lock(tmp_path, net):
+    r = py_recipe(tmp_path, net, [], lock=False)
+    fake = FakeTools(uv={"3.12": UV_LOCK.replace(b"\n", b"\r\n"), "3.13": UV_LOCK})
+    path = build.lock(r, run=fake)
+    assert path == r.folder / "requirements.lock"
+    assert path.read_bytes() == UV_LOCK
+    assert [c[0] for c in fake.calls] == ["uv", "uv"]
+    first = fake.calls[0]
+    assert first[:4] == ["uv", "pip", "compile", "requirements.in"]
+    assert "--generate-hashes" in first and "--universal" not in first
+    assert first[first.index("--python-platform") + 1] == "x86_64-unknown-linux-gnu"
+    assert [c[c.index("--python-version") + 1] for c in fake.calls] == ["3.12", "3.13"]
+    assert all(cwd == r.folder for cwd in fake.cwds)
+
+
+def test_lock_refuses_dependencies_that_differ_between_pythons(tmp_path, net):
+    r = py_recipe(tmp_path, net, [], lock=False)
+    other = UV_LOCK + b"typing-extensions==4.16.0 \\\n    --hash=sha256:" + b"d" * 64 + b"\n"
+    fake = FakeTools(uv={"3.12": UV_LOCK, "3.13": other})
+    with pytest.raises(build.BuildError, match="typing-extensions"):
+        build.lock(r, run=fake)
+    assert not (r.folder / "requirements.lock").exists()
+
+
+def test_lock_refuses_output_with_markers(tmp_path, net):
+    r = py_recipe(tmp_path, net, [], lock=False)
+    bad = b"colorama==0.4.6 ; sys_platform == 'win32' \\\n    --hash=sha256:" + b"a" * 64 + b"\n"
+    with pytest.raises(build.BuildError, match="marker"):
+        build.lock(r, run=FakeTools(uv={"3.12": bad, "3.13": bad}))
+
+
+def test_lock_needs_requirements_in_and_a_python_tool(tmp_path, net, recipe):
+    r = py_recipe(tmp_path, net, [], lock=False)
+    (r.folder / "requirements.in").unlink()
+    with pytest.raises(build.BuildError, match="requirements.in"):
+        build.lock(r, run=FakeTools())
+    with pytest.raises(build.BuildError, match="Python"):
+        build.lock(recipe, run=FakeTools())
+
+
+def test_lock_without_uv_is_one_fail_line(tmp_path, net, capsys):
+    make_python_recipe(tmp_path / "recipes" / "tinytool", net, [], lock=False)
+
+    def no_uv(cmd, **kw):
+        raise FileNotFoundError(2, "not found")
+
+    argv = ["lock", "tinytool", "--recipes", str(tmp_path / "recipes")]
+    assert build.main(argv, run=no_uv) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("fail ") and err.count("\n") == 1 and "install uv" in err
+
+
+def test_lock_command_reports_the_file(tmp_path, net, capsys):
+    make_python_recipe(tmp_path / "recipes" / "tinytool", net, [], lock=False)
+    fake = FakeTools(uv={"3.12": UV_LOCK, "3.13": UV_LOCK})
+    argv = ["lock", "tinytool", "--recipes", str(tmp_path / "recipes")]
+    assert build.main(argv, run=fake) == 0
+    assert capsys.readouterr().out.startswith("ok ")
+    assert (tmp_path / "recipes" / "tinytool" / "requirements.lock").read_bytes() == UV_LOCK
+
+
+def test_the_local_wheel_folder_is_not_a_command_line_option(tmp_path):
+    for argv in (["build", "--find-links", str(tmp_path)], ["build", "--no-index"]):
+        with pytest.raises(SystemExit):
+            build.main(argv)
+
+
+# ---- end to end, with a real pip and a real virtual environment
+
+
+def venv_python(folder):
+    return folder / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+
+
+def test_python_tool_builds_from_local_wheels_and_installs_offline(tmp_path, net):
+    local = tmp_path / "local"
+    dep = make_wheel(local, "tinydep", "1.0", body='WORD = "dependency"\n')
+    tool = make_wheel(
+        local, "tinytool", "1.0", scripts={"tinytool": "tinytool:main"},
+        body="import tinydep\n\ndef main():\n    print('tinytool', tinydep.WORD)\n",
+    )
+    pins = [("tinydep", "1.0", [dep.read_bytes()]), ("tinytool", "1.0", [tool.read_bytes()])]
+    make_python_recipe(tmp_path / "recipes" / "tinytool", net, pins)
+    recipe = build.load_recipe(tmp_path / "recipes" / "tinytool")
+    zips = [
+        build.build_one(recipe, tmp_path / f"out{i}", tmp_path / "c", find_links=local)
+        for i in (1, 2)
+    ]
+    assert zips[0].read_bytes() == zips[1].read_bytes()
+    build.validate(zips[0])
+    with zipfile.ZipFile(zips[0]) as zf:
+        assert zf.namelist() == [
+            "LICENSE", "manifest.toml", "wheels.lock",
+            "wheels/tinydep-1.0-py3-none-any.whl", "wheels/tinytool-1.0-py3-none-any.whl",
+        ]
+        unpacked = tmp_path / "unpacked"
+        zf.extractall(unpacked)
+    assert (unpacked / "wheels.lock").read_text().startswith("tinydep==1.0 --hash=sha256:")
+
+    env = tmp_path / "venv"
+    try:
+        venv.EnvBuilder(with_pip=True).create(env)
+    except Exception as exc:
+        pytest.skip(f"cannot create a virtual environment here ({exc})")
+    python = venv_python(env)
+    install = [
+        str(python), "-m", "pip", "install", "--no-index", "--find-links", str(unpacked / "wheels"),
+        "--only-binary", ":all:", "--require-hashes", "--disable-pip-version-check", "--no-input",
+        "-r", str(unpacked / "wheels.lock"),
+    ]
+    done = subprocess.run(install, capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    script = python.parent / ("tinytool.exe" if os.name == "nt" else "tinytool")
+    out = subprocess.run([str(script)], capture_output=True, text=True)
+    assert out.returncode == 0 and out.stdout.strip() == "tinytool dependency"

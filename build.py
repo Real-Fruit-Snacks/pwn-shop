@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import stat
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -38,6 +39,14 @@ _CHUNK = 1024 * 1024
 _NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 _COMMAND_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
+PYTHONS = ("3.12", "3.13")
+PLATFORM = "manylinux_2_28_x86_64"
+# pip treats the older tags as compatible with PLATFORM, so wheels carrying them arrive too
+_PLATFORMS = (PLATFORM, "manylinux_2_17_x86_64", "manylinux2014_x86_64")
+REQUIREMENTS_IN = "requirements.in"
+REQUIREMENTS_LOCK = "requirements.lock"
+WHEELS_LOCK = "wheels.lock"
+UV_PLATFORM = "x86_64-unknown-linux-gnu"
 _TOP_FILES = (MANIFEST, "LICENSE", "wheels.lock")
 _TOP_FOLDERS = ("files", "wheels")
 _ZIP_TIME = (1980, 1, 1, 0, 0, 0)
@@ -70,6 +79,7 @@ class Recipe:
 
 
 Fetch = Callable[[str, Path, int], None]
+Run = Callable[..., subprocess.CompletedProcess]
 
 
 # ---- paths and files
@@ -329,16 +339,43 @@ def _extract_member(archive: Path, kind: str, member: str, dest: Path, label: st
         raise BuildError(f"{label}: cannot read the archive ({exc})") from exc
 
 
-def stage(recipe: Recipe, workdir: Path, cache: Path, *, fetch: Fetch = fetch) -> Path:
+def _python_manifest(recipe: Recipe) -> tuple[dict, bool]:
+    manifest = dict(recipe.manifest)
+    table = manifest.get("python")
+    if table is None:
+        return manifest, False
+    if not isinstance(table, dict):
+        raise BuildError(f"{recipe.name}: python must be a table")
+    ours = {"versions": list(PYTHONS), "lock": WHEELS_LOCK, "wheels": "wheels"}
+    for key, value in ours.items():
+        if key in table and table[key] != value:
+            raise BuildError(
+                f"{recipe.name}: python.{key} is {table[key]!r}, but the builder sets it to "
+                f"{value!r}; leave it out of the recipe's manifest"
+            )
+    manifest["python"] = ours
+    return manifest, True
+
+
+def stage(
+    recipe: Recipe,
+    workdir: Path,
+    cache: Path,
+    *,
+    fetch: Fetch = fetch,
+    run: Run = subprocess.run,
+    find_links: Path | None = None,
+) -> Path:
     licence = recipe.folder / "LICENSE"
     if not licence.is_file():
         raise BuildError(f"{recipe.name}: the recipe folder has no LICENSE file")
+    manifest, is_python = _python_manifest(recipe)
     root = workdir / f"{recipe.name}-{recipe.version}-{recipe.build}"
     if root.exists():
         raise BuildError(f"{root} already exists")
     try:
         root.mkdir(parents=True)
-        _write_toml(root / MANIFEST, recipe.manifest)
+        _write_toml(root / MANIFEST, manifest)
         _write_bytes(root / "LICENSE", licence.read_bytes())
         for source in recipe.sources:
             downloaded = fetch_source(source, cache, fetch=fetch)
@@ -348,9 +385,318 @@ def stage(recipe: Recipe, workdir: Path, cache: Path, *, fetch: Fetch = fetch) -
                 shutil.copyfile(downloaded, target)
             else:
                 _extract_member(downloaded, _archive_kind(source.url), source.member, target, source.url)
+        if is_python:
+            collect_wheels(recipe, root, run=run, find_links=find_links)
+            write_wheels_lock(root)
     except OSError as exc:
         raise BuildError(f"{recipe.name}: cannot lay out the package ({exc})") from exc
     return root
+
+
+# ---- Python tools
+#
+# The wheels bundled must not depend on the machine running the build. pip evaluates
+# environment markers against the interpreter it runs under, even with --platform and
+# --python-version, so the lock holds none (it is resolved for x86_64 Linux alone), every
+# pip download is given one pin with --no-deps, and the tags of each file are checked here.
+
+
+@dataclass
+class Pin:
+    name: str
+    version: str
+    hashes: list[str]
+
+
+_PIN = re.compile(r"([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)==([A-Za-z0-9][A-Za-z0-9.!+_-]*)")
+_HASH_OPTION = re.compile(r"--hash=sha256:([0-9a-f]{64})")
+_WHEEL = re.compile(
+    r"(?P<name>[^-]+)-(?P<version>[^-]+)(?:-[0-9][^-]*)?-(?P<py>[^-]+)-(?P<abi>[^-]+)-(?P<plat>[^-]+)\.whl"
+)
+_PURE_SUFFIX = "-none-any.whl"
+
+
+def _norm_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _same_version(a: str, b: str) -> bool:
+    def canon(v: str) -> str:
+        v = v.lower()
+        while re.fullmatch(r"\d+(\.\d+)+", v) and v.endswith(".0"):
+            v = v[:-2]
+        return v
+
+    return canon(a) == canon(b)
+
+
+def _tail(text: str | None) -> str:
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    return " / ".join(lines[-2:]) or "no output"
+
+
+def _logical_lines(text: str) -> list[str]:
+    lines: list[str] = []
+    current = ""
+    for raw in text.splitlines():
+        line = re.sub(r"(^|\s)#.*$", "", raw).strip()
+        if not line:
+            continue
+        if line.endswith("\\"):
+            current += line[:-1] + " "
+            continue
+        lines.append((current + line).strip())
+        current = ""
+    if current.strip():
+        lines.append(current.strip())
+    return lines
+
+
+def read_requirements_lock(path: Path, tool: str) -> list[Pin]:
+    again = f"resolve it again with: python build.py lock {tool}"
+    if not path.is_file():
+        raise BuildError(f"{tool}: {path.name} is missing; {again}")
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise BuildError(f"{path} cannot be read ({exc})") from exc
+    pins: list[Pin] = []
+    seen = set()
+    for line in _logical_lines(text):
+        if ";" in line:
+            raise BuildError(
+                f"{path.name}: {line.split()[0]} carries an environment marker, which would make the "
+                f"bundled wheels depend on the machine building them; {again}"
+            )
+        first, *options = line.split()
+        found = _PIN.fullmatch(first)
+        hashes = [_HASH_OPTION.fullmatch(o) for o in options]
+        if not found or not hashes or not all(hashes):
+            raise BuildError(
+                f"{path.name}: {line!r} must be name==version followed by --hash=sha256: options; {again}"
+            )
+        name = _norm_name(found.group(1))
+        if name in seen:
+            raise BuildError(f"{path.name}: {name} is pinned more than once")
+        seen.add(name)
+        pins.append(Pin(found.group(1), found.group(2), [h.group(1) for h in hashes]))
+    if not pins:
+        raise BuildError(f"{tool}: {path.name} pins nothing; {again}")
+    return pins
+
+
+def _wheel_fits(filename: str, python: str) -> bool:
+    """Whether the wheel installs on CPython `python` on x86_64 Linux (glibc 2.17 or 2.28 era)."""
+    m = _WHEEL.fullmatch(filename)
+    if m is None:
+        return False
+    minor = int(python.split(".")[1])
+    if not any(p == "any" or p in _PLATFORMS for p in m["plat"].split(".")):
+        return False
+    for py in m["py"].split("."):
+        for abi in m["abi"].split("."):
+            if abi == "none":
+                if py == "py3" or py == f"cp3{minor}":
+                    return True
+                if py.startswith("py3") and py[3:].isdigit() and int(py[3:]) <= minor:
+                    return True
+            elif abi == f"cp3{minor}":
+                if py == abi:
+                    return True
+            elif abi == "abi3":
+                if py.startswith("cp3") and py[3:].isdigit() and int(py[3:]) <= minor:
+                    return True
+    return False
+
+
+def _check_wheel(path: Path, pin: Pin, python: str | None) -> None:
+    """python None means a wheel built here from source, which must suit every Python."""
+    label = f"{pin.name} {pin.version}"
+    m = _WHEEL.fullmatch(path.name)
+    if m is None or _norm_name(m["name"]) != _norm_name(pin.name) or not _same_version(
+        m["version"], pin.version
+    ):
+        raise BuildError(f"{label}: got {path.name}, which is not that distribution and version")
+    if python is None:
+        if not path.name.endswith(_PURE_SUFFIX):
+            raise BuildError(
+                f"{label}: no wheel exists, and the wheel built from source is {path.name}, "
+                "which is not pure Python; it would only fit the build machine"
+            )
+        return
+    if not _wheel_fits(path.name, python):
+        raise BuildError(
+            f"{label}: {path.name} does not fit CPython {python} on x86_64 Linux ({PLATFORM})"
+        )
+    if sha256_file(path) not in pin.hashes:
+        raise BuildError(f"{label}: {path.name} has a SHA-256 that requirements.lock does not list")
+
+
+def _sh(run: Run, cmd: list[str], cwd: Path | None = None):
+    try:
+        return run(cmd, capture_output=True, text=True, cwd=cwd)
+    except OSError as exc:
+        raise BuildError(f"cannot run {cmd[0]} ({exc})") from exc
+
+
+def _pip(sub: str, find_links: Path | None, *args: str) -> list[str]:
+    offline = ["--no-index", "--find-links", str(find_links)] if find_links else []
+    return [sys.executable, "-m", "pip", sub, "--disable-pip-version-check", "--no-input",
+            *offline, *args]  # fmt: skip
+
+
+def _only_file(folder: Path, label: str, what: str) -> Path:
+    files = sorted(p for p in folder.iterdir() if p.is_file()) if folder.is_dir() else []
+    if len(files) != 1:
+        raise BuildError(f"{label}: expected one {what}, found {len(files)}")
+    return files[0]
+
+
+def _wheel_from_source(
+    pin: Pin, index: int, tmp: Path, run: Run, find_links: Path | None, why: str
+) -> Path:
+    label = f"{pin.name} {pin.version}"
+    req = tmp / f"req-{index}.txt"
+    src = tmp / f"src-{index}"
+    src.mkdir()
+    # no --platform here: a source archive is the same file whatever the target
+    done = _sh(
+        run,
+        _pip("download", find_links, "--no-binary", pin.name, "--no-deps", "--require-hashes",
+             "-r", str(req), "--dest", str(src)),
+    )  # fmt: skip
+    if done.returncode != 0:
+        raise BuildError(
+            f"{label}: no wheel for {why} and the pinned source archive cannot be fetched "
+            f"({_tail(done.stderr)})"
+        )
+    archive = _only_file(src, label, "source archive")
+    if archive.name.endswith(".whl"):
+        raise BuildError(f"{label}: got a wheel where a source archive was expected")
+    if sha256_file(archive) not in pin.hashes:
+        raise BuildError(f"{label}: {archive.name} has a SHA-256 that requirements.lock does not list")
+    out = tmp / f"built-{index}"
+    out.mkdir()
+    done = _sh(run, _pip("wheel", find_links, "--no-deps", "--wheel-dir", str(out), str(archive)))
+    if done.returncode != 0:
+        raise BuildError(f"{label}: building a wheel from {archive.name} failed ({_tail(done.stderr)})")
+    wheel = _only_file(out, label, "built wheel")
+    _check_wheel(wheel, pin, None)
+    return wheel
+
+
+def _wheel_for(
+    pin: Pin, python: str, index: int, tmp: Path, run: Run, find_links: Path | None,
+    built: dict[int, Path],
+) -> Path:
+    dest = tmp / f"{python}-{index}"
+    dest.mkdir()
+    done = _sh(
+        run,
+        _pip("download", find_links, "--no-deps", "--require-hashes", "--only-binary", ":all:",
+             "--platform", PLATFORM, "--python-version", python, "--implementation", "cp",
+             "--dest", str(dest), "-r", str(tmp / f"req-{index}.txt")),
+    )  # fmt: skip
+    if done.returncode == 0:
+        wheel = _only_file(dest, f"{pin.name} {pin.version}", "downloaded file")
+        _check_wheel(wheel, pin, python)
+        return wheel
+    if index not in built:
+        built[index] = _wheel_from_source(pin, index, tmp, run, find_links, f"Python {python}")
+    return built[index]
+
+
+def collect_wheels(
+    recipe: Recipe, staged: Path, *, run: Run = subprocess.run, find_links: Path | None = None
+) -> list[Path]:
+    pins = read_requirements_lock(recipe.folder / REQUIREMENTS_LOCK, recipe.name)
+    wheels = staged / "wheels"
+    wheels.mkdir(parents=True, exist_ok=True)
+    built: dict[int, Path] = {}
+    with tempfile.TemporaryDirectory(prefix="pwn-shop-wheels-") as tmpdir:
+        tmp = Path(tmpdir)
+        for i, pin in enumerate(pins):
+            # one pin per file, so pip fetches that distribution and nothing it would add itself
+            options = " ".join(f"--hash=sha256:{h}" for h in pin.hashes)
+            _write_bytes(tmp / f"req-{i}.txt", f"{pin.name}=={pin.version} {options}\n".encode())
+        for python in PYTHONS:
+            for i, pin in enumerate(pins):
+                wheel = _wheel_for(pin, python, i, tmp, run, find_links, built)
+                target = wheels / wheel.name
+                if target.exists():
+                    if sha256_file(target) != sha256_file(wheel):
+                        raise BuildError(f"{pin.name} {pin.version}: two different files are named {wheel.name}")
+                else:
+                    shutil.copyfile(wheel, target)
+    return sorted(wheels.glob("*.whl"))
+
+
+def write_wheels_lock(staged: Path) -> Path:
+    grouped: dict[str, tuple[str, list[str]]] = {}
+    for wheel in sorted((staged / "wheels").glob("*.whl")):
+        m = _WHEEL.fullmatch(wheel.name)
+        if m is None:
+            raise BuildError(f"{wheel.name}: not a wheel file name")
+        name = _norm_name(m["name"])
+        version = m["version"]
+        known = grouped.setdefault(name, (version, []))
+        if known[0] != version:
+            raise BuildError(f"{name}: wheels of two versions ({known[0]} and {version}) are bundled")
+        known[1].append(sha256_file(wheel))
+    if not grouped:
+        raise BuildError("wheels: no wheels were bundled")
+    lines = []
+    for name in sorted(grouped):
+        version, hashes = grouped[name]
+        lines.append(f"{name}=={version} " + " ".join(f"--hash=sha256:{h}" for h in sorted(hashes)))
+    path = staged / WHEELS_LOCK
+    _write_bytes(path, ("\n".join(lines) + "\n").encode("utf-8"))
+    return path
+
+
+def lock(recipe: Recipe, *, run: Run = subprocess.run) -> Path:
+    source = recipe.folder / REQUIREMENTS_IN
+    if "python" not in recipe.manifest:
+        raise BuildError(f"{recipe.name}: not a Python tool (its manifest has no [python] table)")
+    if not source.is_file():
+        raise BuildError(f"{recipe.name}: the recipe folder has no {REQUIREMENTS_IN}")
+    texts: dict[str, bytes] = {}
+    resolved: dict[str, dict[str, tuple[str, list[str]]]] = {}
+    with tempfile.TemporaryDirectory(prefix="pwn-shop-lock-") as tmpdir:
+        for python in PYTHONS:
+            out = Path(tmpdir) / f"lock-{python}.txt"
+            # not --universal: it cannot be combined with --python-platform, and it writes
+            # markers such as sys_platform == 'win32' that pip would judge by the build machine
+            cmd = ["uv", "pip", "compile", REQUIREMENTS_IN, "--generate-hashes",
+                   "--python-version", python, "--python-platform", UV_PLATFORM,
+                   "--no-header", "--no-annotate", "-o", str(out)]  # fmt: skip
+            try:
+                done = run(cmd, capture_output=True, text=True, cwd=recipe.folder)
+            except FileNotFoundError as exc:
+                raise BuildError("uv is not installed; install uv (https://docs.astral.sh/uv/) and run lock again") from exc
+            except OSError as exc:
+                raise BuildError(f"cannot run uv ({exc})") from exc
+            if done.returncode != 0:
+                raise BuildError(f"{recipe.name}: uv failed for Python {python} ({_tail(done.stderr)})")
+            try:
+                texts[python] = out.read_bytes().replace(b"\r\n", b"\n")
+            except OSError as exc:
+                raise BuildError(f"{recipe.name}: uv wrote no lock for Python {python} ({exc})") from exc
+            out.write_bytes(texts[python])
+            resolved[python] = {
+                _norm_name(p.name): (p.version, sorted(p.hashes))
+                for p in read_requirements_lock(out, recipe.name)
+            }
+    first, second = (resolved[p] for p in PYTHONS)
+    differing = sorted(n for n in first.keys() | second.keys() if first.get(n) != second.get(n))
+    if differing:
+        raise BuildError(
+            f"{recipe.name}: the dependencies differ between Python {PYTHONS[0]} and {PYTHONS[1]} "
+            f"({', '.join(differing)}); pin them in {REQUIREMENTS_IN} so both agree"
+        )
+    path = recipe.folder / REQUIREMENTS_LOCK
+    _write_bytes(path, texts[PYTHONS[0]])
+    return path
 
 
 # ---- zip, card, sums, index
@@ -730,10 +1076,20 @@ def _recipe_folders(recipes: Path, names: list[str]) -> list[Path]:
     return sorted(p for p in recipes.iterdir() if (p / "recipe.toml").is_file()) if recipes.is_dir() else []
 
 
-def build_one(recipe: Recipe, out: Path, cache: Path, *, fetch_fn: Fetch | None = None) -> Path:
+def build_one(
+    recipe: Recipe,
+    out: Path,
+    cache: Path,
+    *,
+    fetch_fn: Fetch | None = None,
+    run: Run = subprocess.run,
+    find_links: Path | None = None,
+) -> Path:
     final = out / zip_name(recipe.name, recipe.version, recipe.build)
     with tempfile.TemporaryDirectory(prefix="pwn-shop-") as tmp:
-        staged = stage(recipe, Path(tmp), cache, fetch=fetch_fn or fetch)
+        staged = stage(
+            recipe, Path(tmp), cache, fetch=fetch_fn or fetch, run=run, find_links=find_links
+        )
         out.mkdir(parents=True, exist_ok=True)
         fd, part_name = tempfile.mkstemp(dir=out, prefix=".build-", suffix=".part")
         os.close(fd)
@@ -749,7 +1105,7 @@ def build_one(recipe: Recipe, out: Path, cache: Path, *, fetch_fn: Fetch | None 
     return final
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, run: Run = subprocess.run) -> int:
     parser = argparse.ArgumentParser(prog="build.py")
     sub = parser.add_subparsers(dest="cmd")
     for name in ("build", "lock", "check"):
@@ -770,7 +1126,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "build":
             out, cache = Path(args.out), Path(args.cache)
             for folder in _recipe_folders(Path(args.recipes), args.tool):
-                zip_path = build_one(load_recipe(folder), out, cache)
+                zip_path = build_one(load_recipe(folder), out, cache, run=run)
                 print(f"ok built {zip_path}")
             write_index_from_cards(out, out / INDEX, base_url=None)
             print(f"ok wrote {out / INDEX}")
@@ -784,7 +1140,11 @@ def main(argv: list[str] | None = None) -> int:
                 validate(zip_path)
                 print(f"ok {zip_path.name}")
         elif args.cmd == "lock":
-            raise BuildError("lock is not available yet")
+            for folder in _recipe_folders(Path(args.recipes), args.tool):
+                recipe = load_recipe(folder)
+                if not args.tool and "python" not in recipe.manifest:
+                    continue
+                print(f"ok wrote {lock(recipe, run=run)}")
         else:
             parser.print_help()
             return 2
