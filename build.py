@@ -39,7 +39,7 @@ _CHUNK = 1024 * 1024
 _NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 _COMMAND_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
-PYTHONS = ("3.12", "3.13")
+PYTHONS = ("3.12", "3.13", "3.14")
 PLATFORM = "manylinux_2_28_x86_64"
 # The glibc on Kali satisfies every older glibc tag; each is given to pip as its own
 # --platform, newest first
@@ -800,16 +800,43 @@ def lock(recipe: Recipe, *, run: Run = subprocess.run) -> Path:
                 _norm_name(p.name): (p.version, sorted(p.hashes))
                 for p in read_requirements_lock(out, recipe.name)
             }
-    first, second = (resolved[p] for p in PYTHONS)
-    differing = sorted(n for n in first.keys() | second.keys() if first.get(n) != second.get(n))
+    names = sorted({n for pins in resolved.values() for n in pins})
+    differing = [
+        _disagreement(n, resolved) for n in names if len({str(r.get(n)) for r in resolved.values()}) > 1
+    ]
     if differing:
         raise BuildError(
-            f"{recipe.name}: the dependencies differ between Python {PYTHONS[0]} and {PYTHONS[1]} "
-            f"({', '.join(differing)}); pin them in {REQUIREMENTS_IN} so both agree"
+            f"{recipe.name}: the dependencies differ between Python versions: {'; '.join(differing)}. "
+            f"Pin each of them in {REQUIREMENTS_IN} to one version that every Python can use"
         )
     path = recipe.folder / REQUIREMENTS_LOCK
     _write_bytes(path, texts[PYTHONS[0]])
     return path
+
+
+def _and(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} and {items[-1]}"
+
+
+def _disagreement(name: str, resolved: dict[str, dict[str, tuple[str, list[str]]]]) -> str:
+    """name (1.0 on Python 3.12 and 3.13, 1.1 on 3.14): what each Python resolved it to."""
+    groups: dict[str, list[str]] = {}
+    for python in PYTHONS:
+        groups.setdefault(str(resolved[python].get(name)), []).append(python)
+    parts = []
+    versions_said = set()
+    for pythons in groups.values():
+        pin = resolved[pythons[0]].get(name)
+        if pin is None:
+            said = "none"
+        elif pin[0] in versions_said:
+            # the same version resolved to other files (hashes) on these Pythons
+            said = f"{pin[0]} with other files"
+        else:
+            said = pin[0]
+            versions_said.add(pin[0])
+        parts.append(f"{said} on {'Python ' if not parts else ''}{_and(pythons)}")
+    return f"{name} ({', '.join(parts)})"
 
 
 # ---- zip, card, sums, index
