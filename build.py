@@ -160,11 +160,17 @@ def load_recipe(folder: Path) -> Recipe:
     manifest = _read_toml(folder / MANIFEST)
     name = recipe.get("name", folder.name)
     version = recipe.get("version")
-    if not isinstance(name, str) or not name:
-        raise BuildError("recipe: name must be a non-empty string")
-    if not isinstance(version, str) or not version:
-        raise BuildError("recipe: version must be a non-empty string")
-    build = _int(recipe, "build", "recipe: build")
+    who = folder.name
+    if not isinstance(name, str) or not _NAME.fullmatch(name):
+        raise BuildError(f"{who}: name {name!r} must be lower-case letters, digits and hyphens")
+    if name != folder.name:
+        raise BuildError(f"{who}: the folder name must equal the recipe's name {name!r}")
+    # ':' and NUL are not manifest rules, but the index refuses a file name that holds them
+    if not isinstance(version, str) or not version or re.search(r"[/\\\s:\0]", version):
+        raise BuildError(
+            f"{who}: version {version!r} must be text with no slash, backslash, colon or space"
+        )
+    build = _int(recipe, "build", f"{who}: build")
     for key, value in (("name", name), ("version", version), ("build", build)):
         if key in manifest and manifest[key] != value:
             raise BuildError(
@@ -176,9 +182,12 @@ def load_recipe(folder: Path) -> Recipe:
     sources = [_source(r, i) for i, r in enumerate(rows)]
     seen = set()
     for source in sources:
-        if source.to in seen:
-            raise BuildError(f"recipe: {source.to} is the target of more than one source")
-        seen.add(source.to)
+        # compared without case so a build on Windows and on Linux cannot differ
+        if source.to.casefold() in seen:
+            raise BuildError(
+                f"{who}: {source.to} is the target of more than one source (compared without case)"
+            )
+        seen.add(source.to.casefold())
     if manifest.get("schema", 1) != 1:
         raise BuildError("manifest: schema must be 1")
     rest = {k: v for k, v in manifest.items() if k not in ("schema", "name", "version", "build")}
@@ -276,14 +285,28 @@ def _copy_limited(src, dest: Path, limit: int, label: str) -> None:
             out.write(chunk)
 
 
+def _plain_member(name: str) -> str:
+    # archives made with "tar czf x ." store ./name
+    while name.startswith("./"):
+        name = name[2:]
+    return name
+
+
+def _only(matches: list, member: str, label: str):
+    if not matches:
+        raise BuildError(f"{label}: no member {member!r} in the archive")
+    if len(matches) > 1:
+        raise BuildError(f"{label}: more than one member is named {member!r} in the archive")
+    return matches[0]
+
+
 def _extract_member(archive: Path, kind: str, member: str, dest: Path, label: str) -> None:
     try:
         if kind == "tar":
             with tarfile.open(archive, "r:gz") as tf:
-                try:
-                    info = tf.getmember(member)
-                except KeyError:
-                    raise BuildError(f"{label}: no member {member!r} in the archive") from None
+                info = _only(
+                    [m for m in tf.getmembers() if _plain_member(m.name) == member], member, label
+                )
                 if not info.isfile():
                     raise BuildError(f"{label}: member {member!r} is not a regular file")
                 src = tf.extractfile(info)
@@ -293,15 +316,16 @@ def _extract_member(archive: Path, kind: str, member: str, dest: Path, label: st
                     _copy_limited(src, dest, MAX_UNPACKED_BYTES, label)
         else:
             with zipfile.ZipFile(archive) as zf:
-                try:
-                    zinfo = zf.getinfo(member)
-                except KeyError:
-                    raise BuildError(f"{label}: no member {member!r} in the archive") from None
+                zinfo = _only(
+                    [i for i in zf.infolist() if _plain_member(i.filename) == member], member, label
+                )
                 if zinfo.is_dir() or stat.S_IFMT(zinfo.external_attr >> 16) not in (0, stat.S_IFREG):
                     raise BuildError(f"{label}: member {member!r} is not a regular file")
                 with zf.open(zinfo) as src:
                     _copy_limited(src, dest, MAX_UNPACKED_BYTES, label)
-    except (tarfile.TarError, zipfile.BadZipFile, EOFError, OSError) as exc:
+    except (
+        tarfile.TarError, zipfile.BadZipFile, EOFError, OSError, RuntimeError, NotImplementedError,
+    ) as exc:
         raise BuildError(f"{label}: cannot read the archive ({exc})") from exc
 
 
@@ -382,10 +406,20 @@ def write_sums(zip_path: Path, dest: Path | None = None) -> Path:
     return path
 
 
+_LEADING = re.compile(r"(\d+(?:\.\d+)*)(.*)", re.DOTALL)
+
+
 def _version_key(version: str) -> tuple:
-    # numbers compare as numbers and sort before words; pwn-broker defines no order of its own
-    parts = [p for p in re.split(r"[.\-+_]", version) if p]
-    return tuple((0, int(p), "") if p.isdigit() else (1, 0, p) for p in parts)
+    # the leading dotted numbers decide, with trailing zeros ignored; with equal numbers a
+    # version with anything after them (-rc1, a, .dev1) is older than one with nothing after
+    m = _LEADING.fullmatch(version)
+    if m is None:
+        return (0, (), 0, "", version)
+    nums = [int(n) for n in m.group(1).split(".")]
+    while nums and nums[-1] == 0:
+        nums.pop()
+    rest = m.group(2)
+    return (1, tuple(nums), 0 if rest else 1, rest, version)
 
 
 def card_order(cards: list[dict]) -> list[dict]:
@@ -439,16 +473,27 @@ def build_index(cards: list[dict], *, base_url: str | None) -> dict:
     return {"schema": 1, "tool": tools}
 
 
+_CARD_FILE = re.compile(r"[a-z0-9][a-z0-9-]*-[^/\\\s:]+-[1-9][0-9]*\.toml")
+_CARD_FIELDS = {
+    "name": str, "version": str, "build": int, "kind": str, "description": str, "tags": list,
+    "upstream": str, "licence": str, "needs_root": bool, "commands": list, "file": str,
+    "size": int, "sha256": str,
+}
+
+
+def _read_card(path: Path) -> dict:
+    data = _read_toml(path)
+    for key, kind in _CARD_FIELDS.items():
+        if key not in data:
+            raise BuildError(f"{path.name}: not a card (no {key})")
+        value = data[key]
+        if not isinstance(value, kind) or (kind is int and isinstance(value, bool)):
+            raise BuildError(f"{path.name}: {key} must be a {kind.__name__}")
+    return data
+
+
 def write_index_from_cards(folder: Path, out: Path, *, base_url: str | None) -> Path:
-    cards = []
-    for path in sorted(folder.glob("*.toml")):
-        if path.name == INDEX:
-            continue
-        data = _read_toml(path)
-        for key in ("name", "version", "build", "file", "size", "sha256", "kind"):
-            if key not in data:
-                raise BuildError(f"{path.name}: not a card (no {key})")
-        cards.append(data)
+    cards = [_read_card(p) for p in sorted(folder.glob("*.toml")) if _CARD_FILE.fullmatch(p.name)]
     if not cards:
         raise BuildError(f"{folder}: no cards found")
     _write_toml(out, build_index(card_order(cards), base_url=base_url))
@@ -626,7 +671,7 @@ def _check_entries(infos: list[zipfile.ZipInfo]) -> dict[str, zipfile.ZipInfo]:
     return seen
 
 
-def validate(zip_path: Path) -> None:
+def validate(zip_path: Path, *, file_name: str | None = None) -> None:
     try:
         with zipfile.ZipFile(zip_path) as zf:
             seen = _check_entries(zf.infolist())
@@ -649,8 +694,9 @@ def validate(zip_path: Path) -> None:
                     raise BuildError(f"{wheels}: the package holds no wheels")
             # not a pwn-broker rule, but the index names the file this way
             expected = zip_name(data["name"], data["version"], data["build"])
-            if zip_path.name != expected:
-                raise BuildError(f"the file is named {zip_path.name}, the manifest says {expected}")
+            actual = file_name or zip_path.name
+            if actual != expected:
+                raise BuildError(f"the file is named {actual}, the manifest says {expected}")
             for bare, i in seen.items():
                 if not i.is_dir():
                     _check_size(zf, i)
@@ -673,6 +719,9 @@ def _check_size(zf: zipfile.ZipFile, info: zipfile.ZipInfo) -> None:
 
 def _recipe_folders(recipes: Path, names: list[str]) -> list[Path]:
     if names:
+        for n in names:
+            if not n or n in (".", "..") or any(c in n for c in "/\\:\0"):
+                raise BuildError(f"{n!r} is not the plain name of a folder under {recipes}")
         folders = [recipes / n for n in names]
         for f in folders:
             if not (f / "recipe.toml").is_file():
@@ -682,13 +731,22 @@ def _recipe_folders(recipes: Path, names: list[str]) -> list[Path]:
 
 
 def build_one(recipe: Recipe, out: Path, cache: Path, *, fetch_fn: Fetch | None = None) -> Path:
+    final = out / zip_name(recipe.name, recipe.version, recipe.build)
     with tempfile.TemporaryDirectory(prefix="pwn-shop-") as tmp:
         staged = stage(recipe, Path(tmp), cache, fetch=fetch_fn or fetch)
-        zip_path = write_zip(staged, out / zip_name(recipe.name, recipe.version, recipe.build))
-    validate(zip_path)
-    write_card(recipe, zip_path)
-    write_sums(zip_path, out / "sums" / tag(recipe) / SUMS)
-    return zip_path
+        out.mkdir(parents=True, exist_ok=True)
+        fd, part_name = tempfile.mkstemp(dir=out, prefix=".build-", suffix=".part")
+        os.close(fd)
+        part = Path(part_name)
+        try:
+            write_zip(staged, part)
+            validate(part, file_name=final.name)
+            os.replace(part, final)
+        finally:
+            _unlink(part)
+    write_card(recipe, final)
+    write_sums(final, out / "sums" / tag(recipe) / SUMS)
+    return final
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -730,7 +788,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             parser.print_help()
             return 2
-    except BuildError as exc:
+    except (BuildError, OSError) as exc:
         print(f"fail {exc}", file=sys.stderr)
         return 1
     return 0

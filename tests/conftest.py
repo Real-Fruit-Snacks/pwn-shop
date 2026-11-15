@@ -64,16 +64,17 @@ def zip_bytes(members: dict[str, bytes]) -> bytes:
 
 
 def make_recipe(folder: Path, net: FakeNet, *, sources: list[dict] | None = None,
-                manifest: dict | None = None, licence: bool = True, version="1.0.3") -> Path:
+                manifest: dict | None = None, licence: bool = True, version="1.0.3", name=None, build_no=1) -> Path:
     folder.mkdir(parents=True, exist_ok=True)
     if sources is None:
         data = b"#!/bin/sh\necho hi\n"
         url = "https://example.invalid/kerbrute"
         net.add(url, data)
         sources = [{"url": url, "size": len(data), "sha256": digest(data), "to": "files/kerbrute"}]
-    (folder / "recipe.toml").write_bytes(
-        tomli_w.dumps({"version": version, "build": 1, "source": sources}).encode()
-    )
+    head = {"version": version, "build": build_no, "source": sources}
+    if name is not None:
+        head = {"name": name, **head}
+    (folder / "recipe.toml").write_bytes(tomli_w.dumps(head).encode())
     if manifest is None:
         manifest = {
             "kind": "kali",

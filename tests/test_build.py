@@ -450,3 +450,209 @@ def test_validate_refuses_wrong_file_name_and_non_zip(tmp_path):
 def test_main_reports_failure_with_a_fail_line(tmp_path, capsys):
     assert build.main(["index", str(tmp_path)]) == 1
     assert capsys.readouterr().err.startswith("fail ")
+
+
+# ---- review fixes: recipe fields, atomic build, version order, members
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("name", "../escaped"),
+        ("name", "a/b"),
+        ("name", "a\\b"),
+        ("name", "Upper"),
+        ("version", "1/2"),
+        ("version", "1 2"),
+        ("version", "1\\2"),
+        ("build_no", 0),
+        ("build_no", -1),
+    ],
+)
+def test_hostile_recipe_fields_refused_before_anything_is_written(tmp_path, net, field, value):
+    folder = make_recipe(tmp_path / "recipes" / "kerbrute", net, **{field: value})
+    out = tmp_path / "out"
+    with pytest.raises(build.BuildError, match="kerbrute"):
+        build.load_recipe(folder)
+    assert build.main(["build", "--recipes", str(tmp_path / "recipes"), "--out", str(out)]) == 1
+    assert not out.exists()
+    assert not (tmp_path / "escaped-1.0.3-1.zip").exists()
+
+
+def test_folder_name_must_equal_recipe_name(tmp_path, net):
+    folder = make_recipe(tmp_path / "recipes" / "other", net, name="kerbrute")
+    with pytest.raises(build.BuildError, match="other"):
+        build.load_recipe(folder)
+
+
+def snapshot(folder):
+    return {p.relative_to(folder).as_posix(): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+
+
+def test_failed_validate_leaves_the_output_folder_untouched(tmp_path, net, monkeypatch):
+    recipes = tmp_path / "recipes"
+    make_recipe(recipes / "kerbrute", net)
+    monkeypatch.setattr(build, "fetch", net)
+    out = tmp_path / "dist"
+    args = ["build", "--recipes", str(recipes), "--out", str(out), "--cache", str(tmp_path / "c")]
+    assert build.main(args) == 0
+    before = snapshot(out)
+    manifest = recipes / "kerbrute" / "manifest.toml"
+    data = tomllib.loads(manifest.read_text())
+    data["kind"] = "nope"
+    manifest.write_text(tomli_w.dumps(data))
+    assert build.main(args) == 1
+    assert snapshot(out) == before
+
+
+def test_build_one_leaves_nothing_when_staging_fails(tmp_path, net):
+    r = build.load_recipe(make_recipe(tmp_path / "recipes" / "kerbrute", net, licence=False))
+    out = tmp_path / "dist"
+    with pytest.raises(build.BuildError):
+        build.build_one(r, out, tmp_path / "c", fetch_fn=net)
+    assert not out.exists() or not any(out.iterdir())
+
+
+@pytest.mark.parametrize(
+    "lower, higher",
+    [
+        ("1.0.0-rc1", "1.0.0"),
+        ("1.0.0a", "1.0.1"),
+        ("2024.12.16", "2026.11.14"),
+        ("0.9.2", "0.10.0"),
+        ("1.0.0-rc1", "1.0.0-rc2"),
+        ("1.0.0.dev1", "1.0.0"),
+        ("v1", "0.1"),
+        ("2.0", "2.0.0"),
+    ],
+)
+def test_version_order(lower, higher):
+    assert build._version_key(lower) < build._version_key(higher)
+
+
+def test_version_without_leading_number_sorts_first():
+    assert build._version_key("nightly") < build._version_key("0.0.1")
+
+
+def test_equal_numbers_order_is_stable():
+    a = [cardf(version="2.0.0"), cardf(version="2.0")]
+    assert build.card_order(a) == build.card_order(list(reversed(a)))
+
+
+@pytest.mark.parametrize("versions", [["1.0.0-rc1", "1.0.0"], ["1.0.0", "1.0.0-rc1"]])
+def test_latest_is_the_release_not_the_prerelease(versions):
+    cards = build.card_order([cardf(version=v) for v in versions])
+    assert build.build_index(cards, base_url=None)["tool"][0]["latest"] == "1.0.0-1"
+
+
+def test_duplicate_member_refused_in_tar(tmp_path, net):
+    import io
+    import tarfile
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        for body in (b"one", b"two"):
+            info = tarfile.TarInfo("proxy")
+            info.size = len(body)
+            tf.addfile(info, io.BytesIO(body))
+    r = one_member_recipe(tmp_path, net, "https://e.invalid/x.tgz", buf.getvalue(), "proxy")
+    with pytest.raises(build.BuildError, match="more than one"):
+        build.stage(r, tmp_path / "w", tmp_path / "c", fetch=net)
+
+
+def test_duplicate_member_refused_in_zip(tmp_path, net):
+    import io
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("proxy", b"one")
+        with pytest.warns(UserWarning):
+            zf.writestr("proxy", b"two")
+    r = one_member_recipe(tmp_path, net, "https://e.invalid/x.zip", buf.getvalue(), "proxy")
+    with pytest.raises(build.BuildError, match="more than one"):
+        build.stage(r, tmp_path / "w", tmp_path / "c", fetch=net)
+
+
+def test_dot_slash_member_in_tar_is_selected_by_plain_name(tmp_path, net):
+    data = tar_gz({"./proxy": b"PROXY"})
+    r = one_member_recipe(tmp_path, net, "https://e.invalid/x.tgz", data, "proxy")
+    staged = build.stage(r, tmp_path / "w", tmp_path / "c", fetch=net)
+    assert (staged / "files" / "a").read_bytes() == b"PROXY"
+
+
+def test_recipe_member_may_not_start_with_dot_slash(tmp_path, net):
+    src = [{"url": "https://e.invalid/x.tgz", "size": 1, "sha256": "0" * 64, "to": "files/a",
+            "member": "./proxy"}]
+    with pytest.raises(build.BuildError):
+        build.load_recipe(make_recipe(tmp_path / "r" / "kerbrute", net, sources=src))
+
+
+@pytest.mark.parametrize("error", [RuntimeError("File is encrypted"), NotImplementedError("compression 99")])
+def test_unreadable_zip_member_is_a_build_error(tmp_path, net, monkeypatch, error):
+    data = zip_bytes({"a": b"x" * 50})
+    r = one_member_recipe(tmp_path, net, "https://e.invalid/x.zip", data, "a")
+
+    def boom(*a, **k):
+        raise error
+
+    monkeypatch.setattr(zipfile.ZipFile, "open", boom)
+    with pytest.raises(build.BuildError, match="archive"):
+        build.stage(r, tmp_path / "w", tmp_path / "c", fetch=net)
+
+
+def test_index_reads_only_card_named_files(tmp_path):
+    (tmp_path / "kerbrute-1.0.3-1.toml").write_text(tomli_w.dumps(cardf()))
+    (tmp_path / "notes.toml").write_text("not = 'a card'\n")
+    (tmp_path / "pyproject.toml").write_text("x = 1\n")
+    out = tmp_path / "index.toml"
+    assert build.main(["index", str(tmp_path), "--out", str(out)]) == 0
+    assert tomllib.loads(out.read_text())["tool"][0]["name"] == "kerbrute"
+
+
+def test_card_missing_a_field_names_file_and_field(tmp_path, capsys):
+    c = cardf()
+    del c["commands"]
+    (tmp_path / "kerbrute-1.0.3-1.toml").write_text(tomli_w.dumps(c))
+    assert build.main(["index", str(tmp_path), "--out", str(tmp_path / "i.toml")]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("fail ") and "kerbrute-1.0.3-1.toml" in err and "commands" in err
+    assert "Traceback" not in err
+
+
+@pytest.mark.parametrize("arg", ["a/b", "..", "../x", "/abs", "a\\b", "C:x", "."])
+def test_tool_argument_must_be_a_plain_folder_name(tmp_path, capsys, arg):
+    (tmp_path / "recipes").mkdir()
+    for cmd in ("build", "check"):
+        argv = [cmd, arg, "--recipes", str(tmp_path / "recipes"), "--out", str(tmp_path / "o")]
+        assert build.main(argv) == 1
+        err = capsys.readouterr().err
+        assert err.count("\n") == 1 and "plain name" in err
+
+
+def test_targets_differing_only_by_case_refused(tmp_path, net):
+    src = [
+        {"url": "https://e.invalid/a", "size": 1, "sha256": "0" * 64, "to": "files/Tool"},
+        {"url": "https://e.invalid/b", "size": 1, "sha256": "1" * 64, "to": "files/tool"},
+    ]
+    with pytest.raises(build.BuildError, match="case"):
+        build.load_recipe(make_recipe(tmp_path / "r" / "kerbrute", net, sources=src))
+
+
+def test_every_subcommand_turns_build_errors_into_one_fail_line(tmp_path, capsys):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    bad = tmp_path / "recipes" / "broken"
+    bad.mkdir(parents=True)
+    (bad / "recipe.toml").write_text("version = ")
+    runs = [
+        ["index", str(empty)],
+        ["index", str(empty), "--out", str(tmp_path / "nodir" / "i.toml")],
+        ["build", "--recipes", str(tmp_path / "recipes"), "--out", str(tmp_path / "o")],
+        ["check", "--recipes", str(tmp_path / "recipes")],
+        ["lock", "--recipes", str(tmp_path / "recipes")],
+        ["build", "nope", "--recipes", str(tmp_path / "recipes")],
+    ]
+    for argv in runs:
+        assert build.main(argv) == 1, argv
+        err = capsys.readouterr().err
+        assert err.startswith("fail ") and err.count("\n") == 1 and "Traceback" not in err, argv
