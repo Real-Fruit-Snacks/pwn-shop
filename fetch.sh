@@ -82,7 +82,8 @@ parse_index() {
     }
     function emit() {
         if (!inbuild) return
-        if (name !~ /^[a-z0-9][a-z0-9-]*$/) problem("a build has no valid tool name")
+        # the name rule of build.py and pwn-broker: a dot only between other characters
+        if (name !~ /^[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)*$/) problem("a build has no valid tool name")
         else if (ver !~ /^[A-Za-z0-9][A-Za-z0-9._+~-]*$/) problem(name ": a build has no valid version")
         else if (bld == "" || bld + 0 < 1) problem(name ": a build has no build number")
         else if (file != name "-" ver "-" bld ".zip") problem(name ": file " file " is not " name "-" ver "-" bld ".zip")

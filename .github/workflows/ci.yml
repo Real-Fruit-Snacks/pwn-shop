@@ -22,9 +22,10 @@ defaults:
 
 jobs:
   lint:
-    # fetch.sh runs on a machine with nothing but sh, so it is read by sh and dash as well as
-    # shellcheck; the Python files are only compiled here (the tests run them, and the
-    # packages job runs build.py and install-check.py).
+    # fetch.sh runs on a machine with nothing but sh, and kali-packages.sh in a bare Kali, so
+    # both are read by sh and dash as well as shellcheck; the Python files are only compiled
+    # here (the tests run them, and the packages and kali jobs run build.py and
+    # install-check.py).
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -35,10 +36,12 @@ jobs:
           python-version: '3.13'
       - name: Syntax
         run: |
-          sh -n fetch.sh
-          dash -n fetch.sh
+          for script in fetch.sh .github/scripts/kali-packages.sh; do
+            sh -n "$script"
+            dash -n "$script"
+          done
       - name: shellcheck
-        run: shellcheck fetch.sh
+        run: shellcheck fetch.sh .github/scripts/kali-packages.sh
       - name: Compile
         run: python -m py_compile build.py .github/scripts/install-check.py tools/runtime-licence.py
 
@@ -66,9 +69,12 @@ jobs:
         run: python -m pytest -q -W error
 
   packages:
-    # Each Python builds or downloads every package and installs it with pwn-broker's own code.
-    # Nothing in the build proves that a Python tool's lock is its whole dependency set; the
-    # install, which uses no index, does.
+    # Each Python builds or downloads every package and installs it with pwn-broker's own code,
+    # a tool after the runtime it requires. Nothing in the build proves that a Python tool's
+    # lock is its whole dependency set; the install, which uses no index, does. A Python tool
+    # runs on its runtime, not on the Python of the leg, so the legs no longer test the tools
+    # under three Pythons: they show that pwn-broker, which runs on the machine's own Python,
+    # installs a tool and its runtime whichever of these it runs on.
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -143,7 +149,9 @@ jobs:
       - name: Check
         run: python build.py check
       - name: Check out pwn-broker
-        # pwn-broker is private for now. The key is read-only and used by this step alone.
+        # pwn-broker is private for now. The key is read-only and used by this step and the
+        # same one in the kali job alone. vars.PWN_BROKER_REF names a branch of pwn-broker
+        # while a change needs both repositories; without it, main is checked out.
         uses: actions/checkout@v5
         with:
           repository: Real-Fruit-Snacks/pwn-broker
@@ -158,8 +166,9 @@ jobs:
       - name: Install each package and start its commands
         run: '"$RUNNER_TEMP/broker/bin/python" .github/scripts/install-check.py dist'
       - name: Keep the packages for publish
-        # One leg's files are published. Wheels for every Python are collected whichever
-        # Python runs the build, and the zip is built the same way on each.
+        # One leg's files are published, after the kali job has installed them. A Python
+        # tool's wheels are for its runtime's series whichever Python runs the build, and the
+        # zip is built the same way on each.
         if: matrix.python == '3.13'
         uses: actions/upload-artifact@v4
         with:
@@ -168,10 +177,78 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  kali:
+    # Each recipe's current build, as the packages job left it, installed inside the official
+    # Kali image from the folder index with the container's network switched off, and each
+    # command started with --help. Kali's own Python is not the runtime's (Kali moved to 3.14),
+    # and install-check.py checks that each Python tool's environment was made by its runtime.
+    # The image is not pinned on purpose: the job is there to notice when Kali changes under the
+    # tools. As in pwn-broker's kali job, it is not a container job; --init gives the container
+    # a PID 1 that reaps orphaned processes, the checkouts are mounted read-only, and the
+    # evidence folder is uploaded whatever the result. publish waits for it, because a
+    # published build is never replaced.
+    needs: packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Check out pwn-broker
+        # the same key and branch as in the packages job
+        uses: actions/checkout@v5
+        with:
+          repository: Real-Fruit-Snacks/pwn-broker
+          ref: ${{ vars.PWN_BROKER_REF || 'main' }}
+          ssh-key: ${{ secrets.PWN_BROKER_DEPLOY_KEY }}
+          path: pwn-broker
+          persist-credentials: false
+      - name: Start Kali
+        run: |
+          mkdir -p "$RUNNER_TEMP/kali-evidence"
+          {
+            echo "pwn-shop $(git rev-parse HEAD)"
+            echo "pwn-broker $(git -C pwn-broker rev-parse HEAD)"
+          } > "$RUNNER_TEMP/kali-evidence/checkouts.txt"
+          docker run -d --init --name kali --hostname kali \
+            -v "$PWD:/shop:ro" -v "$PWD/dist:/packages:ro" -v "$PWD/pwn-broker:/pwn-broker:ro" \
+            -v "$RUNNER_TEMP/kali-evidence:/evidence" \
+            kalilinux/kali-rolling sleep infinity
+      - name: Prepare Kali, with the network on
+        run: docker exec kali sh /shop/.github/scripts/kali-packages.sh prepare
+      - name: Switch the network off
+        # the container's only network is the default bridge; without it there is only loopback
+        run: |
+          docker network disconnect bridge kali
+          networks="$(docker inspect --format '{{json .NetworkSettings.Networks}}' kali)"
+          echo "$networks" | tee "$RUNNER_TEMP/kali-evidence/networks.txt"
+          if [ "$networks" != "{}" ]; then
+            echo "fail  the container is still on a network"
+            exit 1
+          fi
+          echo "ok    the container is on no network"
+      - name: Install each package with the network off
+        # install-check.py --network-off first shows that nothing resolves or answers
+        run: docker exec kali sh /shop/.github/scripts/kali-packages.sh install
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kali-packages-evidence
+          path: ${{ runner.temp }}/kali-evidence
+      - name: Remove the container
+        if: always()
+        run: docker rm -f kali || true
+
   publish:
-    # Main only, after the tests and the install check. It uploads what the packages job
-    # installed, not a second build. A run waits for the one before it and never cancels it.
-    needs: [test, packages]
+    # Main only, after the tests, the install check and the install in Kali. It uploads what
+    # the packages job installed, not a second build. A run waits for the one before it and
+    # never cancels it.
+    needs: [test, packages, kali]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:

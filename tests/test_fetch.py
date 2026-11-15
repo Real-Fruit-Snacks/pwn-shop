@@ -188,6 +188,39 @@ def test_parse_refuses_what_could_leave_the_folder(tmp_path, old, new):
     assert result.stdout == ""
 
 
+def runtime_card(data: bytes) -> dict:
+    return {
+        **card("python-3.13", "3.13.18", data), "kind": "runtime", "tags": [], "commands": [],
+        "licence": "PSF-2.0 and others (see LICENSE)",
+    }
+
+
+def test_parse_reads_a_runtime_and_a_tool_that_requires_it(tmp_path):
+    tool = {**card("certipy", "5.1.0", b"c"), "build": 3, "file": "certipy-5.1.0-3.zip",
+            "requires": ["python-3.13"]}
+    result = parse(tmp_path, index_text([tool, runtime_card(b"r")], "https://h/{tag}/{file}"))
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        f"certipy-v5.1.0-3\tcertipy-5.1.0-3.zip\t{sha(b'c')}",
+        f"python-3.13-v3.13.18-1\tpython-3.13-3.13.18-1.zip\t{sha(b'r')}",
+    ]
+
+
+def test_the_name_rule_is_the_one_build_py_applies():
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert f"name !~ /^{build._NAME.pattern.replace('(?:', '(')}$/" in text
+
+
+@pytest.mark.parametrize("name", ["python-3.13.", ".python", "python..3", "Python-3.13", "a/b"])
+def test_parse_refuses_a_name_the_rule_does_not_allow(tmp_path, name):
+    text = index_text([runtime_card(b"r")]).replace('name = "python-3.13"', f'name = "{name}"', 1)
+    text = text.replace('file = "python-3.13-', f'file = "{name}-', 1)
+    result = parse(tmp_path, text)
+    assert result.returncode != 0
+    assert "no valid tool name" in result.stderr
+    assert result.stdout == ""
+
+
 def test_parse_refuses_a_short_hash(tmp_path):
     text = index_text([card("alpha", "1.0", b"a")]).replace(sha(b"a"), sha(b"a")[:63])
     assert parse(tmp_path, text).returncode != 0
@@ -219,6 +252,23 @@ def test_it_downloads_checks_and_prints_the_config_line(tmp_path, shop):
     assert lines[-1].endswith('packages"')
     assert [p.name for p in folder.iterdir() if p.name.startswith(".")] == []
     assert all(line.split()[0] == "ok" for line in lines[:-2])
+
+
+def test_a_runtime_is_downloaded_like_any_package(tmp_path, shop):
+    releases, _, cards = shop
+    blob = b"runtime bytes"
+    runtime = runtime_card(blob)
+    folder = releases / "python-3.13-v3.13.18-1"
+    folder.mkdir()
+    (folder / runtime["file"]).write_bytes(blob)
+    base = "https://github.com/x/y/releases/download/{tag}/{file}"
+    (releases / "index" / "index.toml").write_text(index_text([*cards, runtime], base), encoding="utf-8")
+    packages = tmp_path / "packages"
+    result, calls = run_fetch(tmp_path, shop, packages)
+    assert result.returncode == 0, result.stderr
+    assert "python-3.13-v3.13.18-1 python-3.13-3.13.18-1.zip" in calls
+    assert (packages / "python-3.13-3.13.18-1.zip").read_bytes() == blob
+    assert "ok    3 packages in" in result.stdout
 
 
 def test_the_published_index_with_urls_needs_no_rewrite(tmp_path, shop):

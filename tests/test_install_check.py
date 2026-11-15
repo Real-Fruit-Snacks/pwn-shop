@@ -2,10 +2,13 @@
 pwn_broker, and only inside load_broker, so these tests run without pwn-broker installed."""
 
 import importlib.util
+import os
+import shutil
 import subprocess
 import sys
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import tomli_w
@@ -359,3 +362,244 @@ def test_lc_all_is_passed_only_when_set(check, tmp_path):
     args = (tmp_path, tmp_path, tmp_path)
     assert "LC_ALL" not in check.launcher_env(base, *args)
     assert check.launcher_env({**base, "LC_ALL": "C"}, *args)["LC_ALL"] == "C"
+
+
+def test_network_off_is_a_flag(check):
+    assert check.parse_args(["dist"]).network_off is False
+    assert check.parse_args(["dist", "--network-off"]).network_off is True
+
+
+# ---- what is left after removal, runtimes included
+
+
+def test_a_runtime_left_behind_is_listed(check, tmp_path):
+    (tmp_path / "tools" / "python-3.13" / "3.13.18-1").mkdir(parents=True)
+    (tmp_path / "tools" / "python-3.14").mkdir(parents=True)
+    found = check.leftovers(tmp_path, "tool", [], ["python-3.13"])
+    assert found == [str(tmp_path / "tools" / "python-3.13")]
+
+
+# ---- the Python that made a tool's environment
+
+
+def test_the_home_line_of_pyvenv_cfg_is_read(check):
+    text = "include-system-site-packages = false\nHome = /opt/x/python/bin \nversion = 3.13.18\n"
+    assert check.venv_home(text) == "/opt/x/python/bin"
+    assert check.venv_home("version = 3.13\n") is None
+
+
+def write_venv(folder: Path, home: str) -> Path:
+    venv = folder / "venv"
+    venv.mkdir(parents=True)
+    (venv / "pyvenv.cfg").write_text(f"home = {home}\nversion = 3.13.18\n", encoding="utf-8")
+    return venv
+
+
+def test_an_environment_made_by_the_runtime_passes(check, tmp_path):
+    runtime = tmp_path / "tools" / "python-3.13" / "3.13.18-1"
+    (runtime / "python" / "python" / "bin").mkdir(parents=True)
+    venv = write_venv(tmp_path / "tool", str(runtime / "python" / "python" / "bin"))
+    assert check.made_by(venv, runtime) is None
+
+
+def test_an_environment_made_by_another_python_is_named(check, tmp_path):
+    runtime = tmp_path / "tools" / "python-3.13" / "3.13.18-1"
+    runtime.mkdir(parents=True)
+    venv = write_venv(tmp_path / "tool", str(tmp_path / "usr" / "bin"))
+    problem = check.made_by(venv, runtime)
+    assert "made by the Python in" in problem and "not the runtime's" in problem
+
+
+def test_an_environment_without_pyvenv_cfg_or_home_is_named(check, tmp_path):
+    assert "cannot be read" in check.made_by(tmp_path / "venv", tmp_path)
+    (tmp_path / "venv").mkdir()
+    (tmp_path / "venv" / "pyvenv.cfg").write_text("version = 3.13\n", encoding="utf-8")
+    assert "names no home" in check.made_by(tmp_path / "venv", tmp_path)
+
+
+# ---- the user's home the app is given
+
+
+def test_the_apps_user_home_is_replaced_and_put_back(check, tmp_path):
+    def real():
+        return Path("/root")
+
+    hooks = SimpleNamespace(user_home=real)
+    with check.users_home(hooks, tmp_path):
+        assert hooks.user_home() == tmp_path
+    assert hooks.user_home is real
+    with pytest.raises(RuntimeError), check.users_home(hooks, tmp_path):
+        raise RuntimeError("install failed")
+    assert hooks.user_home is real
+
+
+# ---- a runtime on its own
+
+
+class Console:
+    def __init__(self):
+        self.lines = []
+
+
+class RuntimeBroker:
+    """Stands in for the parts of pwn_broker check_runtime uses."""
+
+    def __init__(self, tmp_path, *, refuse=None, keep_files=False, forgets=True):
+        self.opt = tmp_path / "opt"
+        self.rows = {}
+        self.forgotten = []
+        broker = self
+
+        def install_runtime(paths, entry, zip_path, *, installed, console):
+            if refuse:
+                console.lines.append(("warn", "the archive was looked at"))
+                raise ValueError(refuse)
+            folder = paths.opt / "tools" / entry.name / f"{entry.version}-{entry.build}"
+            folder.mkdir(parents=True)
+            item = SimpleNamespace(name=entry.name, python=str(folder / "python/bin/python3.13"))
+            installed[entry.name] = item
+            broker.rows[entry.name] = item
+            return item
+
+        def forget_runtime(paths, installed, name):
+            broker.forgotten.append(name)
+            if not forgets:
+                return False
+            if not keep_files:
+                shutil.rmtree(paths.opt / "tools" / name)
+            installed.pop(name)
+            broker.rows.pop(name)
+            return True
+
+        self.toolindex = SimpleNamespace(fetch_zip=lambda paths, settings, entry: tmp_path / "r.zip")
+        self.toolstate = SimpleNamespace(load_installed=lambda paths: dict(broker.rows))
+        self.toolinstall = SimpleNamespace(
+            install_runtime=install_runtime, forget_runtime=forget_runtime
+        )
+        self.FakeConsole = Console
+
+
+RUNTIME = SimpleNamespace(name="python-3.13", version="3.13.18", build=1, kind="runtime")
+
+
+def runtime_check(check, tmp_path, answer, **kwargs):
+    broker = RuntimeBroker(tmp_path, **kwargs)
+    paths = SimpleNamespace(opt=broker.opt)
+    run = Runner(answer)
+    return broker, run, (lambda: check.check_runtime(broker, paths, None, RUNTIME, run=run))
+
+
+def test_a_runtime_is_unpacked_asked_its_version_and_removed(check, tmp_path):
+    broker, run, go = runtime_check(check, tmp_path, result(0, "Python 3.13.18\n"))
+    assert go() == "python-3.13 3.13.18-1: python3.13 --version: Python 3.13.18"
+    argv, kwargs = run.calls[0]
+    assert argv[1:] == ["-I", "--version"] and argv[0].endswith("python3.13")
+    # the interpreter gets nothing of this environment
+    assert kwargs["env"] == {"PATH": os.defpath} and kwargs["stdin"] == subprocess.DEVNULL
+    assert broker.forgotten == ["python-3.13"] and broker.rows == {}
+    assert not (broker.opt / "tools" / "python-3.13").exists()
+
+
+@pytest.mark.parametrize(
+    ("answer", "said"),
+    [
+        (result(0, "Python 3.14.2\n"), "Python 3.14.2, not Python 3.13.18"),
+        (result(127, "", "not found\n"), "exit 127, not found"),
+        (FileNotFoundError("no such file"), "cannot run it"),
+        (subprocess.TimeoutExpired("python", 60), "no answer"),
+    ],
+)
+def test_a_runtime_that_does_not_report_its_version_fails(check, tmp_path, answer, said):
+    _, _, go = runtime_check(check, tmp_path, answer)
+    with pytest.raises(check.CheckFailed, match="python-3.13 3.13.18-1: python3.13 --version: ") as err:
+        go()
+    assert said in str(err.value)
+
+
+def test_a_runtime_that_cannot_be_unpacked_fails_with_what_the_app_said(check, tmp_path):
+    _, run, go = runtime_check(check, tmp_path, result(0, "x"), refuse="a link leads outside")
+    with pytest.raises(check.CheckFailed) as err:
+        go()
+    assert str(err.value) == (
+        "python-3.13 3.13.18-1: unpacking failed (a link leads outside); the archive was looked at"
+    )
+    assert run.calls == []
+
+
+def test_a_runtime_whose_files_stay_fails(check, tmp_path):
+    _, _, go = runtime_check(check, tmp_path, result(0, "Python 3.13.18\n"), keep_files=True)
+    with pytest.raises(check.CheckFailed, match="left behind after removal: .*python-3.13"):
+        go()
+
+
+def test_a_runtime_the_app_keeps_fails(check, tmp_path):
+    _, _, go = runtime_check(check, tmp_path, result(0, "Python 3.13.18\n"), forgets=False)
+    with pytest.raises(check.CheckFailed, match="the runtime was not removed"):
+        go()
+
+
+# ---- the network, for the Kali job
+
+
+def unreachable(*args, **kwargs):
+    raise OSError("Network is unreachable")
+
+
+class Socket:
+    closed = False
+
+    def close(self):
+        self.closed = True
+
+
+def test_the_network_is_off_when_nothing_resolves_or_answers(check):
+    off, note = check.network_state(resolve=unreachable, connect=unreachable)
+    assert off
+    assert note == (
+        "resolving github.com failed (Network is unreachable); "
+        "connecting to 1.1.1.1:443 failed (Network is unreachable)"
+    )
+
+
+def test_a_name_that_resolves_means_the_network_is_on(check):
+    off, note = check.network_state(resolve=lambda *a: [("addr",)], connect=unreachable)
+    assert not off and note == "github.com resolves"
+
+
+def test_an_address_that_answers_means_the_network_is_on(check):
+    sock = Socket()
+    seen = []
+
+    def connect(address, timeout):
+        seen.append((address, timeout))
+        return sock
+
+    off, note = check.network_state(resolve=unreachable, connect=connect)
+    assert not off and note == "1.1.1.1:443 can be reached"
+    assert sock.closed and seen == [(("1.1.1.1", 443), check.NETWORK_TIMEOUT)]
+
+
+def test_with_the_network_on_nothing_is_installed(check, monkeypatch, tmp_path, capsys):
+    monkeypatch.setitem(sys.modules, "pwn_broker", None)
+    status = check.main(
+        [str(tmp_path), "--network-off"], network=lambda: (False, "github.com resolves")
+    )
+    assert status == 1
+    assert capsys.readouterr().err == "fail  the network is on: github.com resolves\n"
+
+
+def test_with_the_network_off_the_check_says_so_and_goes_on(check, monkeypatch, tmp_path, capsys):
+    monkeypatch.setitem(sys.modules, "pwn_broker", None)
+    with pytest.raises(SystemExit):
+        check.main([str(tmp_path), "--network-off"], network=lambda: (True, "nothing answers"))
+    assert capsys.readouterr().out == "ok    the network is off: nothing answers\n"
+
+
+def test_without_the_flag_the_network_is_not_looked_at(check, monkeypatch, tmp_path):
+    monkeypatch.setitem(sys.modules, "pwn_broker", None)
+
+    def network():
+        raise AssertionError("looked at")
+
+    with pytest.raises(SystemExit):
+        check.main([str(tmp_path)], network=network)
