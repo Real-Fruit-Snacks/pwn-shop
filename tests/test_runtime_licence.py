@@ -3,6 +3,7 @@
 import importlib.util
 import io
 import json
+import sys
 import tarfile
 from pathlib import Path
 
@@ -185,6 +186,44 @@ def test_a_licence_too_large_is_refused(lic, tmp_path, monkeypatch):
     monkeypatch.setattr(lic, "MEMBER_LIMIT", 10)
     with pytest.raises(lic.LicenceError, match="larger than"):
         lic.licence(runtime_archive(tmp_path), full_distribution(tmp_path))
+
+
+ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
+
+
+def test_a_zstd_full_distribution_is_read_through_the_decompressor(lic, tmp_path, monkeypatch):
+    # the stand-in "compressed" file is the magic followed by a plain tar
+    plain = full_distribution(tmp_path).read_bytes()
+    packed = tmp_path / "full.tar.zst"
+    packed.write_bytes(ZSTD_MAGIC + plain)
+    seen = []
+
+    def decompress(fh, path):
+        seen.append((fh.tell(), path))
+        assert fh.read(4) == ZSTD_MAGIC
+        return io.BytesIO(fh.read())
+
+    monkeypatch.setattr(lic, "_zstd_stream", decompress)
+    out = lic.licence(runtime_archive(tmp_path), packed)
+    assert seen == [(0, packed)]
+    assert b"in full.tar.zst\n\nopenssl licence\n" in out
+
+
+def test_without_zstandard_a_zstd_file_is_refused_with_what_to_install(lic, tmp_path, monkeypatch):
+    packed = tmp_path / "full.tar.zst"
+    packed.write_bytes(ZSTD_MAGIC + b"\x00" * 16)
+    monkeypatch.setitem(sys.modules, "zstandard", None)
+    with pytest.raises(lic.LicenceError, match="full.tar.zst is zstd-compressed; install the zstandard"):
+        lic.licence(runtime_archive(tmp_path), packed)
+
+
+def test_a_real_zstd_tar_is_read(lic, tmp_path):
+    zstandard = pytest.importorskip("zstandard")
+    plain = full_distribution(tmp_path).read_bytes()
+    packed = tmp_path / "full.tar.zst"
+    packed.write_bytes(zstandard.ZstdCompressor().compress(plain))
+    out = lic.licence(runtime_archive(tmp_path), packed)
+    assert b"in full.tar.zst\n\nopenssl licence\n" in out
 
 
 def test_main_prints_the_file_and_says_what_failed(lic, tmp_path, capsysbinary):

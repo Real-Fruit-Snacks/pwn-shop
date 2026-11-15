@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -603,3 +604,158 @@ def test_without_the_flag_the_network_is_not_looked_at(check, monkeypatch, tmp_p
 
     with pytest.raises(SystemExit):
         check.main([str(tmp_path)], network=network)
+
+
+# ---- a tool that requires a runtime, through a stand-in for the app
+
+
+def make_tool_zip(path: Path) -> Path:
+    manifest = {"command": [{"name": "tinytool", "type": "python-entry", "entry": "tinytool"}]}
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("manifest.toml", tomli_w.dumps(manifest))
+    return path
+
+
+class ToolBroker:
+    """Stands in for the parts of pwn_broker _check_installed_tool uses, recording each call.
+
+    install_tool lays out what the app would: the runtime's folder, the tool's folder with a
+    virtual environment whose home is `venv_home` (the runtime's bin by default), a launcher,
+    the two rows and a box record. release_tool and remove_idle_runtimes undo it, unless told
+    to leave the runtime behind.
+    """
+
+    def __init__(self, tmp_path, *, venv_home=None, keep_runtime=False):
+        opt = tmp_path / "opt"
+        self.paths = SimpleNamespace(opt=opt, bin=opt / "bin", upload=opt / "upload")
+        self.zip = make_tool_zip(tmp_path / "tinytool-1.0-1.zip")
+        self.calls = []
+        self.rows = {}
+        broker = self
+        runtime_folder = opt / "tools" / "python-3.13" / "3.13.18-1"
+        tool_folder = opt / "tools" / "tinytool" / "1.0-1"
+        home = venv_home or str(runtime_folder / "python" / "python" / "bin")
+
+        def create_box(paths, **kwargs):
+            broker.calls.append(("create_box", kwargs))
+            return SimpleNamespace(id="box-1", name="ci", tools=[])
+
+        def load_installed(paths):
+            return dict(broker.rows)
+
+        def holding_boxes(paths, installed, *, excluding=None):
+            broker.calls.append(("holding_boxes", excluding))
+            return {}
+
+        def install_tool(session, index, entry, *, installed, unfinished, **options):
+            broker.calls.append(("install_tool", session, index, entry, dict(unfinished), options))
+            (runtime_folder / "python" / "python" / "bin").mkdir(parents=True)
+            write_venv(tool_folder, home)
+            broker.paths.bin.mkdir(parents=True)
+            (broker.paths.bin / "tinytool").write_text("#!/bin/sh\n", encoding="utf-8")
+            runtime = SimpleNamespace(
+                name="python-3.13", kind="runtime", version="3.13.18", folder=str(runtime_folder)
+            )
+            item = SimpleNamespace(
+                name="tinytool", kind="tool", folder=str(tool_folder), commands=["tinytool"],
+                uploads=[],
+            )  # fmt: skip
+            for row in (runtime, item):
+                installed[row.name] = row
+                broker.rows[row.name] = row
+            session.box.tools.append(SimpleNamespace(name="tinytool", removed=None))
+            return item
+
+        def release_tool(session, record, event, *, installed, unfinished):
+            broker.calls.append(("release_tool", record.name, event, dict(unfinished)))
+            shutil.rmtree(tool_folder.parent)
+            (broker.paths.bin / "tinytool").unlink()
+            installed.pop("tinytool")
+            broker.rows.pop("tinytool")
+            record.removed = "now"
+            return True
+
+        def remove_idle_runtimes(paths, installed, console):
+            broker.calls.append(("remove_idle_runtimes", paths, console))
+            if keep_runtime:
+                return []
+            shutil.rmtree(runtime_folder.parent)
+            row = installed.pop("python-3.13")
+            broker.rows.pop("python-3.13")
+            return [row]
+
+        def log_tool(session, event, item, *, kind="tool"):
+            broker.calls.append(("log_tool", event, item.name, kind))
+
+        self.boxes = SimpleNamespace(create_box=create_box)
+        self.Session = lambda **kwargs: SimpleNamespace(**kwargs)
+        self.FakeConsole = Console
+        self.toolstate = SimpleNamespace(load_installed=load_installed, holding_boxes=holding_boxes)
+        self.toolhooks = SimpleNamespace(
+            install_tool=install_tool, release_tool=release_tool,
+            remove_idle_runtimes=remove_idle_runtimes, log_tool=log_tool,
+        )  # fmt: skip
+        self.toolindex = SimpleNamespace(fetch_zip=lambda paths, settings, entry: broker.zip)
+        self.current_tools = lambda box: [t for t in box.tools if t.removed is None]
+
+    def named(self, name):
+        return [c for c in self.calls if c[0] == name]
+
+
+TOOL = SimpleNamespace(name="tinytool", version="1.0", build=1, kind="kali", requires=["python-3.13"])
+
+
+def tool_check(check, tmp_path, monkeypatch, **kwargs):
+    broker = ToolBroker(tmp_path, **kwargs)
+    probes = []
+
+    def probe(launcher, *, python=False, env=None):
+        probes.append((launcher, python, env))
+        return True, "--help: usage: tinytool"
+
+    monkeypatch.setattr(check, "probe", probe)
+    now = datetime(2026, 11, 15, tzinfo=timezone.utc)
+    index = object()
+
+    def go():
+        return check._check_installed_tool(
+            broker, broker.paths, "settings", index, TOOL, {"PATH": "/bin"}, now
+        )
+
+    return broker, probes, index, go
+
+
+def test_a_tool_is_installed_on_its_runtime_started_and_removed_with_it(check, tmp_path, monkeypatch):
+    broker, probes, index, go = tool_check(check, tmp_path, monkeypatch)
+    assert go() == "tinytool 1.0-1: on python-3.13 3.13.18, tinytool --help: usage: tinytool"
+
+    ((_, session, given_index, entry, unfinished, options),) = broker.named("install_tool")
+    assert given_index is index and entry is TOOL
+    assert session.box.id == "box-1" and session.paths is broker.paths
+    assert session.settings == "settings" and session.targets == [] and session.current is None
+    assert unfinished == {"box-1": "ci"}
+    assert options == {"python": sys.executable}
+    assert probes == [(broker.paths.bin / "tinytool", True, {"PATH": "/bin"})]
+    # removed as tool remove does: with no box but this one holding it, then the idle runtime
+    assert broker.named("release_tool") == [("release_tool", "tinytool", "remove", {})]
+    assert ("holding_boxes", "box-1") in broker.calls
+    ((_, paths, console),) = broker.named("remove_idle_runtimes")
+    assert paths is broker.paths and console is session.console
+    assert broker.named("log_tool") == [("log_tool", "remove", "python-3.13", "runtime")]
+
+
+def test_a_tool_whose_environment_another_python_made_fails(check, tmp_path, monkeypatch):
+    other = str(tmp_path / "usr" / "bin")
+    broker, probes, _, go = tool_check(check, tmp_path, monkeypatch, venv_home=other)
+    with pytest.raises(check.CheckFailed, match="tinytool 1.0-1: its virtual environment was made"):
+        go()
+    assert probes == [] and broker.named("release_tool") == []
+
+
+def test_a_runtime_left_after_the_tool_is_removed_fails(check, tmp_path, monkeypatch):
+    _, _, _, go = tool_check(check, tmp_path, monkeypatch, keep_runtime=True)
+    with pytest.raises(check.CheckFailed) as err:
+        go()
+    message = str(err.value)
+    assert message.startswith("tinytool 1.0-1: left behind after removal: ")
+    assert "python-3.13 in the list of installed tools" in message

@@ -57,20 +57,24 @@ def assemble(sections: list[Section]) -> bytes:
     return b"\n".join(parts)
 
 
+def _zstd_stream(fh, path: Path):
+    """A stream of the decompressed bytes of a zstd file; the one use of zstandard."""
+    try:
+        import zstandard
+    except ImportError as exc:
+        raise LicenceError(
+            f"{path.name} is zstd-compressed; install the zstandard package to read it"
+        ) from exc
+    return zstandard.ZstdDecompressor().stream_reader(fh)
+
+
 def _open(path: Path):
     """The archive as a tar read in one pass, whether it is zstd, gzip or plain."""
     fh = open(path, "rb")
     try:
         if fh.read(4) == _ZSTD_MAGIC:
             fh.seek(0)
-            try:
-                import zstandard
-            except ImportError as exc:
-                raise LicenceError(
-                    f"{path.name} is zstd-compressed; install the zstandard package to read it"
-                ) from exc
-            stream = zstandard.ZstdDecompressor().stream_reader(fh)
-            return fh, tarfile.open(fileobj=stream, mode="r|")
+            return fh, tarfile.open(fileobj=_zstd_stream(fh, path), mode="r|")
         fh.seek(0)
         return fh, tarfile.open(fileobj=fh, mode="r|*")
     except BaseException:
