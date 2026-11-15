@@ -289,6 +289,10 @@ def load_recipe(folder: Path) -> Recipe:
             )
         series = _required_series(folder.parent, requires[0], who)
     elif "requires" in manifest:
+        if _has_python_command(manifest):
+            raise BuildError(
+                f"{who}: python: a python-entry or python-script command needs a [python] table"
+            )
         raise BuildError(f"{who}: requires: a tool that is not Python requires nothing")
     return Recipe(
         name, version, build, sources, filled, folder, [_norm_name(n) for n in listed],
@@ -316,15 +320,31 @@ def _recipe_schema(manifest: dict, who: str) -> int:
     return schema
 
 
+def _has_python_command(manifest: dict) -> bool:
+    """Whether the manifest has a command that is not a binary: what makes a package Python to
+    pwn-broker, with or without a [python] table."""
+    rows = manifest.get("command", [])
+    return isinstance(rows, list) and any(
+        isinstance(row, dict) and row.get("type") != "binary" for row in rows
+    )
+
+
 def _required_series(recipes: Path, wanted: str, who: str) -> str:
-    """The series of the runtime a tool requires, from that runtime's own recipe."""
+    """The series of the runtime a tool requires, from that runtime's manifest alone.
+
+    The required recipe is never loaded as a recipe, so one that requires something in turn
+    (a tool, or the tool asking) is refused here and cannot lead round in a loop.
+    """
     folder = recipes / wanted
     if not (folder / "recipe.toml").is_file():
         raise BuildError(f"{who}: requires {wanted}, but {recipes} has no recipe for it")
-    runtime = load_recipe(folder)
-    if runtime.manifest.get("kind") != "runtime" or runtime.series is None:
+    manifest = _read_toml(folder / MANIFEST)
+    if manifest.get("kind") != "runtime":
         raise BuildError(f"{who}: requires {wanted}, which is not a runtime")
-    return runtime.series
+    try:
+        return _runtime_table(manifest)[2]
+    except BuildError as exc:
+        raise BuildError(f"{who}: requires {wanted}: {exc}") from exc
 
 
 def tag(recipe: Recipe) -> str:
@@ -673,21 +693,23 @@ def _check_pure(path: Path, label: str) -> None:
         )
 
 
-def _check_wheel(path: Path, pin: Pin, python: str | None) -> None:
-    """python None means a wheel built here from source, which must suit every Python."""
+def _check_wheel(path: Path, pin: Pin, python: str, *, built: bool = False) -> None:
+    """A wheel must fit CPython `python`. One built here from source must also be pure Python,
+    and its hash is not checked: a build's bytes differ from one machine to the next."""
     label = f"{pin.name} {pin.version}"
     m = _WHEEL.fullmatch(path.name)
     if m is None or _norm_name(m["name"]) != _norm_name(pin.name) or not _same_version(
         m["version"], pin.version
     ):
         raise BuildError(f"{label}: got {path.name}, which is not that distribution and version")
-    if python is None:
+    if built:
         _check_pure(path, label)
-        return
     if not _wheel_fits(path.name, python):
         raise BuildError(
             f"{label}: {path.name} does not fit CPython {python} on x86_64 Linux ({PLATFORM})"
         )
+    if built:
+        return
     if sha256_file(path) not in pin.hashes:
         raise FetchError(f"{label}: {path.name} has a SHA-256 that requirements.lock does not list")
 
@@ -747,7 +769,9 @@ def _only_file(folder: Path, label: str, what: str) -> Path:
 # What is pinned: the source archive is fetched with --require-hashes. The build's own
 # requirements (setuptools and the like) are fetched by pip's build isolation without hashes,
 # and the build runs the dependency's setup code here; that is why a recipe must opt in by name.
-def _wheel_from_source(pin: Pin, index: int, tmp: Path, run: Run, find_links: Path | None) -> Path:
+def _wheel_from_source(
+    pin: Pin, python: str, index: int, tmp: Path, run: Run, find_links: Path | None
+) -> Path:
     label = f"{pin.name} {pin.version}"
     req = tmp / f"req-{index}.txt"
     src = tmp / f"src-{index}"
@@ -771,7 +795,7 @@ def _wheel_from_source(pin: Pin, index: int, tmp: Path, run: Run, find_links: Pa
     if done.returncode != 0:
         raise BuildError(f"{label}: building a wheel from {archive.name} failed ({_tail(done.stderr)})")
     wheel = _only_file(out, label, "built wheel")
-    _check_wheel(wheel, pin, None)
+    _check_wheel(wheel, pin, python, built=True)
     return wheel
 
 
@@ -826,7 +850,7 @@ def collect_wheels(
             _write_bytes(tmp / f"req-{i}.txt", f"{pin.name}=={pin.version} {options}\n".encode())
         for i, pin in enumerate(pins):
             if _norm_name(pin.name) in recipe.build_from_source:
-                wheel = _wheel_from_source(pin, i, tmp, run, find_links)
+                wheel = _wheel_from_source(pin, python, i, tmp, run, find_links)
             else:
                 wheel = _wheel_for(pin, python, i, tmp, run, find_links)
             shutil.copyfile(wheel, wheels / wheel.name)

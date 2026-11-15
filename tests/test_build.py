@@ -1012,6 +1012,14 @@ def test_source_built_wheel_with_a_platform_name_is_an_error(tmp_path, net):
     assert "native" in message and "pure Python" in message
 
 
+@pytest.mark.parametrize("tag", ["py2-none-any", "py314-none-any"])
+def test_source_built_wheel_for_another_python_is_an_error(tmp_path, net, tag):
+    # pure Python, but not for the runtime's 3.13
+    wheel = (wheel_name("native", "1.0", tag), wheel_bytes("native", "1.0", tag=tag))
+    message = source_build_error(tmp_path, net, wheel)
+    assert tag in message and "does not fit CPython 3.13" in message
+
+
 def test_source_built_wheel_that_says_it_is_not_purelib_is_an_error(tmp_path, net):
     wheel = (wheel_name("native", "1.0"), wheel_bytes("native", "1.0", purelib=False))
     message = source_build_error(tmp_path, net, wheel)
@@ -1991,6 +1999,65 @@ def test_a_python_tool_must_require_a_runtime(tmp_path, net, capsys):
 def test_a_tool_that_is_not_python_requires_nothing(tmp_path, net):
     with pytest.raises(build.BuildError, match="a tool that is not Python requires nothing"):
         build.load_recipe(requiring(tmp_path, net, ["python-3.13"], python=False))
+
+
+def test_python_commands_without_a_python_table_are_told_the_table_is_missing(tmp_path, net):
+    # Python by its commands, as pwn-broker decides it, not by the table it lacks
+    manifest = {k: v for k, v in PY_MANIFEST.items() if k != "python"}
+    folder = make_recipe(tmp_path / "recipes" / "tinytool", net, sources=[], manifest=manifest)
+    make_runtime_recipe(tmp_path / "recipes" / "python-3.13", net)
+    with pytest.raises(build.BuildError) as err:
+        build.load_recipe(folder)
+    assert str(err.value) == (
+        "tinytool: python: a python-entry or python-script command needs a [python] table"
+    )
+
+
+def tool_requiring(folder: Path, net, wanted: str) -> Path:
+    command = {"name": folder.name, "type": "python-entry", "entry": folder.name}
+    manifest = {**PY_MANIFEST, "requires": [wanted], "command": [command]}
+    return make_recipe(folder, net, sources=[], manifest=manifest)
+
+
+SUBCOMMANDS = [["plan"], ["build"], ["check"], ["lock"]]
+
+
+@pytest.mark.parametrize("argv", SUBCOMMANDS, ids=lambda a: a[0])
+def test_two_tools_that_require_each_other_are_refused_without_recursing(tmp_path, net, capsys, argv):
+    recipes = tmp_path / "recipes"
+    tool_requiring(recipes / "aa", net, "bb")
+    tool_requiring(recipes / "bb", net, "aa")
+    with pytest.raises(build.BuildError, match="aa: requires bb, which is not a runtime"):
+        build.load_recipe(recipes / "aa")
+    extra = [] if argv == ["plan"] else ["--out", str(tmp_path / "out")]
+    assert build.main([*argv, "--recipes", str(recipes), *extra]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("fail aa: requires bb, which is not a runtime")
+    assert "Traceback" not in err and "RecursionError" not in err
+
+
+@pytest.mark.parametrize("argv", SUBCOMMANDS, ids=lambda a: a[0])
+def test_a_tool_that_requires_itself_is_refused(tmp_path, net, capsys, argv):
+    recipes = tmp_path / "recipes"
+    tool_requiring(recipes / "aa", net, "aa")
+    extra = [] if argv == ["plan"] else ["--out", str(tmp_path / "out")]
+    assert build.main([*argv, "--recipes", str(recipes), *extra]) == 1
+    assert capsys.readouterr().err.startswith("fail aa: requires: aa cannot require itself")
+
+
+def test_a_required_runtime_is_read_from_its_manifest_alone(tmp_path, net):
+    # the runtime's own recipe.toml is not loaded, so nothing in it can lead anywhere else
+    folder = requiring(tmp_path, net, ["python-3.13"])
+    (tmp_path / "recipes" / "python-3.13" / "recipe.toml").write_text("not = [toml", encoding="utf-8")
+    assert build.load_recipe(folder).series == "3.13"
+
+
+def test_a_required_runtime_with_a_bad_runtime_table_is_named(tmp_path, net):
+    folder = requiring(tmp_path, net, ["python-3.13"])
+    manifest = {**RUNTIME_MANIFEST, "runtime": {**RUNTIME_MANIFEST["runtime"], "series": "three"}}
+    (tmp_path / "recipes" / "python-3.13" / "manifest.toml").write_bytes(tomli_w.dumps(manifest).encode())
+    with pytest.raises(build.BuildError, match="tinytool: requires python-3.13: runtime.series"):
+        build.load_recipe(folder)
 
 
 def test_a_stated_schema_must_agree_with_what_the_recipe_is(tmp_path, net):
