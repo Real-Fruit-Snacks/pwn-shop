@@ -309,6 +309,20 @@ def test_parse_refuses_a_table_header_build_py_does_not_write(tmp_path, old, new
     assert result.stdout == ""
 
 
+@pytest.mark.parametrize("key", ["build", '"build"', "'build'", "  build", "\tbuild"])
+def test_parse_refuses_builds_written_as_a_value_of_the_tool(tmp_path, key):
+    # valid TOML for the same builds, which build.py never writes: read line by line, the
+    # build would be left out without a word
+    text = index_text([card("alpha", "1.0", b"a")]) + (
+        '\n[[tool]]\nname = "beta"\ndescription = "beta does a thing"\n'
+        f'{key} = [ {{ version = "1.0", build = 1, file = "beta-1.0-1.zip", sha256 = "{sha(b"b")}" }} ]\n'
+    )
+    result = parse(tmp_path, text)
+    assert result.returncode != 0
+    assert "a build that is not under a [[tool.build]] header" in result.stderr
+    assert result.stdout == ""
+
+
 def test_parse_refuses_an_index_with_no_builds(tmp_path):
     result = parse(tmp_path, "schema = 1\n")
     assert result.returncode != 0

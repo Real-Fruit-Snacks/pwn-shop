@@ -27,6 +27,6 @@ Changed on 2026-11-16:
 
 - `fetch.sh` downloads with `curl`, over HTTPS only, and no longer needs the GitHub CLI or a sign-in. Kali packages no `gh`, so the script could not run there until a package source was added by hand. `PWN_SHOP_REPO` now has to name a public repository.
 - `fetch.sh` refuses a link or a folder that sits where a zip or the index would go. `mv` would have put the file inside it, which for a link is outside the folder the script was given.
-- It refuses an index with a table header `build.py` does not write, such as one with a comment after it. The build under such a header was left out without a word while the index still named its zip.
+- It refuses an index with a table header `build.py` does not write, such as one with a comment after it, and one that gives a tool's builds as a value in place of `[[tool.build]]` tables. The build under such a header was left out without a word while the index still named its zip.
 - A folder path with a control character is refused with the quote and the backslash, and before anything is asked for or made. A folder the script made is removed again when the run fails before anything is in it. `CDPATH` and a folder named `-` no longer send it elsewhere.
 - A download gives up when no connection is made in 30 seconds or nothing arrives for a minute. `PWN_SHOP_REPO` has to be exactly `owner/name`.

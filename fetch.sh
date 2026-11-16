@@ -52,7 +52,9 @@ need() {
 #
 # build.py writes two table headers, flush left, and no comments. Any other line whose
 # first character after spaces or tabs is a bracket is refused: read as some other table, the build under it would be left out
-# while the index still named its zip. An index with a problem prints no line at all.
+# while the index still named its zip. So is a `build` key outside a [[tool.build]] table,
+# which is how TOML writes the same builds as a value of the tool (\047 is a single
+# quote, which this awk program cannot hold). An index with a problem prints no line at all.
 parse_index() {
     # the $ in the patterns below are regular-expression anchors for awk
     # shellcheck disable=SC2016
@@ -66,6 +68,7 @@ parse_index() {
             if (line ~ /^[ \t]*\[/) { emit(); inbuild = 0; problem("the index has a table header build.py does not write"); continue }
             if (!inbuild) {
                 if (line ~ /^name = "[^"]*"$/) name = value(line)
+                else if (line ~ /^[ \t]*["\047]?build["\047]?[ \t]*=/) problem("the index has a build that is not under a [[tool.build]] header")
                 continue
             }
             if (line ~ /^version = "[^"]*"$/) ver = value(line)
