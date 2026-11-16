@@ -10,7 +10,7 @@ This repository has no versions of its own: each package is its own release. Wha
 
 **Runtimes.** A package of kind `runtime` carries one Python build from python-build-standalone, byte for byte, and a Python tool names the one it requires with `requires`; its wheels fit that Python alone, and the build refuses one that does not. A runtime or a tool that requires one is schema 2; every other package is schema 1, so the published builds of the other tools rebuild byte for byte. `python-3.13` comes from python-build-standalone release 20261110. Its `LICENSE`, written by `tools/runtime-licence.py`, holds CPython's and pip's licences, the licence files `PYTHON.json` names for CPython and the libraries it links, CPython's `Doc/license.rst` and the HACL* notice, each copied byte for byte. Two tools that require each other are refused with a message.
 
-**The index and fetching.** One `index.toml` on the release tagged `index` names every published build. `fetch.sh` downloads it and every zip it names into a folder, checks each zip against it, and prints the `tools_index` line for `config.toml`.
+**The index and fetching.** One `index.toml` on the release tagged `index` names every published build. `fetch.sh` downloads it and every zip it names into a folder, checks each zip against it, and prints the `tools_index` line for `config.toml`. It needs `curl` and `sha256sum`, and no account.
 
 **CI.** Lint, the unit tests on Python 3.11 to 3.14, and the README panel. Each package is built, or downloaded from its release and rebuilt to compare, then installed with pwn-broker's own code running on Python 3.12, 3.13 and 3.14, a tool after its runtime, and every command started once. The `kali` job installs each recipe's current build in the Kali image with the network off. On `main`, after both, it publishes a release for each new build and replaces the index. A recipe that changes without its `build` going up fails, unless an upstream file can no longer be fetched or matched, which is a warning. pwn-broker is checked out without a key; the repository holds no secrets.
 
@@ -22,3 +22,7 @@ Published and withdrawn, all on 2026-11-15:
 - Fixed: CI's rebuild of a published tool failed for want of its runtime in the folder, until `build --skip-index`.
 - The repository was made public, and so was pwn-broker. The deploy key and its secret were removed.
 - Withdrawn: builds 1 and 2 of `certipy` and `targetedkerberoast`. No box had used them.
+
+Changed on 2026-11-16:
+
+- `fetch.sh` downloads with `curl`, over HTTPS only, and no longer needs the GitHub CLI or a sign-in. Kali packages no `gh`, so the script could not run there until a package source was added by hand. `PWN_SHOP_REPO` now has to name a public repository.

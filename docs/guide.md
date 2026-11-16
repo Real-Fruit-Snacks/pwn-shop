@@ -11,7 +11,7 @@ pwn-broker reads the published index by itself when `tools_index` is not set in 
 `fetch.sh` fills such a folder:
 
 ```sh
-gh repo clone Real-Fruit-Snacks/pwn-shop
+git clone https://github.com/Real-Fruit-Snacks/pwn-shop
 sh pwn-shop/fetch.sh ~/pwn-packages
 ```
 
@@ -22,7 +22,7 @@ put this line in /opt/pwn-broker/config.toml:
 tools_index = "/home/kali/pwn-packages"
 ```
 
-It is POSIX `sh` and needs `gh`, signed in with `gh auth login` to any GitHub account, and `sha256sum`. It changes nothing on the machine except that folder. `PWN_SHOP_REPO` sets the repository to download from (default `Real-Fruit-Snacks/pwn-shop`), and `sh fetch.sh --help` describes it.
+It is POSIX `sh` and needs `curl` and `sha256sum`. It needs no GitHub account: every file comes from this repository's public releases, over HTTPS only. It changes nothing on the machine except that folder. `PWN_SHOP_REPO` sets the repository to download from (default `Real-Fruit-Snacks/pwn-shop`), which has to be public, and `sh fetch.sh --help` describes it.
 
 A folder filled by `fetch.sh` does not update itself, and `tool refresh` does not reach a folder: run `fetch.sh` again after a new build is published. When the index changes, `index.toml` is briefly missing from the `index` release while the new one is uploaded; `fetch.sh` fails cleanly if it runs in that gap, so run it again.
 

@@ -24,7 +24,7 @@ The first Python tool brings the runtime it runs on, as here. `finish` takes the
 No network on the Kali machine when you want a tool, or you want your own copy: fill a folder while you have one.
 
 ```sh
-gh repo clone Real-Fruit-Snacks/pwn-shop
+git clone https://github.com/Real-Fruit-Snacks/pwn-shop
 sh pwn-shop/fetch.sh ~/pwn-packages
 ```
 
@@ -35,7 +35,7 @@ put this line in /opt/pwn-broker/config.toml:
 tools_index = "/home/kali/pwn-packages"
 ```
 
-`fetch.sh` is POSIX `sh`. It needs `gh`, signed in to any GitHub account, and `sha256sum`, and it changes nothing on the machine except that folder. The folder does not update itself: run `fetch.sh` again after a new build is published.
+`fetch.sh` is POSIX `sh`. It needs `curl` and `sha256sum` and no GitHub account, and it changes nothing on the machine except that folder. The folder does not update itself: run `fetch.sh` again after a new build is published.
 
 The [guide](docs/guide.md#getting-the-packages) has the rest, and how to [build the packages yourself](docs/guide.md#building-the-packages-yourself).
 
@@ -73,9 +73,10 @@ The [guide](docs/guide.md) has the package format, the runtime, `build.py` and C
 - Every package built or downloaded by CI on Ubuntu 24.04, passed `build.py check`, and installed with pwn-broker's own code running on Python 3.12, 3.13 and 3.14, each command started once
 - All seven installed inside the official Kali image (Kali 2026.3) with the container's network off, before they were published
 - `kerbrute`, `ligolo-ng`, `peass-ng` and `pspy` rebuilt by CI to their published bytes, and `python-3.13` built on Windows and on Ubuntu to the same SHA-256
-- `fetch.sh` against the real releases, from Git Bash on Windows 11: every zip matched the index
+- `fetch.sh` against the real releases in Kali 2026.2, as a normal user with no GitHub account: every zip matched the index, and pwn-broker then installed three tools from the folder with the network off
 - All six tools installed by `tool install` from the published index, by hand in Kali 2026.2 under WSL 2 as root, each command started once, and removed again by `finish`
-- *Not* tested: any package on a full Kali desktop or against a real target; an install by a normal user with `sudo`; `fetch.sh` on Kali
+- Three of them again there as a normal user whose `sudo` asks for a password, `sudo /opt/pwn-broker/bin/ligolo-proxy` included
+- *Not* tested: any package on a full Kali desktop or against a real target
 
 [docs/tested.md](docs/tested.md) is the full record: counts, runs, commits and dates.
 

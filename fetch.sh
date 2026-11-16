@@ -17,8 +17,9 @@ that zip's own release, into <folder> (created if it is missing). Each zip is ch
 against the SHA-256 in the index before it is kept; one that fails is removed and the
 script stops. A zip that is already there with the right hash is not downloaded again.
 
-Needs gh, signed in with access to the repository (gh auth login), and sha256sum.
-PWN_SHOP_REPO sets the repository (default Real-Fruit-Snacks/pwn-shop).
+Needs curl and sha256sum, and no account: the files are downloaded from the
+repository's public releases. PWN_SHOP_REPO sets the repository (default
+Real-Fruit-Snacks/pwn-shop); it has to be public.
 
 It changes nothing else on this machine. At the end it prints the line to put in
 /opt/pwn-broker/config.toml.
@@ -98,6 +99,12 @@ hash_of() {
     sha256sum "$1" | cut -d' ' -f1 | tr 'A-F' 'a-f'
 }
 
+# download <tag> <file> <destination>: one file of one release, over HTTPS only
+download() {
+    curl -fsSL --proto '=https' --proto-redir '=https' -o "$3" \
+        "https://github.com/$REPO/releases/download/$1/$2" </dev/null
+}
+
 main() {
     REPO="${PWN_SHOP_REPO:-Real-Fruit-Snacks/pwn-shop}"
 
@@ -115,7 +122,7 @@ main() {
     esac
     if [ "$#" -ne 1 ] || [ -z "$1" ]; then usage_line >&2; exit 2; fi
 
-    need gh "Install it from https://cli.github.com/ (on Kali: apt install gh)."
+    need curl "On Kali: apt install curl."
     need sha256sum "It is part of coreutils."
     case "$REPO" in
         */*) ;;
@@ -124,8 +131,9 @@ main() {
     case "$REPO" in
         *[!A-Za-z0-9._/-]*) fail "PWN_SHOP_REPO must look like owner/name, not $REPO" ;;
     esac
-    gh release view index --repo "$REPO" >/dev/null 2>&1 ||
-        fail "cannot read the index release of $REPO. sign in with gh auth login, or check that you can access the repository"
+    NO_INDEX="cannot download index.toml from the index release of $REPO. check the network, and that the repository is public"
+    # asked for once here, so a repository that cannot be read leaves no folder behind
+    download index index.toml /dev/null || fail "$NO_INDEX"
 
     mkdir -p -- "$1" || fail "cannot create $1"
     FOLDER="$(cd -- "$1" && pwd -P)" || fail "cannot enter $1"
@@ -144,8 +152,7 @@ main() {
     trap 'rm -rf "$WORK"' EXIT
     trap 'exit 1' HUP INT TERM
 
-    gh release download index --repo "$REPO" --pattern index.toml --dir "$WORK" --clobber </dev/null ||
-        fail "cannot download index.toml from the index release of $REPO"
+    download index index.toml "$WORK/index.toml" || fail "$NO_INDEX"
     [ -s "$WORK/index.toml" ] || fail "the index release of $REPO has no index.toml"
     parse_index "$WORK/index.toml" >"$WORK/plan" || fail "the index is not in the form build.py writes; nothing was fetched"
 
@@ -158,7 +165,7 @@ main() {
             COUNT=$((COUNT + 1))
             continue
         fi
-        if ! gh release download "$TAG" --repo "$REPO" --pattern "$FILE" --dir "$WORK" --clobber </dev/null; then
+        if ! download "$TAG" "$FILE" "$WORK/$FILE"; then
             rm -f "$WORK/$FILE"
             fail "cannot download $FILE from the release $TAG"
         fi

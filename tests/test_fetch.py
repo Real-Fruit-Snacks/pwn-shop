@@ -1,4 +1,4 @@
-"""fetch.sh, run with a stand-in gh that serves release files from a folder."""
+"""fetch.sh, run with a stand-in curl that serves release files from a folder."""
 
 import hashlib
 import os
@@ -19,39 +19,37 @@ pytestmark = pytest.mark.skipif(
     reason="needs sh and sha256sum",
 )
 
-FAKE_GH = """#!/bin/sh
-case "$1 $2" in
-    "auth status")
-        [ -z "${FAKE_GH_SIGNED_OUT:-}" ] || exit 1
-        exit 0
-        ;;
-    "release view")
-        [ -z "${FAKE_GH_SIGNED_OUT:-}" ] || exit 1
-        [ -d "$FAKE_RELEASES/$3" ] || exit 1
-        exit 0
-        ;;
-    "release download")
-        tag="$3"
-        shift 3
-        while [ "$#" -gt 0 ]; do
-            case "$1" in
-                --pattern) pattern="$2"; shift 2 ;;
-                --dir) dir="$2"; shift 2 ;;
-                *) shift ;;
-            esac
-        done
-        echo "$tag $pattern" >>"$FAKE_GH_LOG"
-        src="$FAKE_RELEASES/$tag/$pattern"
-        if [ ! -f "$src" ]; then
-            echo "release not found" >&2
-            exit 1
-        fi
-        cp "$src" "$dir/$pattern"
-        ;;
-    *)
-        exit 1
-        ;;
-esac
+REPO = "Real-Fruit-Snacks/pwn-shop"
+
+# Stands in for curl -fsSL -o <out> <url>: a release file's address is
+# https://github.com/<owner>/<name>/releases/download/<tag>/<file>, served from
+# $FAKE_RELEASES/<tag>/<file>. It writes "<tag> <file>" to $FAKE_CURL_LOG for each request.
+FAKE_CURL = """#!/bin/sh
+out=""
+url=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -o) out="$2"; shift 2 ;;
+        --proto | --proto-redir) shift 2 ;;
+        -*) shift ;;
+        *) url="$1"; shift ;;
+    esac
+done
+rest="${url#https://github.com/}"
+if [ "$rest" = "$url" ]; then
+    echo "curl: not a github.com address: $url" >&2
+    exit 3
+fi
+repo="${rest%%/releases/download/*}"
+path="${rest#*/releases/download/}"
+tag="${path%%/*}"
+file="${path#*/}"
+echo "$tag $file" >>"$FAKE_CURL_LOG"
+if [ "$repo" != "$FAKE_REPO" ] || [ ! -f "$FAKE_RELEASES/$tag/$file" ]; then
+    echo "curl: (22) The requested URL returned error: 404" >&2
+    exit 22
+fi
+cat "$FAKE_RELEASES/$tag/$file" >"$out"
 """
 
 
@@ -91,21 +89,22 @@ def shop(tmp_path):
     (releases / "index" / "index.toml").write_text(index_text(cards, base), encoding="utf-8")
     bindir = tmp_path / "bin"
     bindir.mkdir()
-    (bindir / "gh").write_bytes(FAKE_GH.encode())
-    (bindir / "gh").chmod(0o755)
+    (bindir / "curl").write_bytes(FAKE_CURL.encode())
+    (bindir / "curl").chmod(0o755)
     return releases, bindir, cards
 
 
-def run_fetch(tmp_path, shop, folder, *, signed_out=False, args=None):
+def run_fetch(tmp_path, shop, folder, *, repo=None, served_repo=REPO, args=None):
     releases, bindir, _ = shop
-    log = tmp_path / "gh.log"
+    log = tmp_path / "curl.log"
     env = dict(os.environ)
     env["PATH"] = bindir.as_posix() + os.pathsep + env["PATH"]
     env["FAKE_RELEASES"] = releases.as_posix()
-    env["FAKE_GH_LOG"] = log.as_posix()
+    env["FAKE_CURL_LOG"] = log.as_posix()
+    env["FAKE_REPO"] = served_repo
     env.pop("PWN_SHOP_REPO", None)
-    if signed_out:
-        env["FAKE_GH_SIGNED_OUT"] = "1"
+    if repo is not None:
+        env["PWN_SHOP_REPO"] = repo
     argv = ["sh", SCRIPT.as_posix(), *(args if args is not None else [folder.as_posix()])]
     result = subprocess.run(argv, env=env, capture_output=True, text=True)
     calls = log.read_text().splitlines() if log.exists() else []
@@ -242,7 +241,9 @@ def test_it_downloads_checks_and_prints_the_config_line(tmp_path, shop):
     assert (folder / "index.toml").is_file()
     assert (folder / "alpha-1.0-1.zip").read_bytes() == b"alpha bytes"
     assert (folder / "beta-1.0-1.zip").read_bytes() == b"beta bytes"
+    # the index twice: once to see it is there before the folder is touched, once to keep
     assert calls == [
+        "index index.toml",
         "index index.toml",
         "alpha-v1.0-1 alpha-1.0-1.zip",
         "beta-v1.0-1 beta-1.0-1.zip",
@@ -282,10 +283,10 @@ def test_the_published_index_with_urls_needs_no_rewrite(tmp_path, shop):
 def test_a_second_run_downloads_only_the_index(tmp_path, shop):
     folder = tmp_path / "packages"
     run_fetch(tmp_path, shop, folder)
-    (tmp_path / "gh.log").unlink()
+    (tmp_path / "curl.log").unlink()
     result, calls = run_fetch(tmp_path, shop, folder)
     assert result.returncode == 0, result.stderr
-    assert calls == ["index index.toml"]
+    assert calls == ["index index.toml", "index index.toml"]
     assert "already here" in result.stdout
 
 
@@ -347,24 +348,56 @@ def test_a_missing_release_fails_without_an_index(tmp_path, shop):
     assert not (folder / "index.toml").exists()
 
 
-def test_signed_out_gh_stops_before_touching_the_folder(tmp_path, shop):
-    folder = tmp_path / "packages"
-    result, calls = run_fetch(tmp_path, shop, folder, signed_out=True)
-    assert result.returncode != 0
-    assert "gh auth login" in result.stderr
-    assert "you can access the repository" in result.stderr
-    assert calls == []
-    assert not folder.exists()
-
-
-def test_an_unreadable_index_release_stops_before_touching_the_folder(tmp_path, shop):
+def test_an_index_that_cannot_be_downloaded_stops_before_touching_the_folder(tmp_path, shop):
     releases, _, _ = shop
     shutil.rmtree(releases / "index")
     folder = tmp_path / "packages"
     result, calls = run_fetch(tmp_path, shop, folder)
     assert result.returncode != 0
-    assert "cannot read the index release" in result.stderr
+    assert f"cannot download index.toml from the index release of {REPO}" in result.stderr
+    assert "the repository is public" in result.stderr
+    assert calls == ["index index.toml"]
     assert not folder.exists()
+
+
+def test_it_needs_no_gh_and_no_sign_in(tmp_path, shop):
+    # a gh on PATH is never run: the release files of a public repository need no account
+    _, bindir, _ = shop
+    marker = tmp_path / "gh-ran"
+    (bindir / "gh").write_bytes(f'#!/bin/sh\necho ran >"{marker.as_posix()}"\nexit 1\n'.encode())
+    (bindir / "gh").chmod(0o755)
+    result, _ = run_fetch(tmp_path, shop, tmp_path / "packages")
+    assert result.returncode == 0, result.stderr
+    assert not marker.exists()
+
+
+def test_pwn_shop_repo_sets_the_repository_it_downloads_from(tmp_path, shop):
+    folder = tmp_path / "packages"
+    result, _ = run_fetch(tmp_path, shop, folder, repo="someone/fork", served_repo="someone/fork")
+    assert result.returncode == 0, result.stderr
+    assert (folder / "alpha-1.0-1.zip").read_bytes() == b"alpha bytes"
+    # and the default repository is not asked when another is named
+    result, _ = run_fetch(tmp_path, shop, tmp_path / "other", repo="someone/fork")
+    assert result.returncode != 0
+    assert "index release of someone/fork" in result.stderr
+
+
+@pytest.mark.parametrize("repo", ["noslash", "a/b c", "a/b;id", "https://github.com/a/b?x"])
+def test_a_pwn_shop_repo_that_is_not_owner_and_name_is_refused(tmp_path, shop, repo):
+    folder = tmp_path / "packages"
+    result, calls = run_fetch(tmp_path, shop, folder, repo=repo)
+    assert result.returncode != 0
+    assert "PWN_SHOP_REPO must look like owner/name" in result.stderr
+    assert calls == []
+    assert not folder.exists()
+
+
+def test_the_help_names_what_it_needs(tmp_path, shop):
+    result, calls = run_fetch(tmp_path, shop, tmp_path, args=["--help"])
+    assert result.returncode == 0
+    assert "Needs curl and sha256sum" in result.stdout
+    assert "gh" not in result.stdout.split()
+    assert calls == []
 
 
 def test_it_needs_exactly_one_argument(tmp_path, shop):
