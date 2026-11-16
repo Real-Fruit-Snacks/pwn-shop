@@ -9,38 +9,37 @@ Tool packages for pwn-broker, built from upstream releases
 
 <sub>Not a recording: the lines are the ones `build.py` and pwn-broker print for the kerbrute recipe, and every name and value on the right comes from that recipe. Left out: CI testing and publishing the package between the build and `tool install`, pwn-broker's blank lines, and `dist/sums/`; long values are cut with an ellipsis.</sub>
 
+If you use [pwn-broker](https://github.com/Real-Fruit-Snacks/pwn-broker), there is nothing to set up. Inside a box, `tool install` reads this repository's published index, downloads the zip from its release, checks its size and SHA-256 against the index, and installs it for the box:
+
+```text
+forest/dc01 > tool install certipy
+
+  ok    python-3.13 3.13.18 installed (runtime, 34 MB)
+  ok    certipy 5.1.0 installed
+  run   certipy   from any terminal
+```
+
+The first Python tool brings the runtime it runs on, as here. `finish` takes the tools off again.
+
+No network on the Kali machine when you want a tool, or you want your own copy: fill a folder while you have one.
+
 ```sh
 gh repo clone Real-Fruit-Snacks/pwn-shop
 sh pwn-shop/fetch.sh ~/pwn-packages
 ```
 
-`fetch.sh` downloads the published index and every package it names into the folder, checks each zip's SHA-256 against the index, and prints the line to put in `/opt/pwn-broker/config.toml`:
+It downloads the published index and every zip it names, checks each zip's SHA-256 against the index, and ends with the line to put in `/opt/pwn-broker/config.toml`:
 
-```
+```text
+put this line in /opt/pwn-broker/config.toml:
 tools_index = "/home/kali/pwn-packages"
 ```
 
-Then, inside a box, `tool install kerbrute`. `fetch.sh` is POSIX `sh`. It needs `gh`, signed in to any GitHub account, and `sha256sum`. It changes nothing on your machine except that folder, and it takes the repository from `PWN_SHOP_REPO` if you set it.
+`fetch.sh` is POSIX `sh`. It needs `gh`, signed in to any GitHub account, and `sha256sum`, and it changes nothing on the machine except that folder. The folder does not update itself: run `fetch.sh` again after a new build is published.
 
-pwn-broker reads the published index by itself when `tools_index` is not set, so the folder is for a machine that will have no network when you want a tool, or for keeping your own copy. The first CI run published all six packages and the index on 2026-11-15. To build the packages yourself instead, on Linux:
+The [guide](docs/guide.md#getting-the-packages) has the rest, and how to [build the packages yourself](docs/guide.md#building-the-packages-yourself).
 
-```sh
-python3 -m venv .venv
-.venv/bin/pip install tomli-w
-.venv/bin/python build.py build
-```
-
-That writes `dist/` with the zips and an `index.toml`.
-
-## Context
-
-[pwn-broker](https://github.com/Real-Fruit-Snacks/pwn-broker) keeps a Hack The Box machine in order on Kali Linux, and its `tool install` puts a tool on the machine for one box and takes it off again at `finish`. This repository is where those tools come from. I wanted my own copy of each one, pinned to a version, so that a box I come back to in six months installs the same files, and so that nothing is installed from a package name that can change under it.
-
-A package is one zip for one build of one tool: a manifest, the upstream licence, the tool's files exactly as upstream published them, and for a Python tool every dependency as a wheel with its SHA-256 recorded. No tool binary is committed here. A recipe names the exact upstream file with its size and SHA-256, and `build.py` downloads it, refuses it if either differs, and writes the zip. The package format is described in pwn-broker's `docs/design.md`, section 8.
-
-A Python tool built now does not run on Kali's own Python. It names the runtime it requires, a package of kind `runtime` that carries one Python build from [python-build-standalone](https://github.com/astral-sh/python-build-standalone) byte for byte, and its wheels are for that Python alone. pwn-broker installs the runtime with the first tool that requires it, makes the tool's virtual environment with the runtime's interpreter, and removes the runtime once no installed tool requires it. A runtime puts nothing in `/opt/pwn-broker/bin`, so Kali's `python3` is never shadowed. When Kali moves to a new Python, a tool on a runtime is not affected.
-
-`version` is upstream's. `build` is mine: it starts at 1 and goes up each time I repackage the same upstream version. A published build is never changed or replaced.
+pwn-broker keeps a Hack The Box machine in order on Kali Linux, and its `tool install` puts a tool on the machine for one box and takes it off again at `finish`. This repository is where those tools come from. I wanted my own copy of each one, pinned to a version, so that a box I come back to in six months installs the same files, and so that nothing is installed from a package name that can change under it.
 
 ## What's in it
 
@@ -54,77 +53,50 @@ A Python tool built now does not run on Kali's own Python. It names the runtime 
 | `python-3.13` | 3.13.18 | runtime | nothing on PATH; the Python that `certipy` and `targetedkerberoast` run on | PSF-2.0 and others (see its `LICENSE`) |
 | `targetedkerberoast` | 2024.12.16 | kali | `targetedKerberoast`, on `python-3.13` | GPL-3.0 |
 
-Kind `kali` puts a command on the machine, `upload` puts files in a folder to carry to the target, and `both` does both. A `runtime` is never installed on its own: `tool install` and `tool remove` refuse its name, and it comes and goes with the tools that require it.
+Kind `kali` puts a command on the machine, `upload` puts files in a folder to carry to the target, and `both` does both. A `runtime` is never installed on its own: it comes and goes with the tools that require it.
 
-Build 3 of `certipy` and `targetedkerberoast` requires `python-3.13` (`requires = ["python-3.13"]` in its manifest). Builds 1 and 2 of those two were withdrawn on 2026-11-15, before any box had used them: they carried no runtime and ran on Kali's own Python, and only when it was one they listed (build 1: 3.12 and 3.13; build 2: 3.12, 3.13 and 3.14). Build 3 is the only one published.
+`version` is upstream's; `build` is mine, starts at 1, and goes up each time I repackage the same upstream version. A package is named for both: `kerbrute-1.0.3-1.zip`, released under the tag `kerbrute-v1.0.3-1`.
 
-The runtime's `LICENSE` holds these parts, each under a heading that names it and where it came from, each copied byte for byte:
+The [guide](docs/guide.md) has the package format, the runtime, `build.py` and CI. [CONTRIBUTING.md](CONTRIBUTING.md) has how to add a tool.
 
-- CPython's licence, from the archive.
-- The licence files that the build's own `PYTHON.json` names for CPython itself and for the libraries it links (OpenSSL, SQLite, zlib, expat, libffi, Tcl and others), from upstream's full distribution of the same build.
-- CPython's `Doc/license.rst` at the tag `v3.13.18`, its own statement of the software incorporated into the interpreter, mimalloc's notice among it.
-- The HACL* notice, from the leading comment of `Modules/_hacl/Hacl_Hash_SHA2.c` at the same tag.
-- pip's licences and those of the libraries pip vendors, from the archive.
+## How a package is made
 
-`recipes/python-3.13/recipe.toml` names each source with its size and SHA-256, and `tools/runtime-licence.py` writes the file from them. Licence files in the full distribution that `PYTHON.json` names for nothing in the build (Tix and zstd) are left out, and the script says so each time it runs.
-
-The `targetedkerberoast` version is the date of the pinned commit, because upstream has no releases. The `peass-ng` version is the date of the pinned upstream tag `20261114-5ac9329e`.
-
-`build.py` uses the standard library and `tomli-w`, and runs `pip` (and `uv`, for `lock` only):
-
-| Command | Does |
-|---|---|
-| `python build.py build [tool ...]` | Download, check and package each recipe into `dist/`, with a card and a `SHA256SUMS.txt` for each, and write `dist/index.toml` |
-| `python build.py check [tool ...]` | Check the recipes and every zip in `dist/` against the package rules |
-| `python build.py lock [tool ...]` | Resolve a Python tool's `requirements.in` into `requirements.lock` for its runtime's Python (needs `uv`) |
-| `python build.py index <cards> --base-url <pattern>` | Write an index from a folder of cards |
-| `python build.py plan` | List each recipe's name, release tag and zip name |
-| `python build.py compare <built card> <published card> <built zip> <published zip>` | Fail if a rebuilt package differs from the published one for the same build. The whole card is compared, so any changed byte shows; only if the recipe has `build_from_source` are the zips compared member by member instead, leaving out those distributions' wheels and `wheels.lock` lines |
-| `python build.py notes <card>` | Print a release's notes |
-
-`build`, `check` and `lock` take `--recipes`, `--out` and `--cache`. `build` refuses to write an index in which a tool requires a runtime that is not in the folder: build the runtime into the same folder, or pass `--skip-index` to get the zip and its card with no index, as CI does when it rebuilds one published package to compare it. See [CONTRIBUTING.md](CONTRIBUTING.md) to add a tool.
+- A recipe pins each upstream file by its size and SHA-256. No tool binary is committed here.
+- The build downloads the file and refuses it if either differs. Nothing is compiled or patched: the files in the zip are upstream's own.
+- A Python tool's dependencies are bundled as wheels pinned by hash, and it runs on the `python-3.13` runtime package, not on Kali's own Python, which it never shadows.
+- Before anything is published, CI installs every package with pwn-broker's own code, then again inside the Kali image with the network off.
+- A published build is never changed. A fix is a new build.
 
 ## Tested on
 
-This section is updated by hand after each CI run. As of 2026-11-15:
+- The unit tests on Windows 11 with Python 3.13, and on Ubuntu 24.04 in CI under Python 3.11, 3.12, 3.13 and 3.14, with warnings treated as errors
+- Every package built or downloaded by CI on Ubuntu 24.04, passed `build.py check`, and installed with pwn-broker's own code running on Python 3.12, 3.13 and 3.14, each command started once
+- All seven installed inside the official Kali image (Kali 2026.3) with the container's network off, before they were published
+- `kerbrute`, `ligolo-ng`, `peass-ng` and `pspy` rebuilt by CI to their published bytes, and `python-3.13` built on Windows and on Ubuntu to the same SHA-256
+- `fetch.sh` against the real releases, from Git Bash on Windows 11: every zip matched the index
+- *Not* tested: any package run by hand on a Kali desktop or against a real target; an install by a normal user with `sudo`; `tool install` from the published index on Kali; `fetch.sh` on Kali
 
-- The unit tests: passed in CI on Ubuntu 24.04 under Python 3.11, 3.12 and 3.13, and on Windows 11 with Python 3.13 (516 passed and 3 skipped; the skips need a POSIX file system), warnings treated as errors. They also passed in CI under Python 3.14.
-- All six packages, build 1: built by CI on Ubuntu 24.04, passed `build.py check`, and were installed with pwn-broker's own code under Python 3.12 and 3.13, then removed with nothing left behind. `certipy`, `kerbrute`, `ligolo-proxy` and `targetedKerberoast` each answered `--help`. The upload files of `ligolo-ng`, `pspy` and `peass-ng` were present at the right sizes and were not run.
-- Build 1 of `certipy` and `targetedkerberoast` built on Windows 11 with Python 3.13 is byte-identical to the CI builds.
-- Python 3.14 has been added. Build 2 of `certipy` and `targetedkerberoast` built on Windows 11 with Python 3.13 and passed `build.py check`; each lists Python 3.12, 3.13 and 3.14 and carries a wheel that fits each of them for every dependency. CI built build 2 of each on Ubuntu 24.04, ran `build.py check`, and installed it with pwn-broker's own code under Python 3.12, 3.13 and 3.14; `certipy` and `targetedKerberoast` each answered `--help`. The other four packages were installed under 3.14 in the same run.
-- Published: build 1 of each of the six tools from the first CI run, build 2 of `certipy` and `targetedkerberoast` from the run that added Python 3.14, and `python-3.13` 3.13.18 build 1 with build 3 of `certipy` and `targetedkerberoast` from run 43772170454 on 2026-11-15. Builds 1 and 2 of `certipy` and `targetedkerberoast` were withdrawn the same day, by deleting their releases and tags, so each package now has one published build. The `index` release is schema 2 and lists the runtime, build 3 of those two tools and build 1 of the other four.
-- `fetch.sh`: `sh -n` and `dash -n` are clean and its tests run with a stand-in `gh`. `shellcheck` passed in the `lint` job of run 43768259174, after the change that lets a package name hold a dot. Run against the real releases on 2026-11-15, from Git Bash on Windows 11, it downloaded the index and all 11 zips, and each matched the size and SHA-256 the index gives. It has not been run on Kali.
-- Runtimes, in GitHub Actions run 43768259174 at commit a33db87, with pwn-broker at its `runtimes` branch: every job passed (`lint`, `test` on Python 3.11, 3.12, 3.13 and 3.14, `packages` on 3.12, 3.13 and 3.14, and `kali`); `publish` was skipped because the run was not on `main`. On Windows 11 with Python 3.13 the unit tests pass (719 passed, 4 skipped, warnings treated as errors), and `python-3.13` build 1 and build 3 of `certipy` and `targetedkerberoast` are built and pass `build.py check`; `kerbrute` and `pspy` rebuild to their published hashes. In the `packages` job, `certipy` 5.1.0 build 3, `python-3.13` 3.13.18 build 1 and `targetedkerberoast` 2024.12.16 build 3 were built, and `kerbrute`, `ligolo-ng`, `peass-ng` and `pspy` were downloaded from their published zips and tested; each was installed with pwn-broker's own code. The `python-3.13` zip built on Ubuntu has the same SHA-256 as the one built on Windows (`ef33f7a02247e396ef8cc72e53a7f222d5637ce375b10eb598c00e5d234667b7`). The `kali` job ran inside `kalilinux/kali-rolling` (Kali 2026.3, Python 3.14.8) with Docker reporting the container on no network, and it confirmed that resolving `github.com` and connecting to `1.1.1.1:443` both failed. There, `python-3.13` 3.13.18 build 1 was installed and its interpreter reported `Python 3.13.18`; `certipy` 5.1.0 build 3 and `targetedkerberoast` 2024.12.16 build 3 were each installed on that runtime and answered `--help`; `kerbrute` and the proxy of `ligolo-ng` answered `--help`; `peass-ng` and `pspy` installed their upload files. The same jobs passed on `main` at commit 988be1c (run 43772170454): `packages` built the runtime and build 3 of the two tools, and rebuilt the four published packages to the same bytes; `kali` installed all seven with the network off; `publish` then published the three new builds and replaced the index. The next run (43773278524, a pull request) failed in `packages`: with build 3 published, CI rebuilt `certipy` alone and `build` refused the folder's index for want of the runtime. That is fixed with `build --skip-index`; see the changelog.
-- Not tested: any package run by hand on a Kali desktop, against a real target, or installed by a normal user with `sudo`.
+[docs/tested.md](docs/tested.md) is the full record: counts, runs, commits and dates.
 
 ## Known issues
 
-- `tool install` from the published index has not been run on Kali: CI installs from a folder, with the network off. From the published address, pwn-broker's own download code has fetched the index and two packages (`certipy` build 3 and the `python-3.13` runtime) and checked each against the index, on Windows on 2026-11-15.
-- The index and the packages are not signed. The SHA-256 values in the index are the only check, and they catch a corrupted or swapped zip. They do not prove who published the index.
-- `kerbrute` and `pspy` publish no checksums upstream. Their pins are the SHA-256 of each file as first downloaded.
-- PEASS-ng's licence has terms beyond the GPL. Read `recipes/peass-ng/LICENSE` before redistributing the package or making this repository public.
-- Kali's own `ligolo-ng` package also installs a command named `ligolo-proxy`. While this package is installed, a bare `ligolo-proxy` runs this one, because pwn-broker's folder comes first on PATH. `sudo` does not use PATH, so a bare `sudo ligolo-proxy` runs Kali's copy. Use `sudo /opt/pwn-broker/bin/ligolo-proxy`, the path `tool install` prints.
-- A folder filled by `fetch.sh` does not update itself. Run `fetch.sh` again after a new build is published; `tool refresh` does not reach a folder.
-- Packages have been installed only by the `kali` job, inside the Kali image with the network off. Nothing has been installed by hand on a Kali desktop.
-- Antivirus on a Windows build machine removes several upstream files during a build. Build on Linux, or let CI do it.
-- If an upstream file is removed or replaced, CI warns and keeps testing the published package; the recipe can no longer be rebuilt until it is repinned with a raised `build`.
 - Packages are x86_64 with glibc only. Build 3 of `certipy` and `targetedkerberoast` carries wheels for its runtime's Python 3.13 only.
-- The first Python tool on a machine costs the runtime: a 34 MB download (mebibytes, the unit pwn-broker prints) and about 100 MB unpacked.
-- The runtime carries its own OpenSSL and other libraries. They are fixed when I publish a new build of the runtime, not when Kali updates.
-- When the index changes, `index.toml` is briefly missing from the `index` release while the new one is uploaded. CI skips the upload when nothing changed. `fetch.sh` fails cleanly if it runs in that gap; run it again.
+- The index and the packages are not signed. The SHA-256 values in the index are the only check: they catch a corrupted or swapped zip, not who published the index.
+- `kerbrute` and `pspy` publish no checksums upstream. Their pins are the SHA-256 of each file as first downloaded.
+- Kali's own `ligolo-ng` package also installs a command named `ligolo-proxy`. While this package is installed a bare `ligolo-proxy` runs this one, but `sudo` does not use PATH, so `sudo ligolo-proxy` runs Kali's. Use `sudo /opt/pwn-broker/bin/ligolo-proxy`, the path `tool install` prints.
+- PEASS-ng's licence has terms beyond the GPL. Read `recipes/peass-ng/LICENSE` before redistributing the package.
+- The first Python tool on a machine costs the runtime: a 34 MB download (mebibytes, the unit pwn-broker prints) and about 100 MB unpacked. Its OpenSSL and other libraries are as new as its build: they are fixed when I publish a new build of the runtime, not when Kali updates.
+
+The rest of the list is in [docs/tested.md](docs/tested.md#known-limits).
 
 ## Configuration
 
 | Setting | Where | Meaning |
 |---|---|---|
-| `tools_index` | pwn-broker's `/opt/pwn-broker/config.toml` | A URL, or a folder that holds `index.toml` and the zips it names. A folder is read by file name; the `url` in the index is not used |
+| `tools_index` | pwn-broker's `/opt/pwn-broker/config.toml` | Not set: this repository's published index. Or a URL, or a folder that holds `index.toml` and the zips it names |
 | `PWN_SHOP_REPO` | environment, for `fetch.sh` | The repository to download from. Default `Real-Fruit-Snacks/pwn-shop` |
-| `PWN_BROKER_REF` | repository variable | The pwn-broker branch CI tests against. Default `main` |
-
-CI runs on pushes to `main` and on pull requests. Before anything is published, the `kali` job starts the official Kali image, installs pwn-broker in it, switches the container's network off, checks that nothing resolves or answers, then installs each recipe's current build from the built folder index with pwn-broker's own code and starts each command with `--help` or `-h`. Publishing waits for it, so a build that fails on the Kali of the day is not published. Older builds are not tested there. On `main` it publishes one GitHub release per new build, tagged `<tool>-v<version>-<build>` and holding the zip, `SHA256SUMS.txt` and a card, then rebuilds the index from every release's card and replaces `index.toml` on the release tagged `index`. Do not turn on immutable releases for this repository: the index file could not be replaced.
-
-A build is withdrawn by deleting its release and its git tag. Then either raise `build` in the recipe, which publishes a replacement, or remove the recipe. If neither is done, the next push to `main` builds and publishes that same build again. The index is rebuilt from the releases that exist, so a deleted release leaves the index at the next publish.
 
 ## License
 
-MIT. Each package carries the licence of the tool in it; what the runtime's `LICENSE` holds is listed above.
+[MIT](LICENSE) for this repository's own code. Each package carries the licence of the tool in it, and this project is not affiliated with those projects.
+[pwn-broker](https://github.com/Real-Fruit-Snacks/pwn-broker) · [Guide](docs/guide.md) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
