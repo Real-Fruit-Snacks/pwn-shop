@@ -150,14 +150,12 @@ jobs:
       - name: Check
         run: python build.py check
       - name: Check out pwn-broker
-        # pwn-broker is private for now. The key is read-only and used by this step and the
-        # same one in the kali job alone. vars.PWN_BROKER_REF names a branch of pwn-broker
-        # while a change needs both repositories; without it, main is checked out.
+        # pwn-broker is public, so no key is needed. vars.PWN_BROKER_REF names a branch of
+        # pwn-broker while a change needs both repositories; without it, main is checked out.
         uses: actions/checkout@v5
         with:
           repository: Real-Fruit-Snacks/pwn-broker
           ref: ${{ vars.PWN_BROKER_REF || 'main' }}
-          ssh-key: ${{ secrets.PWN_BROKER_DEPLOY_KEY }}
           path: pwn-broker
           persist-credentials: false
       - name: Install pwn-broker
@@ -200,12 +198,11 @@ jobs:
           name: dist
           path: dist
       - name: Check out pwn-broker
-        # the same key and branch as in the packages job
+        # the same branch as in the packages job
         uses: actions/checkout@v5
         with:
           repository: Real-Fruit-Snacks/pwn-broker
           ref: ${{ vars.PWN_BROKER_REF || 'main' }}
-          ssh-key: ${{ secrets.PWN_BROKER_DEPLOY_KEY }}
           path: pwn-broker
           persist-credentials: false
       - name: Start Kali

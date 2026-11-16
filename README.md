@@ -13,9 +13,9 @@ sh pwn-shop/fetch.sh ~/pwn-packages
 tools_index = "/home/kali/pwn-packages"
 ```
 
-Then, inside a box, `tool install kerbrute`. `fetch.sh` is POSIX `sh`. It needs `gh` signed in with access to this repository, and `sha256sum`. It changes nothing on your machine except that folder, and it takes the repository from `PWN_SHOP_REPO` if you set it.
+Then, inside a box, `tool install kerbrute`. `fetch.sh` is POSIX `sh`. It needs `gh`, signed in to any GitHub account, and `sha256sum`. It changes nothing on your machine except that folder, and it takes the repository from `PWN_SHOP_REPO` if you set it.
 
-The repository is private, so a signed-in `gh` is the only way to download a package. The first CI run published all six packages and the index on 2026-11-15. To build the packages yourself instead, on Linux:
+pwn-broker reads the published index by itself when `tools_index` is not set, so the folder is for a machine that will have no network when you want a tool, or for keeping your own copy. The first CI run published all six packages and the index on 2026-11-15. To build the packages yourself instead, on Linux:
 
 ```sh
 python3 -m venv .venv
@@ -92,7 +92,7 @@ This section is updated by hand after each CI run. As of 2026-11-15:
 
 ## Known issues
 
-- The repository is private. The index is not public either, so `fetch.sh` and a signed-in `gh` are the way to get packages, and pwn-broker's default `tools_index` (the published index URL) cannot be fetched without signing in. Set `tools_index` to the folder `fetch.sh` fills.
+- `tool install` from the published index has not been run on Kali: CI installs from a folder, with the network off. From the published address, pwn-broker's own download code has fetched the index and two packages (`certipy` build 3 and the `python-3.13` runtime) and checked each against the index, on Windows on 2026-11-15.
 - The index and the packages are not signed. The SHA-256 values in the index are the only check, and they catch a corrupted or swapped zip. They do not prove who published the index.
 - `kerbrute` and `pspy` publish no checksums upstream. Their pins are the SHA-256 of each file as first downloaded.
 - PEASS-ng's licence has terms beyond the GPL. Read `recipes/peass-ng/LICENSE` before redistributing the package or making this repository public.
@@ -104,7 +104,6 @@ This section is updated by hand after each CI run. As of 2026-11-15:
 - Packages are x86_64 with glibc only. Build 3 of `certipy` and `targetedkerberoast` carries wheels for its runtime's Python 3.13 only. Builds 1 and 2 run on Kali's own Python and are refused on one they do not list.
 - The first Python tool on a machine costs the runtime: a 34 MB download (mebibytes, the unit pwn-broker prints) and about 100 MB unpacked.
 - The runtime carries its own OpenSSL and other libraries. They are fixed when I publish a new build of the runtime, not when Kali updates.
-- The workflow checks out pwn-broker with a deploy key, so it cannot run on a pull request from a fork.
 - When the index changes, `index.toml` is briefly missing from the `index` release while the new one is uploaded. CI skips the upload when nothing changed. `fetch.sh` fails cleanly if it runs in that gap; run it again.
 
 ## Configuration
@@ -113,7 +112,6 @@ This section is updated by hand after each CI run. As of 2026-11-15:
 |---|---|---|
 | `tools_index` | pwn-broker's `/opt/pwn-broker/config.toml` | A URL, or a folder that holds `index.toml` and the zips it names. A folder is read by file name; the `url` in the index is not used |
 | `PWN_SHOP_REPO` | environment, for `fetch.sh` | The repository to download from. Default `Real-Fruit-Snacks/pwn-shop` |
-| `PWN_BROKER_DEPLOY_KEY` | repository secret | A read-only deploy key for pwn-broker. Only the checkout steps of the `packages` and `kali` jobs use it |
 | `PWN_BROKER_REF` | repository variable | The pwn-broker branch CI tests against. Default `main` |
 
 CI runs on pushes to `main` and on pull requests. Before anything is published, the `kali` job starts the official Kali image, installs pwn-broker in it, switches the container's network off, checks that nothing resolves or answers, then installs each recipe's current build from the built folder index with pwn-broker's own code and starts each command with `--help` or `-h`. Publishing waits for it, so a build that fails on the Kali of the day is not published. Older builds are not tested there. On `main` it publishes one GitHub release per new build, tagged `<tool>-v<version>-<build>` and holding the zip, `SHA256SUMS.txt` and a card, then rebuilds the index from every release's card and replaces `index.toml` on the release tagged `index`. Do not turn on immutable releases for this repository: the index file could not be replaced.

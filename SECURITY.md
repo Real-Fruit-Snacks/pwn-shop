@@ -37,7 +37,7 @@ This is a one-person project. I read reports within a week. If it's real, the fi
 
 ## CI
 
-The workflow reads `pwn-broker` through a read-only deploy key. A pull request from a branch of this repository can change the workflow, and so can read that key, which is why only the owner has write access. Pull requests from forks get no secrets, so their `packages` and `kali` jobs fail until `pwn-broker` is public.
+The workflow checks out `pwn-broker`, which is public, with no key, and the repository holds no secrets. A pull request from a fork runs with a read-only token. `publish` runs only on a push to `main`, and only the owner has write access.
 
 ## What counts
 
@@ -46,7 +46,7 @@ The workflow reads `pwn-broker` through a read-only deploy key. A pull request f
 - `fetch.sh` keeping a zip whose SHA-256 differs from the index, or writing outside the folder it was given.
 - A runtime package whose archive is not the upstream file its recipe pins.
 - The `kali` job passing while its container could still reach the network.
-- The workflow exposing `PWN_BROKER_DEPLOY_KEY` or a token with write access to a step that runs a pull request's code.
+- The workflow exposing a token with write access to a step that runs a pull request's code.
 
 ## Out of scope
 
