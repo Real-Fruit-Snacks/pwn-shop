@@ -6,6 +6,7 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 
 - Passed in CI on Ubuntu 24.04 under Python 3.11, 3.12 and 3.13, and on Windows 11 with Python 3.13 (516 passed and 3 skipped; the skips need a POSIX file system), warnings treated as errors. They also passed in CI under Python 3.14.
 - With runtimes, on Windows 11 with Python 3.13: 719 passed, 4 skipped, warnings treated as errors.
+- With `fetch.sh` on `curl`, on Windows 11 with Python 3.13 on 2026-11-16: 725 passed, 6 skipped, warnings treated as errors.
 
 ## Packages in CI
 
@@ -21,6 +22,7 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 - In run 43772170454 on `main`, the `kali` job installed all seven with the network off, before `publish`.
 
 - By hand on 2026-11-16, in Kali 2026.2 under WSL 2 on Windows 11, as root, with pwn-broker 0.1.0 installed from its release: `tool install` ran for `kerbrute`, `pspy`, `certipy`, `targetedkerberoast`, `ligolo-ng` and `peass-ng`, each from the published index, and `certipy` brought `python-3.13` 3.13.18 with it. `kerbrute version`, `certipy -h`, `targetedKerberoast -h` and `ligolo-proxy -h` each started and printed their own first lines; the ten upload files of `ligolo-ng`, `peass-ng` and `pspy` were in `/opt/pwn-broker/upload` and were not run. Kali's `python3` was still `/usr/bin/python3`, 3.14.7. `finish` then removed all six tools and the runtime, and left only pwn-broker's own two commands in `/opt/pwn-broker/bin`.
+- By hand the same day and in the same Kali, as a normal user in the `sudo` group whose `sudo` asks for a password, with pwn-broker 0.1.0 installed by that user: `tool install` ran for `kerbrute`, `ligolo-ng` and `certipy` from the published index, and `certipy` brought the runtime. `kerbrute version`, `certipy -h` and `ligolo-proxy -h` each started, and so did `sudo /opt/pwn-broker/bin/ligolo-proxy -h`, the line `tool install` prints. Nothing under `/opt/pwn-broker` or the user's home belonged to root afterwards. `finish` removed the three tools and the runtime, with a `warn` line that root's home could not be checked for `ligolo-ng`'s data.
 
 ## Builds on Windows
 
@@ -38,8 +40,10 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 
 ## fetch.sh
 
-- `sh -n` and `dash -n` are clean, and its tests run with a stand-in `gh`. `shellcheck` passed in the `lint` job of run 43768259174.
-- Run against the real releases on 2026-11-15, from Git Bash on Windows 11, it downloaded the index and all 11 zips then published, and each matched the size and SHA-256 the index gives. It has not been run on Kali.
+- `sh -n` and `dash -n` are clean, and its tests run with a stand-in `curl`.
+- The first version downloaded with the GitHub CLI. Run against the real releases on 2026-11-15, from Git Bash on Windows 11, it downloaded the index and all 11 zips then published, and each matched the size and SHA-256 the index gives. On Kali it could not start: Kali packages no `gh`, in 2026.2 or in rolling, so `apt install gh`, which its own message gave, fails. With `gh` added from GitHub's package source it downloaded all seven zips there.
+- It now downloads with `curl` and needs no account. On 2026-11-16, in Kali 2026.2 under WSL 2 on Windows 11, as a normal user, with curl 8.21.0, `dash` as `sh`, no `gh` installed and no GitHub sign-in on the machine: it downloaded the index and all seven zips, and each matched the size and SHA-256 in the index, checked a second time with Python. A second run found all seven in place and downloaded only the index. A zip overwritten with other bytes was downloaded again. A repository that does not exist failed with one `fail` line and left no folder.
+- From that folder, with `tools_index` set to it and the shell in a network namespace whose only interface was `lo`, down, pwn-broker 0.1.0 installed `certipy` with the `python-3.13` runtime, `ligolo-ng` and `pspy`, and `finish` removed them. Resolving `github.com` failed in that shell.
 
 ## The published index from pwn-broker
 
@@ -47,9 +51,9 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 
 ## Not tested
 
-- Any package run by hand on a Kali desktop, against a real target, or installed by a normal user with `sudo`.
-- Packages have been installed on Kali by the `kali` job, inside the Kali image with the network off, and by hand under WSL as root. Nothing has been installed on a full Kali desktop.
-- `fetch.sh` on Kali.
+- Any package run by hand on a Kali desktop or against a real target.
+- Packages have been installed on Kali by the `kali` job, inside the Kali image with the network off, and by hand under WSL as root and as a normal user. Nothing has been installed on a full Kali desktop.
+- `fetch.sh` from Git Bash on Windows since it changed to `curl`.
 
 ## Known limits
 
