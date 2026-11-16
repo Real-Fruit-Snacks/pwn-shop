@@ -16,6 +16,8 @@ Downloads index.toml from the index release of pwn-shop, then every zip it names
 that zip's own release, into <folder> (created if it is missing). Each zip is checked
 against the SHA-256 in the index before it is kept; one that fails is removed and the
 script stops. A zip that is already there with the right hash is not downloaded again.
+A link or a folder where a zip or the index would go is refused, and so is a download
+that stalls for a minute.
 
 Needs curl and sha256sum, and no account: the files are downloaded from the
 repository's public releases. PWN_SHOP_REPO sets the repository (default
@@ -47,6 +49,10 @@ need() {
 # [[tool.build]] table are read for file, sha256, version and build; the tool's name is
 # read from the [[tool]] table above it. A description that mentions "file" or "sha256"
 # sits in the [[tool]] table, on a line that starts with `description`, and is never read.
+#
+# build.py writes two table headers and no comments. Any other line that starts with a
+# bracket is refused: read as some other table, the build under it would be left out
+# while the index still named its zip. An index with a problem prints no line at all.
 parse_index() {
     # the $ in the patterns below are regular-expression anchors for awk
     # shellcheck disable=SC2016
@@ -57,7 +63,7 @@ parse_index() {
         while ((getline line < index_file) > 0) {
             if (line == "[[tool]]") { emit(); inbuild = 0; name = ""; continue }
             if (line == "[[tool.build]]") { emit(); inbuild = 1; continue }
-            if (line ~ /^\[/) { emit(); inbuild = 0; continue }
+            if (line ~ /^\[/) { emit(); inbuild = 0; problem("the index has a table header build.py does not write"); continue }
             if (!inbuild) {
                 if (line ~ /^name = "[^"]*"$/) name = value(line)
                 continue
@@ -69,6 +75,7 @@ parse_index() {
         }
         emit()
         if (n == 0 && !bad) problem("the index names no packages")
+        if (!bad) for (i = 0; i < n; i++) print out[i]
         exit bad
     }
     function value(line,   v) {
@@ -89,20 +96,46 @@ parse_index() {
         else if (bld == "" || bld + 0 < 1) problem(name ": a build has no build number")
         else if (file != name "-" ver "-" bld ".zip") problem(name ": file " file " is not " name "-" ver "-" bld ".zip")
         else if (length(sha) != 64 || sha !~ /^[0-9A-Fa-f]+$/) problem(file ": the SHA-256 is not 64 hexadecimal characters")
-        else { printf "%s-v%s-%s\t%s\t%s\n", name, ver, bld, file, tolower(sha); n++ }
+        else { out[n] = name "-v" ver "-" bld "\t" file "\t" tolower(sha); n++ }
         ver = ""; bld = ""; file = ""; sha = ""
     }
     '
 }
 
+# The file is read on standard input, so sha256sum never prints its path: it marks the
+# line of a path that holds a line break, and the hash would no longer compare.
 hash_of() {
-    sha256sum "$1" | cut -d' ' -f1 | tr 'A-F' 'a-f'
+    sha256sum <"$1" | cut -d' ' -f1 | tr 'A-F' 'a-f'
 }
 
-# download <tag> <file> <destination>: one file of one release, over HTTPS only
+# download <tag> <file> <destination>: one file of one release, over HTTPS only. It gives
+# up when no connection is made in 30 seconds or nothing arrives for a minute.
 download() {
-    curl -fsSL --proto '=https' --proto-redir '=https' -o "$3" \
+    curl -fsSL --proto '=https' --proto-redir '=https' \
+        --connect-timeout 30 --speed-limit 1 --speed-time 60 -o "$3" \
         "https://github.com/$REPO/releases/download/$1/$2" </dev/null
+}
+
+# A link or a folder where a file is about to go: mv would put the file inside it, which
+# for a link is outside the folder this script was given.
+in_the_way() {
+    if [ -L "$1" ] || [ -d "$1" ]; then
+        fail "$1 is a link or a folder. move it away, then run this again"
+    fi
+}
+
+# What config.toml could not hold between quotes without escaping.
+unsafe_path() {
+    case "$1" in
+        *"$QUOTE"* | *"$BACKSLASH"* | *[[:cntrl:]]*) return 0 ;;
+    esac
+    return 1
+}
+
+cleanup() {
+    if [ -n "$WORK" ]; then rm -rf "$WORK"; fi
+    # a folder this run made and put nothing in is not left behind
+    if [ "$CREATED" -eq 1 ]; then rmdir -- "$FOLDER" 2>/dev/null || true; fi
 }
 
 main() {
@@ -125,23 +158,35 @@ main() {
     need curl "On Kali: apt install curl."
     need sha256sum "It is part of coreutils."
     case "$REPO" in
+        */*/* | /* | */ | *..* | *[!A-Za-z0-9._/-]*) fail "PWN_SHOP_REPO must look like owner/name, not $REPO" ;;
         */*) ;;
         *) fail "PWN_SHOP_REPO must look like owner/name, not $REPO" ;;
     esac
-    case "$REPO" in
-        *[!A-Za-z0-9._/-]*) fail "PWN_SHOP_REPO must look like owner/name, not $REPO" ;;
-    esac
-    NO_INDEX="cannot download index.toml from the index release of $REPO. check the network, and that the repository is public"
+
+    QUOTE='"'
+    BACKSLASH="$(printf '\134')"
+    UNSAFE="holds a quote, a backslash or a control character, which config.toml would need escaped"
+    GIVEN="$1"
+    # cd - is the folder you were in before, not a folder called -
+    if [ "$GIVEN" = "-" ]; then GIVEN="./-"; fi
+    if unsafe_path "$GIVEN"; then fail "the folder path $UNSAFE: $GIVEN"; fi
+
+    NO_INDEX="cannot download index.toml from the index release of $REPO. check the network and that the repository is public. if a new index is being published, try again in a minute"
     # asked for once here, so a repository that cannot be read leaves no folder behind
     download index index.toml /dev/null || fail "$NO_INDEX"
 
-    mkdir -p -- "$1" || fail "cannot create $1"
-    FOLDER="$(cd -- "$1" && pwd -P)" || fail "cannot enter $1"
-    QUOTE='"'
-    BACKSLASH="$(printf '\134')"
-    case "$FOLDER" in
-        *"$QUOTE"* | *"$BACKSLASH"*) fail "the folder path holds a quote or a backslash, which config.toml would need escaped: $FOLDER" ;;
-    esac
+    WORK=""
+    FOLDER="$GIVEN"
+    if [ -d "$GIVEN" ]; then CREATED=0; else CREATED=1; fi
+    mkdir -p -- "$GIVEN" || fail "cannot create $GIVEN"
+    trap cleanup EXIT
+    trap 'exit 1' HUP INT TERM
+    # CDPATH would send a relative name to another folder and make cd print it
+    RESOLVED="$(CDPATH='' cd -- "$GIVEN" && pwd -P)" || fail "cannot enter $GIVEN"
+    FOLDER="$RESOLVED"
+    # the name given was plain, but a folder above it may not be
+    if unsafe_path "$FOLDER"; then fail "the folder path $UNSAFE: $FOLDER"; fi
+    in_the_way "$FOLDER/index.toml"
 
     # work folders left by an earlier run that was killed
     for OLD in "$FOLDER"/.fetch.??????; do
@@ -149,8 +194,6 @@ main() {
     done
 
     WORK="$(mktemp -d "$FOLDER/.fetch.XXXXXX")" || fail "cannot write to $FOLDER"
-    trap 'rm -rf "$WORK"' EXIT
-    trap 'exit 1' HUP INT TERM
 
     download index index.toml "$WORK/index.toml" || fail "$NO_INDEX"
     [ -s "$WORK/index.toml" ] || fail "the index release of $REPO has no index.toml"
@@ -160,6 +203,7 @@ main() {
     COUNT=0
     while IFS="$TAB" read -r TAG FILE SHA; do
         DEST="$FOLDER/$FILE"
+        in_the_way "$DEST"
         if [ -f "$DEST" ] && [ "$(hash_of "$DEST")" = "$SHA" ]; then
             ok "$FILE is already here"
             COUNT=$((COUNT + 1))
@@ -172,7 +216,9 @@ main() {
         if [ ! -f "$WORK/$FILE" ] || [ "$(hash_of "$WORK/$FILE")" != "$SHA" ]; then
             # only the file just downloaded; a copy already in the folder is left as it was
             rm -f "$WORK/$FILE"
-            fail "$FILE does not match the SHA-256 in the index, so it was removed"
+            KEPT=""
+            if [ -e "$DEST" ]; then KEPT=". the copy already in the folder was left as it was"; fi
+            fail "the download of $FILE does not match the SHA-256 in the index and was discarded$KEPT"
         fi
         mv -f "$WORK/$FILE" "$DEST"
         ok "$FILE downloaded and checked"

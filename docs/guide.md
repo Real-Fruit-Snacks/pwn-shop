@@ -15,7 +15,7 @@ git clone https://github.com/Real-Fruit-Snacks/pwn-shop
 sh pwn-shop/fetch.sh ~/pwn-packages
 ```
 
-It downloads `index.toml` from the `index` release, then every zip the index names from that zip's own release, into the folder (created if it is missing). Each zip is checked against the SHA-256 in the index before it is kept; one that fails is removed and the script stops. A zip that is already there with the right hash is not downloaded again. The index is moved into the folder last, so the folder never holds an index that names a zip which was not checked. At the end it prints:
+It downloads `index.toml` from the `index` release, then every zip the index names from that zip's own release, into the folder (created if it is missing). Each zip is checked against the SHA-256 in the index before it is kept; one that fails is removed and the script stops. A zip that is already there with the right hash is not downloaded again. The index is moved into the folder last, so the folder never holds an index that names a zip which was not checked. A link or a folder that sits where a zip or the index would go is refused, and so is a folder path that holds a quote, a backslash or a control character. A download gives up when no connection is made in 30 seconds or nothing arrives for a minute; run it again and the zips already there are kept. At the end it prints:
 
 ```text
 put this line in /opt/pwn-broker/config.toml:

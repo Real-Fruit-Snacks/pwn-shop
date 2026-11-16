@@ -3,8 +3,10 @@
 import hashlib
 import os
 import shutil
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -21,20 +23,55 @@ pytestmark = pytest.mark.skipif(
 
 REPO = "Real-Fruit-Snacks/pwn-shop"
 
-# Stands in for curl -fsSL -o <out> <url>: a release file's address is
+# Stands in for curl. A release file's address is
 # https://github.com/<owner>/<name>/releases/download/<tag>/<file>, served from
 # $FAKE_RELEASES/<tag>/<file>. It writes "<tag> <file>" to $FAKE_CURL_LOG for each request.
+#
+# Real curl without -f saves an error page and exits 0, without -L saves GitHub's redirect,
+# and without the two --proto options follows a redirect to plain HTTP. The stand-in cannot
+# show any of that, so it refuses a call that lacks one of them, or the time limits.
+# $FAKE_PARTIAL names a file it writes half of before it fails, as a dropped connection does,
+# and $FAKE_SLOW a file it waits five seconds before serving.
 FAKE_CURL = """#!/bin/sh
 out=""
 url=""
+short=""
+proto=""
+redir=""
+connect=""
+limit=""
+window=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
         -o) out="$2"; shift 2 ;;
-        --proto | --proto-redir) shift 2 ;;
-        -*) shift ;;
+        --proto) proto="$2"; shift 2 ;;
+        --proto-redir) redir="$2"; shift 2 ;;
+        --connect-timeout) connect="$2"; shift 2 ;;
+        --speed-limit) limit="$2"; shift 2 ;;
+        --speed-time) window="$2"; shift 2 ;;
+        --*) echo "curl stand-in: an option it does not know: $1" >&2; exit 2 ;;
+        -*) short="$short$1"; shift ;;
         *) url="$1"; shift ;;
     esac
 done
+for letter in f s S L; do
+    case "$short" in
+        *"$letter"*) ;;
+        *) echo "curl stand-in: called without -$letter" >&2; exit 2 ;;
+    esac
+done
+if [ "$proto" != "=https" ] || [ "$redir" != "=https" ]; then
+    echo "curl stand-in: called without --proto =https --proto-redir =https" >&2
+    exit 2
+fi
+if [ -z "$connect" ] || [ -z "$limit" ] || [ -z "$window" ]; then
+    echo "curl stand-in: called without --connect-timeout, --speed-limit and --speed-time" >&2
+    exit 2
+fi
+if [ -z "$out" ]; then
+    echo "curl stand-in: called without -o" >&2
+    exit 2
+fi
 rest="${url#https://github.com/}"
 if [ "$rest" = "$url" ]; then
     echo "curl: not a github.com address: $url" >&2
@@ -48,6 +85,14 @@ echo "$tag $file" >>"$FAKE_CURL_LOG"
 if [ "$repo" != "$FAKE_REPO" ] || [ ! -f "$FAKE_RELEASES/$tag/$file" ]; then
     echo "curl: (22) The requested URL returned error: 404" >&2
     exit 22
+fi
+if [ "$file" = "${FAKE_SLOW:-}" ]; then
+    sleep 5
+fi
+if [ "$file" = "${FAKE_PARTIAL:-}" ]; then
+    head -c 4 "$FAKE_RELEASES/$tag/$file" >"$out"
+    echo "curl: (18) transfer closed with outstanding read data remaining" >&2
+    exit 18
 fi
 cat "$FAKE_RELEASES/$tag/$file" >"$out"
 """
@@ -94,19 +139,26 @@ def shop(tmp_path):
     return releases, bindir, cards
 
 
-def run_fetch(tmp_path, shop, folder, *, repo=None, served_repo=REPO, args=None):
+def fetch_env(tmp_path, shop, *, repo=None, served_repo=REPO, extra=None):
     releases, bindir, _ = shop
-    log = tmp_path / "curl.log"
     env = dict(os.environ)
     env["PATH"] = bindir.as_posix() + os.pathsep + env["PATH"]
     env["FAKE_RELEASES"] = releases.as_posix()
-    env["FAKE_CURL_LOG"] = log.as_posix()
+    env["FAKE_CURL_LOG"] = (tmp_path / "curl.log").as_posix()
     env["FAKE_REPO"] = served_repo
-    env.pop("PWN_SHOP_REPO", None)
+    for name in ("PWN_SHOP_REPO", "CDPATH", "FAKE_PARTIAL", "FAKE_SLOW"):
+        env.pop(name, None)
     if repo is not None:
         env["PWN_SHOP_REPO"] = repo
+    env.update(extra or {})
+    return env
+
+
+def run_fetch(tmp_path, shop, folder, *, repo=None, served_repo=REPO, args=None, cwd=None, extra=None):
+    env = fetch_env(tmp_path, shop, repo=repo, served_repo=served_repo, extra=extra)
     argv = ["sh", SCRIPT.as_posix(), *(args if args is not None else [folder.as_posix()])]
-    result = subprocess.run(argv, env=env, capture_output=True, text=True)
+    result = subprocess.run(argv, env=env, capture_output=True, text=True, cwd=cwd)
+    log = tmp_path / "curl.log"
     calls = log.read_text().splitlines() if log.exists() else []
     return result, calls
 
@@ -225,6 +277,35 @@ def test_parse_refuses_a_short_hash(tmp_path):
     assert parse(tmp_path, text).returncode != 0
 
 
+def test_parse_refuses_a_hash_that_is_not_hexadecimal(tmp_path):
+    text = index_text([card("alpha", "1.0", b"a")]).replace(sha(b"a"), "g" + sha(b"a")[1:])
+    result = parse(tmp_path, text)
+    assert result.returncode != 0
+    assert "not 64 hexadecimal characters" in result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        ("[[tool.build]]", "[[tool.build]] # the second build"),
+        ("[[tool.build]]", "[[tool.build]] "),
+        ("[[tool.build]]", "[tool.build]"),
+        ("[[tool]]", "[[tool]] # beta"),
+        ("[[tool]]", "[[tools]]"),
+    ],
+)
+def test_parse_refuses_a_table_header_build_py_does_not_write(tmp_path, old, new):
+    # read as some other table, the build under it would be left out without a word
+    text = index_text([card("alpha", "1.0", b"a"), card("beta", "1.0", b"b")])
+    head, _, tail = text.rpartition(old)
+    result = parse(tmp_path, head + new + tail)
+    assert result.returncode != 0
+    assert "a table header build.py does not write" in result.stderr
+    # nothing is printed for the build that did parse: the index is refused whole
+    assert result.stdout == ""
+
+
 def test_parse_refuses_an_index_with_no_builds(tmp_path):
     result = parse(tmp_path, "schema = 1\n")
     assert result.returncode != 0
@@ -296,7 +377,8 @@ def test_a_wrong_hash_removes_the_file_and_stops(tmp_path, shop):
     folder = tmp_path / "packages"
     result, _ = run_fetch(tmp_path, shop, folder)
     assert result.returncode != 0
-    assert "beta-1.0-1.zip does not match" in result.stderr
+    assert "the download of beta-1.0-1.zip does not match the SHA-256 in the index" in result.stderr
+    assert "left as it was" not in result.stderr
     assert not (folder / "beta-1.0-1.zip").exists()
     assert (folder / "alpha-1.0-1.zip").is_file()
     assert not (folder / "index.toml").exists()
@@ -321,6 +403,8 @@ def test_a_file_already_there_is_kept_when_the_download_is_wrong_too(tmp_path, s
     (folder / "alpha-1.0-1.zip").write_bytes(b"corrupt")
     result, _ = run_fetch(tmp_path, shop, folder)
     assert result.returncode != 0
+    assert "the download of alpha-1.0-1.zip does not match" in result.stderr
+    assert "the copy already in the folder was left as it was" in result.stderr
     assert (folder / "alpha-1.0-1.zip").read_bytes() == b"corrupt"
     assert [p.name for p in folder.iterdir() if p.name.startswith(".")] == []
 
@@ -382,7 +466,10 @@ def test_pwn_shop_repo_sets_the_repository_it_downloads_from(tmp_path, shop):
     assert "index release of someone/fork" in result.stderr
 
 
-@pytest.mark.parametrize("repo", ["noslash", "a/b c", "a/b;id", "https://github.com/a/b?x"])
+@pytest.mark.parametrize(
+    "repo",
+    ["noslash", "a/b c", "a/b;id", "https://github.com/a/b?x", "a/b/c", "a//b", "../..", "/a", "a/", "a/.."],
+)
 def test_a_pwn_shop_repo_that_is_not_owner_and_name_is_refused(tmp_path, shop, repo):
     folder = tmp_path / "packages"
     result, calls = run_fetch(tmp_path, shop, folder, repo=repo)
@@ -400,19 +487,162 @@ def test_the_help_names_what_it_needs(tmp_path, shop):
     assert calls == []
 
 
+def test_a_run_that_fails_keeps_the_index_of_the_run_before(tmp_path, shop):
+    releases, _, _ = shop
+    folder = tmp_path / "packages"
+    result, _ = run_fetch(tmp_path, shop, folder)
+    assert result.returncode == 0, result.stderr
+    before = (folder / "index.toml").read_bytes()
+    (folder / "beta-1.0-1.zip").write_bytes(b"corrupt")
+    (releases / "beta-v1.0-1" / "beta-1.0-1.zip").write_bytes(b"swapped")
+    result, _ = run_fetch(tmp_path, shop, folder)
+    assert result.returncode != 0
+    assert (folder / "index.toml").read_bytes() == before
+
+
+def test_a_download_that_stops_half_way_is_not_kept(tmp_path, shop):
+    folder = tmp_path / "packages"
+    result, _ = run_fetch(tmp_path, shop, folder, extra={"FAKE_PARTIAL": "beta-1.0-1.zip"})
+    assert result.returncode != 0
+    assert "cannot download beta-1.0-1.zip" in result.stderr
+    assert sorted(p.name for p in folder.iterdir()) == ["alpha-1.0-1.zip"]
+
+
+@pytest.mark.parametrize("name", ["alpha-1.0-1.zip", "index.toml"])
+def test_a_folder_where_a_file_would_go_is_refused(tmp_path, shop, name):
+    # mv would put the file inside it, where pwn-broker does not look
+    folder = tmp_path / "packages"
+    (folder / name).mkdir(parents=True)
+    result, _ = run_fetch(tmp_path, shop, folder)
+    assert result.returncode != 0
+    assert f"{name} is a link or a folder" in result.stderr
+    assert list((folder / name).iterdir()) == []
+    assert not (folder / "index.toml").is_file()
+    assert [p.name for p in folder.iterdir() if p.name.startswith(".")] == []
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs symbolic links")
+@pytest.mark.parametrize("name", ["alpha-1.0-1.zip", "index.toml"])
+@pytest.mark.parametrize("target", ["folder", "file", "nothing"])
+def test_a_link_where_a_file_would_go_is_refused(tmp_path, shop, name, target):
+    # a link to a folder would take the file out of the folder fetch.sh was given
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    aim = elsewhere / "aim"
+    if target == "folder":
+        aim.mkdir()
+    elif target == "file":
+        aim.write_bytes(b"alpha bytes")
+    folder = tmp_path / "packages"
+    folder.mkdir()
+    (folder / name).symlink_to(aim)
+    result, _ = run_fetch(tmp_path, shop, folder)
+    assert result.returncode != 0
+    assert f"{name} is a link or a folder" in result.stderr
+    assert (folder / name).is_symlink()
+    assert [p.name for p in elsewhere.iterdir()] == (["aim"] if target != "nothing" else [])
+    if target == "folder":
+        assert list(aim.iterdir()) == []
+    elif target == "file":
+        assert aim.read_bytes() == b"alpha bytes"
+
+
+def test_an_index_with_a_header_build_py_does_not_write_fetches_nothing(tmp_path, shop):
+    releases, _, cards = shop
+    text = index_text(cards, "https://github.com/x/y/releases/download/{tag}/{file}")
+    head, _, tail = text.rpartition("[[tool.build]]")
+    (releases / "index" / "index.toml").write_text(head + "[[tool.build]] # beta" + tail, encoding="utf-8")
+    folder = tmp_path / "packages"
+    result, calls = run_fetch(tmp_path, shop, folder)
+    assert result.returncode != 0
+    assert "nothing was fetched" in result.stderr
+    assert calls == ["index index.toml", "index index.toml"]
+    # the folder was made by this run and holds nothing, so it is not left behind
+    assert not folder.exists()
+
+
+def test_a_folder_that_was_already_there_is_kept_when_a_run_fails(tmp_path, shop):
+    releases, _, _ = shop
+    (releases / "index" / "index.toml").write_text("schema = 1\n", encoding="utf-8")
+    folder = tmp_path / "packages"
+    folder.mkdir()
+    result, _ = run_fetch(tmp_path, shop, folder)
+    assert result.returncode != 0
+    assert folder.is_dir()
+    assert list(folder.iterdir()) == []
+
+
+def test_a_folder_named_with_a_dash_is_the_folder_here(tmp_path, shop):
+    # cd - means the folder you were in before, not a folder called -
+    here = tmp_path / "here"
+    here.mkdir()
+    result, _ = run_fetch(tmp_path, shop, None, args=["-"], cwd=here)
+    assert result.returncode == 0, result.stderr
+    assert (here / "-" / "index.toml").is_file()
+    assert (here / "-" / "alpha-1.0-1.zip").read_bytes() == b"alpha bytes"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="CDPATH is a list of POSIX paths")
+def test_cdpath_does_not_send_it_to_another_folder(tmp_path, shop):
+    here = tmp_path / "here"
+    here.mkdir()
+    other = tmp_path / "other"
+    (other / "pk").mkdir(parents=True)
+    result, _ = run_fetch(tmp_path, shop, None, args=["pk"], cwd=here, extra={"CDPATH": other.as_posix()})
+    assert result.returncode == 0, result.stderr
+    assert (here / "pk" / "index.toml").is_file()
+    assert list((other / "pk").iterdir()) == []
+    assert result.stdout.splitlines()[-1] == f'tools_index = "{(here / "pk").resolve().as_posix()}"'
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="signals to a POSIX process")
+@pytest.mark.parametrize("sig", ["SIGTERM", "SIGHUP"])
+def test_a_run_that_is_killed_leaves_no_work_folder(tmp_path, shop, sig):
+    folder = tmp_path / "packages"
+    env = fetch_env(tmp_path, shop, extra={"FAKE_SLOW": "beta-1.0-1.zip"})
+    process = subprocess.Popen(
+        ["sh", SCRIPT.as_posix(), folder.as_posix()], env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    log = tmp_path / "curl.log"
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        if log.exists() and "beta-v1.0-1 beta-1.0-1.zip" in log.read_text():
+            break
+        time.sleep(0.05)
+    else:
+        process.kill()
+        pytest.fail("the download of beta never started")
+    process.send_signal(getattr(signal, sig))
+    process.communicate(timeout=30)
+    assert process.returncode == 1
+    assert sorted(p.name for p in folder.iterdir()) == ["alpha-1.0-1.zip"]
+
+
 def test_it_needs_exactly_one_argument(tmp_path, shop):
     result, _ = run_fetch(tmp_path, shop, tmp_path, args=[])
     assert result.returncode == 2
     assert "usage: fetch.sh <folder>" in result.stderr
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="a name with a quote or backslash needs POSIX")
-@pytest.mark.parametrize("name", ['quo"te', "back\\slash"])
+@pytest.mark.skipif(sys.platform == "win32", reason="such a name needs POSIX")
+@pytest.mark.parametrize("name", ['quo"te', "back\\slash", "line\nbreak", "tab\there", "bell\a"])
 def test_a_folder_path_that_config_toml_would_need_escaped_is_refused(tmp_path, shop, name):
     folder = tmp_path / name
     result, calls = run_fetch(tmp_path, shop, folder)
     assert result.returncode != 0
-    assert "quote or a backslash" in result.stderr
-    # only the look at the index that comes before the folder; no zip is asked for
-    assert calls == ["index index.toml"]
-    assert list(folder.iterdir()) == []
+    assert "a quote, a backslash or a control character" in result.stderr
+    assert calls == []
+    assert not folder.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="such a name needs POSIX")
+@pytest.mark.parametrize("name", ['quo"te', "line\nbreak"])
+def test_a_folder_under_a_path_config_toml_cannot_hold_is_refused_and_not_left(tmp_path, shop, name):
+    # the name given is plain; the folder above it is not, which only shows once it is resolved
+    parent = tmp_path / name
+    parent.mkdir()
+    result, _ = run_fetch(tmp_path, shop, None, args=["packages"], cwd=parent)
+    assert result.returncode != 0
+    assert "a quote, a backslash or a control character" in result.stderr
+    assert list(parent.iterdir()) == []
