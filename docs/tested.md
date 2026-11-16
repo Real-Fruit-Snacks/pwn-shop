@@ -1,6 +1,6 @@
 # What has been tested
 
-Everything the packages, `build.py` and `fetch.sh` have been run on, with the counts, runs, commits and dates, and what has not been run. The [README](../README.md#tested-on) has the short list. This record is updated by hand after each CI run; it is as of 2026-11-15.
+Everything the packages, `build.py` and `fetch.sh` have been run on, with the counts, runs, commits and dates, and what has not been run. The [README](../README.md#tested-on) has the short list. This record is updated by hand after each CI run; it is as of 2026-11-16.
 
 ## Unit tests
 
@@ -19,6 +19,8 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 
 - The `kali` job of run 43768259174 ran inside `kalilinux/kali-rolling` (Kali 2026.3, Python 3.14.8) with Docker reporting the container on no network, and it confirmed that resolving `github.com` and connecting to `1.1.1.1:443` both failed. There, `python-3.13` 3.13.18 build 1 was installed and its interpreter reported `Python 3.13.18`; `certipy` 5.1.0 build 3 and `targetedkerberoast` 2024.12.16 build 3 were each installed on that runtime and answered `--help`; `kerbrute` and the proxy of `ligolo-ng` answered `--help`; `peass-ng` and `pspy` installed their upload files.
 - In run 43772170454 on `main`, the `kali` job installed all seven with the network off, before `publish`.
+
+- By hand on 2026-11-16, in Kali 2026.2 under WSL 2 on Windows 11, as root, with pwn-broker 0.1.0 installed from its release: `tool install` ran for `kerbrute`, `pspy`, `certipy`, `targetedkerberoast`, `ligolo-ng` and `peass-ng`, each from the published index, and `certipy` brought `python-3.13` 3.13.18 with it. `kerbrute version`, `certipy -h`, `targetedKerberoast -h` and `ligolo-proxy -h` each started and printed their own first lines; the ten upload files of `ligolo-ng`, `peass-ng` and `pspy` were in `/opt/pwn-broker/upload` and were not run. Kali's `python3` was still `/usr/bin/python3`, 3.14.7. `finish` then removed all six tools and the runtime, and left only pwn-broker's own two commands in `/opt/pwn-broker/bin`.
 
 ## Builds on Windows
 
@@ -46,13 +48,11 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 ## Not tested
 
 - Any package run by hand on a Kali desktop, against a real target, or installed by a normal user with `sudo`.
-- `tool install` from the published index on Kali: CI installs from a folder, with the network off.
-- Packages have been installed only by the `kali` job, inside the Kali image with the network off. Nothing has been installed by hand on a Kali desktop.
+- Packages have been installed on Kali by the `kali` job, inside the Kali image with the network off, and by hand under WSL as root. Nothing has been installed on a full Kali desktop.
 - `fetch.sh` on Kali.
 
 ## Known limits
 
-- `tool install` from the published index has not been run on Kali; see above.
 - The index and the packages are not signed. The SHA-256 values in the index are the only check, and they catch a corrupted or swapped zip. They do not prove who published the index.
 - `kerbrute` and `pspy` publish no checksums upstream. Their pins are the SHA-256 of each file as first downloaded.
 - PEASS-ng's licence has terms beyond the GPL. Read `recipes/peass-ng/LICENSE` before redistributing the package.

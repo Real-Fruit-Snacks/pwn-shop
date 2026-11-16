@@ -74,7 +74,8 @@ The [guide](docs/guide.md) has the package format, the runtime, `build.py` and C
 - All seven installed inside the official Kali image (Kali 2026.3) with the container's network off, before they were published
 - `kerbrute`, `ligolo-ng`, `peass-ng` and `pspy` rebuilt by CI to their published bytes, and `python-3.13` built on Windows and on Ubuntu to the same SHA-256
 - `fetch.sh` against the real releases, from Git Bash on Windows 11: every zip matched the index
-- *Not* tested: any package run by hand on a Kali desktop or against a real target; an install by a normal user with `sudo`; `tool install` from the published index on Kali; `fetch.sh` on Kali
+- All six tools installed by `tool install` from the published index, by hand in Kali 2026.2 under WSL 2 as root, each command started once, and removed again by `finish`
+- *Not* tested: any package on a full Kali desktop or against a real target; an install by a normal user with `sudo`; `fetch.sh` on Kali
 
 [docs/tested.md](docs/tested.md) is the full record: counts, runs, commits and dates.
 
