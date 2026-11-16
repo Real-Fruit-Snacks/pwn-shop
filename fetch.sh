@@ -50,8 +50,8 @@ need() {
 # read from the [[tool]] table above it. A description that mentions "file" or "sha256"
 # sits in the [[tool]] table, on a line that starts with `description`, and is never read.
 #
-# build.py writes two table headers and no comments. Any other line that starts with a
-# bracket is refused: read as some other table, the build under it would be left out
+# build.py writes two table headers, flush left, and no comments. Any other line whose
+# first character after spaces or tabs is a bracket is refused: read as some other table, the build under it would be left out
 # while the index still named its zip. An index with a problem prints no line at all.
 parse_index() {
     # the $ in the patterns below are regular-expression anchors for awk
@@ -63,7 +63,7 @@ parse_index() {
         while ((getline line < index_file) > 0) {
             if (line == "[[tool]]") { emit(); inbuild = 0; name = ""; continue }
             if (line == "[[tool.build]]") { emit(); inbuild = 1; continue }
-            if (line ~ /^\[/) { emit(); inbuild = 0; problem("the index has a table header build.py does not write"); continue }
+            if (line ~ /^[ \t]*\[/) { emit(); inbuild = 0; problem("the index has a table header build.py does not write"); continue }
             if (!inbuild) {
                 if (line ~ /^name = "[^"]*"$/) name = value(line)
                 continue
@@ -181,9 +181,12 @@ main() {
     mkdir -p -- "$GIVEN" || fail "cannot create $GIVEN"
     trap cleanup EXIT
     trap 'exit 1' HUP INT TERM
-    # CDPATH would send a relative name to another folder and make cd print it
-    RESOLVED="$(CDPATH='' cd -- "$GIVEN" && pwd -P)" || fail "cannot enter $GIVEN"
-    FOLDER="$RESOLVED"
+    # CDPATH would send a relative name to another folder and make cd print it. The dot is
+    # added and taken off again because $( ) drops line breaks at the end: a path that ends
+    # in one would come back as the folder beside it
+    RESOLVED="$(CDPATH='' cd -- "$GIVEN" && pwd -P && echo .)" || fail "cannot enter $GIVEN"
+    RESOLVED="${RESOLVED%.}"
+    FOLDER="${RESOLVED%?}"
     # the name given was plain, but a folder above it may not be
     if unsafe_path "$FOLDER"; then fail "the folder path $UNSAFE: $FOLDER"; fi
     in_the_way "$FOLDER/index.toml"

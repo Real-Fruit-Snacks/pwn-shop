@@ -64,8 +64,8 @@ if [ "$proto" != "=https" ] || [ "$redir" != "=https" ]; then
     echo "curl stand-in: called without --proto =https --proto-redir =https" >&2
     exit 2
 fi
-if [ -z "$connect" ] || [ -z "$limit" ] || [ -z "$window" ]; then
-    echo "curl stand-in: called without --connect-timeout, --speed-limit and --speed-time" >&2
+if [ "$connect" != 30 ] || [ "$limit" != 1 ] || [ "$window" != 60 ]; then
+    echo "curl stand-in: called without --connect-timeout 30 --speed-limit 1 --speed-time 60" >&2
     exit 2
 fi
 if [ -z "$out" ]; then
@@ -293,6 +293,9 @@ def test_parse_refuses_a_hash_that_is_not_hexadecimal(tmp_path):
         ("[[tool.build]]", "[tool.build]"),
         ("[[tool]]", "[[tool]] # beta"),
         ("[[tool]]", "[[tools]]"),
+        ("[[tool.build]]", "  [[tool.build]]"),
+        ("[[tool.build]]", "\t[[tool.build]]"),
+        ("[[tool]]", " [[tool]]"),
     ],
 )
 def test_parse_refuses_a_table_header_build_py_does_not_write(tmp_path, old, new):
@@ -572,6 +575,52 @@ def test_a_folder_that_was_already_there_is_kept_when_a_run_fails(tmp_path, shop
     assert list(folder.iterdir()) == []
 
 
+def test_a_folder_with_a_space_and_an_accent_in_its_name_works(tmp_path, shop):
+    folder = tmp_path / "my päckages"
+    result, _ = run_fetch(tmp_path, shop, folder)
+    assert result.returncode == 0, result.stderr
+    assert sorted(p.name for p in folder.iterdir()) == ["alpha-1.0-1.zip", "beta-1.0-1.zip", "index.toml"]
+
+
+def test_an_empty_index_is_named_as_missing(tmp_path, shop):
+    releases, _, _ = shop
+    (releases / "index" / "index.toml").write_bytes(b"")
+    folder = tmp_path / "packages"
+    result, _ = run_fetch(tmp_path, shop, folder)
+    assert result.returncode != 0
+    assert f"the index release of {REPO} has no index.toml" in result.stderr
+    assert not folder.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs symbolic links")
+def test_a_link_named_like_a_work_folder_is_left_alone(tmp_path, shop):
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "mine.txt").write_bytes(b"mine")
+    folder = tmp_path / "packages"
+    folder.mkdir()
+    (folder / ".fetch.AbC123").symlink_to(elsewhere)
+    result, _ = run_fetch(tmp_path, shop, folder)
+    assert result.returncode == 0, result.stderr
+    assert (folder / ".fetch.AbC123").is_symlink()
+    assert (elsewhere / "mine.txt").read_bytes() == b"mine"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="such a name needs POSIX")
+def test_a_folder_whose_real_path_ends_in_a_line_break_is_not_taken_for_its_neighbour(tmp_path, shop):
+    # $( ) drops line breaks at the end, so "out\n" resolved would read as "out"
+    inside = tmp_path / "out\n"
+    inside.mkdir()
+    neighbour = tmp_path / "out"
+    neighbour.mkdir()
+    result, calls = run_fetch(tmp_path, shop, None, args=["."], cwd=inside)
+    assert result.returncode != 0
+    assert "a quote, a backslash or a control character" in result.stderr
+    assert list(neighbour.iterdir()) == []
+    assert list(inside.iterdir()) == []
+    assert calls == ["index index.toml"]
+
+
 def test_a_folder_named_with_a_dash_is_the_folder_here(tmp_path, shop):
     # cd - means the folder you were in before, not a folder called -
     here = tmp_path / "here"
@@ -596,7 +645,7 @@ def test_cdpath_does_not_send_it_to_another_folder(tmp_path, shop):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="signals to a POSIX process")
-@pytest.mark.parametrize("sig", ["SIGTERM", "SIGHUP"])
+@pytest.mark.parametrize("sig", ["SIGINT", "SIGTERM", "SIGHUP"])
 def test_a_run_that_is_killed_leaves_no_work_folder(tmp_path, shop, sig):
     folder = tmp_path / "packages"
     env = fetch_env(tmp_path, shop, extra={"FAKE_SLOW": "beta-1.0-1.zip"})

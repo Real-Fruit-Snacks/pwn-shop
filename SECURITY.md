@@ -43,7 +43,7 @@ The workflow checks out `pwn-broker`, which is public, with no key, and the repo
 
 - A package or index built here that gets past pwn-broker's checks: an entry that unpacks outside the tool's folder, a link, a package that runs code at install, or a wheel that is not in the lock.
 - A published tag whose files differ from its recipe, or a build whose card does not match its zip.
-- `fetch.sh` keeping a zip whose SHA-256 differs from the index, or writing outside the folder it was given.
+- `fetch.sh` keeping a zip it downloaded whose SHA-256 differs from the index, or writing outside the folder it was given.
 - A runtime package whose archive is not the upstream file its recipe pins.
 - The `kali` job passing while its container could still reach the network.
 - The workflow exposing a token with write access to a step that runs a pull request's code.
