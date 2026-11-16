@@ -6,7 +6,7 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 
 - Passed in CI on Ubuntu 24.04 under Python 3.11, 3.12 and 3.13, and on Windows 11 with Python 3.13 (516 passed and 3 skipped; the skips need a POSIX file system), warnings treated as errors. They also passed in CI under Python 3.14.
 - With runtimes, on Windows 11 with Python 3.13: 719 passed, 4 skipped, warnings treated as errors.
-- With `fetch.sh` on `curl`, on Windows 11 with Python 3.13 on 2026-11-16: 725 passed, 6 skipped, warnings treated as errors.
+- With `fetch.sh` on `curl`, on Windows 11 with Python 3.13 on 2026-11-16: 749 passed, 23 skipped, warnings treated as errors. Nineteen of the skips are `fetch.sh` tests that need links, signals or file names Windows does not allow.
 
 ## Packages in CI
 
@@ -40,7 +40,7 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 
 ## fetch.sh
 
-- `sh -n` and `dash -n` are clean, and its tests run with a stand-in `curl`.
+- `sh -n` and `dash -n` are clean, and its tests run with a stand-in `curl` that refuses a call without the options the script relies on. On 2026-11-16 in Kali 2026.2 under WSL 2, where `sh` is dash and `awk` is mawk 1.3.4, all 85 of them passed, the 19 that Windows skips included, and `shellcheck` 0.11.0 was clean.
 - The first version downloaded with the GitHub CLI. Run against the real releases on 2026-11-15, from Git Bash on Windows 11, it downloaded the index and all 11 zips then published, and each matched the size and SHA-256 the index gives. On Kali it could not start: Kali packages no `gh`, in 2026.2 or in rolling, so `apt install gh`, which its own message gave, fails. With `gh` added from GitHub's package source it downloaded all seven zips there.
 - It now downloads with `curl` and needs no account. On 2026-11-16, in Kali 2026.2 under WSL 2 on Windows 11, as a normal user, with curl 8.21.0, `dash` as `sh`, no `gh` installed and no GitHub sign-in on the machine: it downloaded the index and all seven zips, and each matched the size and SHA-256 in the index, checked a second time with Python. A second run found all seven in place and downloaded only the index. A zip overwritten with other bytes was downloaded again. A repository that does not exist failed with one `fail` line and left no folder.
 - From that folder, with `tools_index` set to it and the shell in a network namespace whose only interface was `lo`, down, pwn-broker 0.1.0 installed `certipy` with the `python-3.13` runtime, `ligolo-ng` and `pspy`, and `finish` removed them. Resolving `github.com` failed in that shell.
