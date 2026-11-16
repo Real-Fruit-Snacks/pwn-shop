@@ -68,6 +68,31 @@ jobs:
       - name: Tests
         run: python -m pytest -q -W error
 
+  art:
+    # The README panel is generated; fail if docs/assets/panel-*.svg no longer match
+    # docs/art/make-panel.py. The panel's unit test runs here too: the test jobs do not install
+    # fonttools, so there it skips.
+    name: README panel
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Redraw the panel
+        run: |
+          python -m pip install --quiet -r docs/art/requirements.txt
+          python docs/art/make-panel.py
+          git diff --exit-code -- docs/assets/panel-dark.svg docs/assets/panel-light.svg
+      - name: The panel's test
+        # pytest is not pinned, as in the test job; tomli-w is, because the tests' conftest imports it
+        run: |
+          python -m pip install --quiet pytest
+          python -m pip install --quiet --require-hashes -r ci-requirements.txt
+          python -m pytest -q -W error tests/test_panel.py
+
   packages:
     # Each Python builds or downloads every package and installs it with pwn-broker's own code,
     # a tool after the runtime it requires. Nothing in the build proves that a Python tool's

@@ -2,6 +2,13 @@
 
 Tool packages for pwn-broker, built from upstream releases
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/panel-dark.svg">
+  <img alt="A terminal in a pwn-shop checkout beside the checkout's folder. python build.py build kerbrute downloads the upstream file into .cache/, where it is kept under its SHA-256 once its size and hash match the pin in recipes/kerbrute/recipe.toml; dist/ fills with kerbrute-1.0.3-1.zip, holding LICENSE, files/kerbrute_linux_amd64 and manifest.toml, then its card and index.toml. python build.py check kerbrute passes, and tool install kerbrute at a pwn-broker prompt installs kerbrute 1.0.3" src="docs/assets/panel-light.svg" width="100%">
+</picture>
+
+<sub>Not a recording: the lines are the ones `build.py` and pwn-broker print for the kerbrute recipe, and every name and value on the right comes from that recipe. Left out: CI testing and publishing the package between the build and `tool install`, pwn-broker's blank lines, and `dist/sums/`; long values are cut with an ellipsis.</sub>
+
 ```sh
 gh repo clone Real-Fruit-Snacks/pwn-shop
 sh pwn-shop/fetch.sh ~/pwn-packages

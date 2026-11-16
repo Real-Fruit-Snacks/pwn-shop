@@ -18,6 +18,13 @@ python3 -m venv .venv
 
 The tests need no network and do not import pwn-broker. CI runs them on Python 3.11, 3.12, 3.13 and 3.14, checks `fetch.sh` and `.github/scripts/kali-packages.sh` with `sh -n`, `dash -n` and `shellcheck`, then builds every package and installs it with pwn-broker's own code: on Ubuntu, and then inside the Kali image with the container's network off. Nothing is published until both pass. Build on Linux. Antivirus on a Windows machine removes several upstream files while a build runs.
 
+The README panel (`docs/assets/panel-{dark,light}.svg`) is drawn by `docs/art/make-panel.py` from the kerbrute recipe; change the script and re-run it rather than editing the SVGs. CI checks they match:
+
+```sh
+python -m pip install -r docs/art/requirements.txt
+python docs/art/make-panel.py
+```
+
 ## Adding a tool
 
 1. Make `recipes/<name>/`. The name is lower-case letters, digits, hyphens and dots, starting with a letter or digit, with no two dots together and none at the end, and the folder name is the tool's name.
