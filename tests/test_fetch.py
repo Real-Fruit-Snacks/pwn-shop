@@ -413,4 +413,6 @@ def test_a_folder_path_that_config_toml_would_need_escaped_is_refused(tmp_path, 
     result, calls = run_fetch(tmp_path, shop, folder)
     assert result.returncode != 0
     assert "quote or a backslash" in result.stderr
-    assert calls == []
+    # only the look at the index that comes before the folder; no zip is asked for
+    assert calls == ["index index.toml"]
+    assert list(folder.iterdir()) == []
