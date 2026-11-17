@@ -1603,11 +1603,32 @@ def test_validate_refuses_a_shared_home_folder(tmp_path, entry):
 
 @pytest.mark.parametrize(
     "entry",
-    [".ligolo-proxy", ".config/tool", ".local/share/tool", ".cache/tool", ".sshx",
-     "Documents/tool", ".ssh-tool"],
+    [".kerbrute", ".kerbrute/sub/deeper", ".config/kerbrute", ".local/share/kerbrute",
+     ".local/state/kerbrute", ".cache/kerbrute/x", ".Kerbrute"],
 )
-def test_validate_accepts_a_tools_own_home_folder(tmp_path, entry):
+def test_validate_accepts_a_home_folder_named_after_the_tool(tmp_path, entry):
     build.validate(pkg(tmp_path, {"data": {"home": [entry]}}))
+
+
+@pytest.mark.parametrize("entry", [".ligolo-proxy", ".config/ligolo-proxy", ".cache/Ligolo-Proxy/x"])
+def test_validate_accepts_a_home_folder_named_after_a_command(tmp_path, entry):
+    manifest = {
+        "command": [{"name": "ligolo-proxy", "type": "binary", "path": "files/kerbrute"}],
+        "data": {"home": [entry]},
+    }
+    build.validate(pkg(tmp_path, manifest))
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [".ligolo-proxy", ".config/tool", ".local/share/tool", ".cache/tool", ".sshx", ".ssh-tool",
+     "Documents/tool", "Documents/kerbrute", ".kerb", ".kerbrutex", "kerbrute", ".config/sub/kerbrute",
+     ".config/.kerbrute", ".local/kerbrute", ".Config/kerbrute"],
+)
+def test_validate_refuses_a_home_folder_that_is_not_the_tools_own(tmp_path, entry):
+    # pwn-broker moves what a tool claims into the box at finish and deletes it from home
+    with pytest.raises(build.BuildError, match="is not this tool's own folder"):
+        build.validate(pkg(tmp_path, {"data": {"home": [entry]}}))
 
 
 # ---- two tools may not share a command

@@ -115,6 +115,30 @@ HOME_SHARED = tuple(
     ".gitconfig .git-credentials .netrc .pgpass "
     "Desktop Documents Downloads Music Pictures Public Templates Videos".split()
 )
+# where programs keep a folder of their own, by their own name
+HOME_PARENTS = (".config", ".local/share", ".local/state", ".cache")
+HOME_RULE = (
+    "has to be .<name>, or <name> under .config, .local/share, .local/state or .cache, "
+    "where <name> is the tool's name or one of its commands'"
+)
+
+
+def own_home_folder(entry: str, names: set[str]) -> bool:
+    """Whether a path under the home folder is a folder named after the tool: pwn-broker's rule.
+
+    No list of places to refuse can name everything that is someone else's, so a tool may claim
+    only what is plainly its own, and anything inside it. `names` is the tool's name and its
+    commands', in lower case.
+    """
+    parts = entry.split("/")
+    if parts[0][:1] == "." and parts[0][1:].lower() in names:
+        return True
+    for parent in HOME_PARENTS:
+        above = parent.split("/")
+        if parts[: len(above)] == above and len(parts) > len(above):
+            if parts[len(above)].lower() in names:
+                return True
+    return False
 UV_PLATFORM = "x86_64-unknown-linux-gnu"
 _TOP_FILES = (MANIFEST, "LICENSE", "wheels.lock")
 _TOP_FOLDERS = ("files", "wheels")
@@ -1517,6 +1541,9 @@ def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
         _relative(entry, "data.home")
         if entry in HOME_SHARED or any(entry == t or entry.startswith(t + "/") for t in HOME_TREES):
             raise BuildError(f"data.home: {entry!r} is a home folder other programs use")
+        own = {name.lower(), *(row["name"].lower() for row in commands)}
+        if not own_home_folder(entry, own):
+            raise BuildError(f"data.home: {entry!r} is not this tool's own folder; it {HOME_RULE}")
     return named, wheels, lock
 
 
