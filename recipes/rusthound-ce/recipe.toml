@@ -1,0 +1,11 @@
+version = "2.5.51"
+build = 1
+
+# Upstream publishes the SHA-256 in rusthound-ce-Linux-gnu-x86_64.tar.gz.sha256; the download matches.
+
+[[source]]
+url = "https://github.com/g0h4n/RustHound-CE/releases/download/v2.5.51/rusthound-ce-Linux-gnu-x86_64.tar.gz"
+size = 5055350
+sha256 = "e54c6b4af6060e005e96fde6a67f79cca8848b506310179b0d1a119e3c67f9c7"
+member = "rusthound-ce"
+to = "files/rusthound-ce"

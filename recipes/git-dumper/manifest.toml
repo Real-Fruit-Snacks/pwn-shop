@@ -1,0 +1,19 @@
+schema = 2
+requires = ["python-3.13"]
+kind = "kali"
+description = "Downloads a website's exposed .git folder and rebuilds the repository from it"
+tags = ["web", "git", "source", "enum"]
+upstream = "https://github.com/arthaud/git-dumper"
+licence = "MIT"
+arch = "x86_64"
+examples = [
+  "git-dumper http://{ip}/.git/ ./site-git",
+  "git-dumper http://{hostname}/.git/ ./site-git",
+]
+
+[[command]]
+name = "git-dumper"
+type = "python-entry"
+entry = "git-dumper"
+
+[python]

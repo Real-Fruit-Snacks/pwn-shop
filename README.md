@@ -45,15 +45,20 @@ pwn-broker keeps a Hack The Box machine in order on Kali Linux, and its `tool in
 
 | Package | Version | Kind | You get | Licence |
 |---|---|---|---|---|
+| `cdk` | 1.5.6 | upload | to upload: `cdk`, `cdk_thin` | Apache-2.0 |
 | `certipy` | 5.1.0 | kali | `certipy`, on `python-3.13` | MIT |
 | `chisel` | 1.12.0 | both | `chisel`; to upload: `chisel`, `chisel.exe` | MIT |
+| `git-dumper` | 1.0.9 | kali | `git-dumper`, on `python-3.13` | MIT |
 | `godpotato` | 1.20 | upload | to upload: `GodPotato-NET4.exe`, `GodPotato-NET35.exe` | Apache-2.0 |
 | `kerbrute` | 1.0.3 | kali | `kerbrute` | Apache-2.0 |
+| `lazagne` | 2.4.7 | upload | to upload: `LaZagne.exe` | LGPL-3.0 |
 | `ligolo-ng` | 0.9.2 | both | `ligolo-proxy` (needs root); to upload: `agent`, `agent.exe` | GPL-3.0 |
 | `pspy` | 1.2.1 | upload | to upload: `pspy64`, `pspy32`, `pspy64s`, `pspy32s` | GPL-3.0 |
 | `peass-ng` | 2026.11.14 | upload | to upload: `linpeas.sh`, `winPEASx64.exe`, `winPEASany.exe`, `winPEAS.bat` | GPL-2.0-or-later with additional terms |
+| `rusthound-ce` | 2.5.51 | kali | `rusthound-ce` | MIT |
+| `snaffler` | 1.0.244 | upload | to upload: `Snaffler.exe` | GPL-3.0 |
 | `runascs` | 1.5 | upload | to upload: `RunasCs.exe`, `RunasCs_net2.exe` | GPL-3.0 |
-| `python-3.13` | 3.13.18 | runtime | nothing on PATH; the Python that `certipy` and `targetedkerberoast` run on | PSF-2.0 and others (see its `LICENSE`) |
+| `python-3.13` | 3.13.18 | runtime | nothing on PATH; the Python that `certipy`, `git-dumper` and `targetedkerberoast` run on | PSF-2.0 and others (see its `LICENSE`) |
 | `targetedkerberoast` | 2024.12.16 | kali | `targetedKerberoast`, on `python-3.13` | GPL-3.0 |
 
 Kind `kali` puts a command on the machine, `upload` puts files in a folder to carry to the target, and `both` does both. A `runtime` is never installed on its own: it comes and goes with the tools that require it.
@@ -80,7 +85,8 @@ The [guide](docs/guide.md) has the package format, the runtime, `build.py` and C
 - All six tools installed by `tool install` from the published index, by hand in Kali 2026.2 under WSL 2 as root, each command started once, and removed again by `finish`
 - Three of them again there as a normal user whose `sudo` asks for a password, `sudo /opt/pwn-broker/bin/ligolo-proxy` included
 - `chisel`, `godpotato` and `runascs` built in Kali 2026.2 and installed there from the built folder by a normal user: `chisel` started, the six upload files were in place, and `finish` removed all three
-- *Not* tested: any package on a full Kali desktop or against a real target; the Windows files of `chisel`, `godpotato` and `runascs` have not been run anywhere
+- `cdk`, `git-dumper`, `lazagne`, `rusthound-ce` and `snaffler` built in Kali 2026.2 and installed there from the built folder by a normal user: `rusthound-ce` and `git-dumper` started, the four upload files matched their pinned hashes, and `finish` removed all five
+- *Not* tested: any package on a full Kali desktop or against a real target; no Windows file has been run anywhere, and `cdk` has not been run in a container
 
 [docs/tested.md](docs/tested.md) is the full record: counts, runs, commits and dates.
 

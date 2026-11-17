@@ -1,0 +1,16 @@
+schema = 1
+kind = "kali"
+description = "BloodHound CE collector that runs from Linux"
+tags = ["ad", "bloodhound", "ldap", "enum"]
+upstream = "https://github.com/g0h4n/RustHound-CE"
+licence = "MIT"
+arch = "x86_64"
+examples = [
+  "rusthound-ce -d {domain} -u user -p 'password' -i {ip} -z",
+  "rusthound-ce -d {domain} -u user -p 'password' -f {hostname} -c All -z",
+]
+
+[[command]]
+name = "rusthound-ce"
+type = "binary"
+path = "files/rusthound-ce"
