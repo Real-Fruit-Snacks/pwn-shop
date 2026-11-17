@@ -1529,8 +1529,16 @@ def test_validate_refuses_a_newline_or_nul_in_a_script_or_entry(tmp_path, bad):
 
 
 RESERVED = (
-    "sh bash dash zsh fish sudo su doas env python python3 pip pip3 sed cut mkdir kill "
-    "cat rm ls cp mv ln tar vim vi pwn-broker record asciinema openvpn ping ip"
+    "sh bash dash zsh fish env "
+    "sudo sudoedit su doas pkexec run0 passwd login newgrp visudo "
+    "ssh scp sftp ssh-agent ssh-add ssh-keygen gpg "
+    "python python3 pip pip3 "
+    "chown cp rm kill ip ping tar vim openvpn x-terminal-emulator pwn-broker record asciinema "
+    "sed cut mkdir cat ls mv ln vi grep awk find head tail chmod id uname test "
+    "whoami hostname sleep touch tee which ps tput dircolors xargs timeout nohup "
+    "less more pager man nano editor "
+    "apt apt-get dpkg systemctl mount umount "
+    "curl wget git"
 ).split()
 
 
@@ -1548,16 +1556,45 @@ def test_validate_refuses_a_reserved_command_name(tmp_path, name):
 
 
 def test_validate_accepts_names_that_only_look_reserved(tmp_path):
-    manifest = {"command": [{"name": "shell", "type": "binary", "path": "files/kerbrute"},
-                            {"name": "Sh", "type": "binary", "path": "files/kerbrute"}]}
+    names = ("shell", "Sh", "pythonic", "pipx", "python-ldap")
+    manifest = {"command": [{"name": n, "type": "binary", "path": "files/kerbrute"} for n in names]}
     build.validate(pkg(tmp_path, manifest))
+
+
+@pytest.mark.parametrize(
+    "name", ["python3.13", "python3.13t", "python2", "python3-config", "pip3.13", "pip2"]
+)
+def test_validate_refuses_python_and_pip_under_a_versioned_name(tmp_path, name):
+    manifest = {"command": [{"name": name, "type": "binary", "path": "files/kerbrute"}]}
+    with pytest.raises(build.BuildError, match="reserved"):
+        build.validate(pkg(tmp_path, manifest))
+
+
+@pytest.mark.parametrize(
+    "version", ["1\x00x", "1.0\x1b[2J", "..", ".", "-1", "1:2", "1.0\u202e", "1" * 101, "1 2", "1/2"]
+)
+def test_validate_refuses_a_version_the_app_would_refuse(tmp_path, version):
+    with pytest.raises(build.BuildError, match="version"):
+        build.validate(pkg(tmp_path, {"version": version}))
+
+
+@pytest.mark.parametrize("version", ["1.0.3", "2026.11.14", "3.13.18", "1.0~rc1", "1.0+git5", "v1_2"])
+def test_the_version_rule_allows_what_packages_use(version):
+    assert build._VERSION.fullmatch(version)
 
 
 @pytest.mark.parametrize(
     "entry",
     [".ssh", ".ssh/id", ".ssh/a/b", ".gnupg", ".gnupg/x", ".config", ".local", ".local/share",
      ".local/bin", ".cache", ".bashrc", ".zshrc", ".profile", ".bash_profile", ".bash_history",
-     ".zsh_history", ".vimrc", ".gitconfig", "Desktop", "Documents", "Downloads"],
+     ".zsh_history", ".vimrc", ".gitconfig", "Desktop", "Documents", "Downloads",
+     ".aws", ".aws/credentials", ".kube/config", ".docker/config.json", ".netrc", ".pgpass",
+     ".password-store", ".mozilla", ".pki", ".local/share/keyrings", ".config/autostart",
+     ".local/share/applications", ".config/gh", ".zshenv", ".zprofile", ".zlogin", ".bash_logout",
+     ".bash_aliases", ".bashrc.d/x.sh", ".xprofile", ".xinitrc", ".xsession", ".Xauthority",
+     ".inputrc", ".git-credentials", ".config/git/config", ".config/environment.d",
+     ".config/fish/config.fish", ".config/chromium", ".tmux.conf", ".vim/plugin/x.vim",
+     ".local/state", ".local/bin/tool", "Pictures", "Music", "Videos", "Public", "Templates"],
 )
 def test_validate_refuses_a_shared_home_folder(tmp_path, entry):
     with pytest.raises(build.BuildError, match="home"):

@@ -69,19 +69,52 @@ _LOCK_LINE = re.compile(
 )
 _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 RESERVED_ENV = ("data", "box", "run", "pid")
-# names a launcher must not shadow on PATH
-RESERVED_COMMANDS = (
-    "sh", "bash", "dash", "zsh", "fish", "sudo", "su", "doas", "env", "python", "python3", "pip",
-    "pip3", "sed", "cut", "mkdir", "kill", "cat", "rm", "ls", "cp", "mv", "ln", "tar", "vim", "vi",
-    "pwn-broker", "record", "asciinema", "openvpn", "ping", "ip",
+# Names a launcher must never stand in for on PATH: pwn-broker's toolpkg.RESERVED_COMMANDS, in
+# its groups. It is not a list of everything Kali has; a tool may take the name of Kali's own
+# copy of it.
+RESERVED_COMMANDS = tuple(
+    # shells, and what starts a program for one
+    "sh bash dash zsh fish env "
+    # what asks for a password or changes who you are
+    "sudo sudoedit su doas pkexec run0 passwd login newgrp visudo "
+    "ssh scp sftp ssh-agent ssh-add ssh-keygen gpg "
+    # Python and pip; their versioned names are refused by _VERSIONED_PYTHON
+    "python python3 pip pip3 "
+    # what pwn-broker runs by name
+    "chown cp rm kill ip ping tar vim openvpn x-terminal-emulator pwn-broker record asciinema "
+    # what a shell's start-up files, its prompt and everyday lines run
+    "sed cut mkdir cat ls mv ln vi grep awk find head tail chmod id uname test "
+    "whoami hostname sleep touch tee which ps tput dircolors xargs timeout nohup "
+    # what other programs start by name to show or edit something
+    "less more pager man nano editor "
+    # what installs and manages the system
+    "apt apt-get dpkg systemctl mount umount "
+    # what fetches something to run
+    "curl wget git".split()
+)
+_VERSIONED_PYTHON = re.compile(r"(?:python|pip)[0-9][A-Za-z0-9._-]*")
+# a version is part of a folder's name and is printed: pwn-broker's rule
+_VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+~-]{0,99}")
+_VERSION_RULE = (
+    "must start with a letter or digit and hold only letters, digits and . _ + ~ -, "
+    "100 characters at most"
+)
+# Places in the home folder a tool may not claim as its own data, as pwn-broker refuses them:
+# they hold the user's keys or settings, or run something at login. HOME_TREES is refused with
+# everything under it, HOME_SHARED by its exact name.
+HOME_TREES = (
+    ".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker", ".password-store", ".mozilla", ".pki",
+    ".vim", ".bashrc.d", ".config/gcloud", ".config/gh", ".config/git", ".config/fish",
+    ".config/chromium", ".config/autostart", ".config/systemd", ".config/environment.d",
+    ".local/bin", ".local/share/keyrings", ".local/share/applications",
 )  # fmt: skip
-# folders other programs own, which a tool may not claim as its own data
-HOME_TREES = (".ssh", ".gnupg")
-HOME_SHARED = (
-    ".config", ".local", ".local/share", ".local/bin", ".cache", ".bashrc", ".zshrc", ".profile",
-    ".bash_profile", ".bash_history", ".zsh_history", ".vimrc", ".gitconfig", "Desktop",
-    "Documents", "Downloads",
-)  # fmt: skip
+HOME_SHARED = tuple(
+    ".config .local .local/share .local/state .cache .bashrc .zshrc .profile .bash_profile "
+    ".bash_login .bash_logout .bash_aliases .zshenv .zprofile .zlogin .zlogout .bash_history "
+    ".zsh_history .inputrc .xprofile .xinitrc .xsession .Xauthority .vimrc .tmux.conf "
+    ".gitconfig .git-credentials .netrc .pgpass "
+    "Desktop Documents Downloads Music Pictures Public Templates Videos".split()
+)
 UV_PLATFORM = "x86_64-unknown-linux-gnu"
 _TOP_FILES = (MANIFEST, "LICENSE", "wheels.lock")
 _TOP_FOLDERS = ("files", "wheels")
@@ -235,11 +268,8 @@ def load_recipe(folder: Path) -> Recipe:
         raise BuildError(f"{who}: name {name!r} {_NAME_RULE}")
     if name != folder.name:
         raise BuildError(f"{who}: the folder name must equal the recipe's name {name!r}")
-    # ':' and NUL are not manifest rules, but the index refuses a file name that holds them
-    if not isinstance(version, str) or not version or re.search(r"[/\\\s:\0]", version):
-        raise BuildError(
-            f"{who}: version {version!r} must be text with no slash, backslash, colon or space"
-        )
+    if not isinstance(version, str) or not _VERSION.fullmatch(version):
+        raise BuildError(f"{who}: version {version!r} {_VERSION_RULE}")
     build = _int(recipe, "build", f"{who}: build")
     for key, value in (("name", name), ("version", version), ("build", build)):
         if key in manifest and manifest[key] != value:
@@ -1353,8 +1383,8 @@ def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
     if not _NAME.fullmatch(name):
         raise BuildError(f"name: {name!r} {_NAME_RULE}")
     version = _text(data, "version", "version")
-    if re.search(r"[/\\\s]", version):
-        raise BuildError(f"version: {version!r} must not contain a slash, backslash or space")
+    if not _VERSION.fullmatch(version):
+        raise BuildError(f"version: {version!r} {_VERSION_RULE}")
     build = data.get("build")
     if not isinstance(build, int) or isinstance(build, bool) or build < 1:
         raise BuildError("build: must be a whole number of 1 or more")
@@ -1391,7 +1421,7 @@ def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
             raise BuildError(f"{label}.name: {cname!r} is not a valid command name")
         if cname in seen:
             raise BuildError(f"command.name: {cname!r} appears more than once")
-        if cname in RESERVED_COMMANDS:
+        if cname in RESERVED_COMMANDS or _VERSIONED_PYTHON.fullmatch(cname):
             raise BuildError(f"{label}.name: {cname!r} is reserved; it would shadow a system command")
         seen.add(cname)
         ctype = row.get("type")

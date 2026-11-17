@@ -6,7 +6,7 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 
 - Passed in CI on Ubuntu 24.04 under Python 3.11, 3.12 and 3.13, and on Windows 11 with Python 3.13 (516 passed and 3 skipped; the skips need a POSIX file system), warnings treated as errors. They also passed in CI under Python 3.14.
 - With runtimes, on Windows 11 with Python 3.13: 719 passed, 4 skipped, warnings treated as errors.
-- With `fetch.sh` on `curl`, on Windows 11 with Python 3.13 on 2026-11-16: 754 passed, 23 skipped, warnings treated as errors. Nineteen of the skips are `fetch.sh` tests that need links, signals or file names Windows does not allow.
+- With `fetch.sh` on `curl`, on Windows 11 with Python 3.13 on 2026-11-16: 866 passed, 23 skipped, warnings treated as errors. Nineteen of the skips are `fetch.sh` tests that need links, signals or file names Windows does not allow.
 
 ## Packages in CI
 
