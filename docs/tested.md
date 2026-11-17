@@ -6,7 +6,7 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 
 - Passed in CI on Ubuntu 24.04 under Python 3.11, 3.12 and 3.13, and on Windows 11 with Python 3.13 (516 passed and 3 skipped; the skips need a POSIX file system), warnings treated as errors. They also passed in CI under Python 3.14.
 - With runtimes, on Windows 11 with Python 3.13: 719 passed, 4 skipped, warnings treated as errors.
-- With `fetch.sh` on `curl`, on Windows 11 with Python 3.13 on 2026-11-16: 884 passed, 23 skipped, warnings treated as errors. Nineteen of the skips are `fetch.sh` tests that need links, signals or file names Windows does not allow.
+- With `fetch.sh` on `curl`, on Windows 11 with Python 3.13 on 2026-11-16: 912 passed, 23 skipped, warnings treated as errors. Nineteen of the skips are `fetch.sh` tests that need links, signals or file names Windows does not allow.
 
 ## Packages in CI
 
@@ -23,6 +23,7 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 
 - By hand on 2026-11-16, in Kali 2026.2 under WSL 2 on Windows 11, as root, with pwn-broker 0.1.0 installed from its release: `tool install` ran for `kerbrute`, `pspy`, `certipy`, `targetedkerberoast`, `ligolo-ng` and `peass-ng`, each from the published index, and `certipy` brought `python-3.13` 3.13.18 with it. `kerbrute version`, `certipy -h`, `targetedKerberoast -h` and `ligolo-proxy -h` each started and printed their own first lines; the ten upload files of `ligolo-ng`, `peass-ng` and `pspy` were in `/opt/pwn-broker/upload` and were not run. Kali's `python3` was still `/usr/bin/python3`, 3.14.7. `finish` then removed all six tools and the runtime, and left only pwn-broker's own two commands in `/opt/pwn-broker/bin`.
 - By hand the same day and in the same Kali, as a normal user in the `sudo` group whose `sudo` asks for a password, with pwn-broker 0.1.0 installed by that user: `tool install` ran for `kerbrute`, `ligolo-ng` and `certipy` from the published index, and `certipy` brought the runtime. `kerbrute version`, `certipy -h` and `ligolo-proxy -h` each started, and so did `sudo /opt/pwn-broker/bin/ligolo-proxy -h`, the line `tool install` prints. Nothing under `/opt/pwn-broker` or the user's home belonged to root afterwards. `finish` removed the three tools and the runtime, with a `warn` line that root's home could not be checked for `ligolo-ng`'s data.
+- `chisel` 1.12.0, `godpotato` 1.20 and `runascs` 1.5, by hand on 2026-11-16 in the same Kali, as a normal user: `build.py build` and `build.py check` passed for all three, and the two `chisel` downloads matched upstream's `chisel_1.12.0_checksums.txt`. With pwn-broker 0.1.0 and `tools_index` set to the built folder, `tool install` ran for each; `chisel server --help` printed its usage; the six upload files were in `/opt/pwn-broker/upload`, the two `godpotato` files with the SHA-256 the recipe pins (the other four are members of archives, and it is the archive's hash that is pinned and that the build checked); and `finish` removed all three. No Windows file was run.
 
 ## Builds on Windows
 
@@ -52,6 +53,7 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 ## Not tested
 
 - Any package run by hand on a Kali desktop or against a real target.
+- The Windows files of `chisel`, `godpotato` and `runascs`, which have not been run on any Windows machine. They are upstream's own release files, pinned by hash.
 - Packages have been installed on Kali by the `kali` job, inside the Kali image with the network off, and by hand under WSL as root and as a normal user. Nothing has been installed on a full Kali desktop.
 - `fetch.sh` from Git Bash on Windows since it changed to `curl`.
 

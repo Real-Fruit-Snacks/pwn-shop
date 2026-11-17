@@ -46,10 +46,13 @@ pwn-broker keeps a Hack The Box machine in order on Kali Linux, and its `tool in
 | Package | Version | Kind | You get | Licence |
 |---|---|---|---|---|
 | `certipy` | 5.1.0 | kali | `certipy`, on `python-3.13` | MIT |
+| `chisel` | 1.12.0 | both | `chisel`; to upload: `chisel`, `chisel.exe` | MIT |
+| `godpotato` | 1.20 | upload | to upload: `GodPotato-NET4.exe`, `GodPotato-NET35.exe` | Apache-2.0 |
 | `kerbrute` | 1.0.3 | kali | `kerbrute` | Apache-2.0 |
 | `ligolo-ng` | 0.9.2 | both | `ligolo-proxy` (needs root); to upload: `agent`, `agent.exe` | GPL-3.0 |
 | `pspy` | 1.2.1 | upload | to upload: `pspy64`, `pspy32`, `pspy64s`, `pspy32s` | GPL-3.0 |
 | `peass-ng` | 2026.11.14 | upload | to upload: `linpeas.sh`, `winPEASx64.exe`, `winPEASany.exe`, `winPEAS.bat` | GPL-2.0-or-later with additional terms |
+| `runascs` | 1.5 | upload | to upload: `RunasCs.exe`, `RunasCs_net2.exe` | GPL-3.0 |
 | `python-3.13` | 3.13.18 | runtime | nothing on PATH; the Python that `certipy` and `targetedkerberoast` run on | PSF-2.0 and others (see its `LICENSE`) |
 | `targetedkerberoast` | 2024.12.16 | kali | `targetedKerberoast`, on `python-3.13` | GPL-3.0 |
 
@@ -76,7 +79,8 @@ The [guide](docs/guide.md) has the package format, the runtime, `build.py` and C
 - `fetch.sh` against the real releases in Kali 2026.2, as a normal user with no GitHub account: every zip matched the index, and pwn-broker then installed three tools from the folder with the network off
 - All six tools installed by `tool install` from the published index, by hand in Kali 2026.2 under WSL 2 as root, each command started once, and removed again by `finish`
 - Three of them again there as a normal user whose `sudo` asks for a password, `sudo /opt/pwn-broker/bin/ligolo-proxy` included
-- *Not* tested: any package on a full Kali desktop or against a real target
+- `chisel`, `godpotato` and `runascs` built in Kali 2026.2 and installed there from the built folder by a normal user: `chisel` started, the six upload files were in place, and `finish` removed all three
+- *Not* tested: any package on a full Kali desktop or against a real target; the Windows files of `chisel`, `godpotato` and `runascs` have not been run anywhere
 
 [docs/tested.md](docs/tested.md) is the full record: counts, runs, commits and dates.
 

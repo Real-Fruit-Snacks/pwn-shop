@@ -1,0 +1,18 @@
+version = "1.20"
+build = 1
+
+# Upstream publishes no checksums. Each SHA-256 is that of the file as first downloaded.
+# The release also has GodPotato-NET2.exe, which is the same file as GodPotato-NET35.exe,
+# byte for byte, so it is not carried twice.
+
+[[source]]
+url = "https://github.com/BeichenDream/GodPotato/releases/download/V1.20/GodPotato-NET4.exe"
+size = 57344
+sha256 = "9a8e9d587b570d4074f1c8317b163aa8d0c566efd88f294d9d85bc7776352a28"
+to = "files/GodPotato-NET4.exe"
+
+[[source]]
+url = "https://github.com/BeichenDream/GodPotato/releases/download/V1.20/GodPotato-NET35.exe"
+size = 57344
+sha256 = "3027a212272957298bf4d32505370fa63fb162d6a6a6ec091af9d7626317a858"
+to = "files/GodPotato-NET35.exe"

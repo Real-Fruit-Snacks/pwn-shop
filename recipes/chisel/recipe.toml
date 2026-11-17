@@ -1,0 +1,18 @@
+version = "1.12.0"
+build = 1
+
+# Upstream lists these SHA-256 values in chisel_1.12.0_checksums.txt; the downloads match.
+
+[[source]]
+url = "https://github.com/jpillora/chisel/releases/download/v1.12.0/chisel_1.12.0_linux_amd64.gz"
+size = 4724737
+sha256 = "f3f180f1d93aa72cce4e6386f98cc06569a0146fbd65eb4423cf83e6434bcfe6"
+member = "chisel_1.12.0_linux_amd64"
+to = "files/chisel"
+
+[[source]]
+url = "https://github.com/jpillora/chisel/releases/download/v1.12.0/chisel_1.12.0_windows_amd64.zip"
+size = 4873570
+sha256 = "600a8ad6f03bc7f6d285fd01ab6a3f8a657204adaafa5666ade9451d18df1ebc"
+member = "chisel.exe"
+to = "files/chisel.exe"
