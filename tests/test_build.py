@@ -1663,6 +1663,44 @@ def test_validate_refuses_a_home_folder_that_is_not_the_tools_own(tmp_path, entr
         build.validate(pkg(tmp_path, {"data": {"home": [entry]}}))
 
 
+@pytest.mark.parametrize(
+    ("command", "entry"),
+    [
+        ("config", ".config/google-chrome"),
+        ("Config", ".config/xfce4"),
+        ("local", ".local/share/kwalletd"),
+        ("local", ".local/lib/python3.13/site-packages"),
+        ("cache", ".cache/huggingface"),
+        ("cache", ".Cache/huggingface"),
+        ("bashrc", ".bashrc/x"),
+        ("gnupg", ".GnuPG/private-keys-v1.d"),
+    ],
+)
+def test_validate_refuses_what_is_inside_a_shared_place_to_a_command_named_like_it(
+    tmp_path, command, entry
+):
+    manifest = {
+        "command": [{"name": command, "type": "binary", "path": "files/kerbrute"}],
+        "data": {"home": [entry]},
+    }
+    with pytest.raises(build.BuildError, match="data.home"):
+        build.validate(pkg(tmp_path, manifest))
+
+
+@pytest.mark.parametrize(
+    ("command", "entry"),
+    [("config", ".config/config"), ("cache", ".cache/cache/x"), ("local", ".local/share/local")],
+)
+def test_validate_accepts_its_own_folder_inside_a_shared_place_for_a_command_named_like_it(
+    tmp_path, command, entry
+):
+    manifest = {
+        "command": [{"name": command, "type": "binary", "path": "files/kerbrute"}],
+        "data": {"home": [entry]},
+    }
+    build.validate(pkg(tmp_path, manifest))
+
+
 # ---- two tools may not share a command
 
 
