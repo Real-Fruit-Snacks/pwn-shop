@@ -5,6 +5,7 @@ reimplements the checks it makes (see validate) and never imports it.
 """
 
 import argparse
+import gzip
 import hashlib
 import os
 import re
@@ -19,6 +20,7 @@ import tomllib
 import urllib.parse
 import urllib.request
 import zipfile
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -489,7 +491,16 @@ def _archive_kind(url: str) -> str:
         return "tar"
     if path.endswith(".zip"):
         return "zip"
-    raise BuildError(f"{url}: a source with a member must be a tar.gz, tgz or zip")
+    if path.endswith(".gz"):
+        return "gz"
+    raise BuildError(f"{url}: a source with a member must be a tar.gz, tgz, zip or gz")
+
+
+def _gz_member(url: str) -> str:
+    # one file gzipped on its own has no name inside it that can be trusted, so the member is
+    # the name the URL gives it, less the .gz
+    name = urllib.parse.unquote(urllib.parse.urlsplit(url).path).rsplit("/", 1)[-1]
+    return name[: -len(".gz")]
 
 
 def _copy_limited(src, dest: Path, limit: int, label: str) -> None:
@@ -531,6 +542,12 @@ def _extract_member(archive: Path, kind: str, member: str, dest: Path, label: st
                     raise BuildError(f"{label}: member {member!r} cannot be read")
                 with src:
                     _copy_limited(src, dest, MAX_UNPACKED_BYTES, label)
+        elif kind == "gz":
+            inside = _gz_member(label)
+            if member != inside:
+                raise BuildError(f"{label}: a gz holds one file, {inside!r}; member must name it")
+            with gzip.open(archive, "rb") as src:
+                _copy_limited(src, dest, MAX_UNPACKED_BYTES, label)
         else:
             with zipfile.ZipFile(archive) as zf:
                 zinfo = _only(
@@ -541,7 +558,8 @@ def _extract_member(archive: Path, kind: str, member: str, dest: Path, label: st
                 with zf.open(zinfo) as src:
                     _copy_limited(src, dest, MAX_UNPACKED_BYTES, label)
     except (
-        tarfile.TarError, zipfile.BadZipFile, EOFError, OSError, RuntimeError, NotImplementedError,
+        tarfile.TarError, zipfile.BadZipFile, zlib.error, EOFError, OSError, RuntimeError,
+        NotImplementedError,
     ) as exc:
         raise BuildError(f"{label}: cannot read the archive ({exc})") from exc
 

@@ -41,7 +41,7 @@ python docs/art/make-panel.py
    to = "files/kerbrute_linux_amd64"
    ```
 
-   Download the file once, and take its size and hash from the file: `wc -c < file` and `sha256sum file`. If upstream publishes checksums, compare them, and say in a comment when it does not. A source may be a bare file, or one member of a `tar.gz` or `zip` (`member = "proxy"`). A tool with no releases is pinned to a full commit hash in the URL, and its version is the commit's date.
+   Download the file once, and take its size and hash from the file: `wc -c < file` and `sha256sum file`. If upstream publishes checksums, compare them, and say in a comment when it does not. A source may be a bare file, one member of a `tar.gz` or `zip` (`member = "proxy"`), or the one file in a plain `.gz`, where `member` is the file's name as the URL gives it, less the `.gz`. A tool with no releases is pinned to a full commit hash in the URL, and its version is the commit's date.
 3. Copy the upstream licence text, unchanged, to `LICENSE`.
 4. Write `manifest.toml`: the manifest that goes into the package (see below).
 5. For a Python tool, name the runtime it runs on in `manifest.toml`, with `schema = 2`, `requires = ["python-3.13"]` and an empty `[python]` table. List the tool and its direct dependencies in `requirements.in`, then pin everything:

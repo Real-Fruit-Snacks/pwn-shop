@@ -1,3 +1,4 @@
+import gzip
 import hashlib
 import os
 import stat
@@ -187,6 +188,37 @@ def test_directory_member_is_refused(tmp_path, net):
     data = tar_gz({"d/f": b"1"}, dirs=["d"])
     r = one_member_recipe(tmp_path, net, "https://e.invalid/x.tgz", data, "d")
     with pytest.raises(build.BuildError, match="regular file"):
+        build.stage(r, tmp_path / "w", tmp_path / "c", fetch=net)
+
+
+def test_the_one_file_in_a_plain_gz_is_a_member(tmp_path, net):
+    # chisel publishes its Linux binary this way: one file, gzipped on its own
+    data = gzip.compress(b"BINARY", mtime=0)
+    r = one_member_recipe(tmp_path, net, "https://e.invalid/dl/tool_1.2_linux_amd64.gz", data, "tool_1.2_linux_amd64")
+    staged = build.stage(r, tmp_path / "w", tmp_path / "c", fetch=net)
+    assert (staged / "files" / "a").read_bytes() == b"BINARY"
+
+
+@pytest.mark.parametrize("member", ["tool", "tool_1.2_linux_amd64.gz", "other_1.2_linux_amd64"])
+def test_a_plain_gz_holds_one_file_named_as_the_url_names_it(tmp_path, net, member):
+    data = gzip.compress(b"BINARY", mtime=0)
+    r = one_member_recipe(tmp_path, net, "https://e.invalid/dl/tool_1.2_linux_amd64.gz", data, member)
+    with pytest.raises(build.BuildError, match="holds one file, 'tool_1.2_linux_amd64'"):
+        build.stage(r, tmp_path / "w", tmp_path / "c", fetch=net)
+
+
+@pytest.mark.parametrize("data", [b"not gzip at all", gzip.compress(b"BINARY", mtime=0)[:-6]])
+def test_a_gz_that_cannot_be_read_is_a_build_error(tmp_path, net, data):
+    r = one_member_recipe(tmp_path, net, "https://e.invalid/tool.gz", data, "tool")
+    with pytest.raises(build.BuildError, match="cannot read the archive"):
+        build.stage(r, tmp_path / "w", tmp_path / "c", fetch=net)
+
+
+def test_a_gz_that_unpacks_to_too_much_is_refused(tmp_path, net, monkeypatch):
+    monkeypatch.setattr(build, "MAX_UNPACKED_BYTES", 1000)
+    data = gzip.compress(bytes(100_000), mtime=0)
+    r = one_member_recipe(tmp_path, net, "https://e.invalid/tool.gz", data, "tool")
+    with pytest.raises(build.BuildError, match="larger than 1000 bytes"):
         build.stage(r, tmp_path / "w", tmp_path / "c", fetch=net)
 
 
