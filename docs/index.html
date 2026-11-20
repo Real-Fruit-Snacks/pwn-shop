@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pwn-shop: tool packages for pwn-broker, built from upstream releases</title>
+<meta name="description" content="Tool packages for pwn-broker, built from upstream releases">
+<link rel="canonical" href="https://real-fruit-snacks.github.io/pwn-shop/">
+<meta property="og:title" content="pwn-shop">
+<meta property="og:description" content="Tool packages for pwn-broker, built from upstream releases">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://real-fruit-snacks.github.io/pwn-shop/">
+<meta property="og:image" content="https://real-fruit-snacks.github.io/pwn-shop/assets/cover-dark.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="560">
+<meta property="og:image:alt" content="pwn-shop: a terminal that builds the kerbrute package with build.py, then installs it with tool install at a pwn-broker prompt.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="favicon.ico" sizes="32x32">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0C0D10">
+<script>
+    // A saved theme wins over the system setting; the key is shared with the other RFS pages.
+    // js-run hides the terminal's lines until script.js plays them (a CSS failsafe shows them after 6 s).
+    (function (d) {
+        try { var t = localStorage.getItem('rfs-theme'); if (t === 'nightshift' || t === 'dayshift') d.dataset.theme = t; } catch (e) {}
+        if (window.matchMedia && matchMedia('(prefers-reduced-motion: no-preference)').matches) d.classList.add('js-run');
+    })(document.documentElement);
+</script>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#use">Skip to how to use it</a>
+
+<header class="top">
+    <div class="wrap">
+        <a class="name" href="./" aria-label="pwn-shop, top of the page">pwn-shop</a>
+        <nav aria-label="Page">
+            <a href="#use">Use it</a>
+            <a href="#what">What it does</a>
+            <a href="#packages">Packages</a>
+            <a href="#tested">Tested on</a>
+            <a href="#issues">Known issues</a>
+            <a href="https://github.com/Real-Fruit-Snacks/pwn-shop">GitHub</a>
+        </nav>
+        <button class="theme" type="button" id="theme"><span class="sr-only">Theme: </span><span class="t-night">Night</span><span class="t-day">Day</span></button>
+    </div>
+</header>
+
+<main>
+<div class="hero">
+    <div class="wrap hero-grid">
+        <div class="hero-text">
+            <h1 class="wordmark">pwn-shop</h1>
+            <p class="lead">Tool packages for pwn-broker, built from upstream releases</p>
+            <p class="sub"><a href="https://real-fruit-snacks.github.io/pwn-broker/">pwn-broker</a>'s <code>tool install</code> puts a tool on the machine for one box and takes it off again at <code>finish</code>. This is where those tools come from. Each one is pinned to a version of upstream's own release file, so a box I come back to in six months installs the same files, and nothing is installed from a package name that can change under it.</p>
+
+            <div class="install" id="use">
+                <p class="install-label">Use it</p>
+                <div class="cmd"><code>tool install certipy</code><button class="copy" type="button" data-copy="tool install certipy">Copy</button></div>
+                <p class="install-note">At a pwn-broker prompt, with nothing to set up. It reads this repository's published index, downloads the zip from its release, checks its size and SHA-256 against the index, and installs it for the box. The first Python tool brings the runtime it runs on.</p>
+                <div class="caveat">
+                    <p><b>No network on the Kali machine:</b> fill a folder while you have one. <code>fetch.sh</code> downloads the index and every zip it names, checks each one, and ends with the line to put in <code>/opt/pwn-broker/config.toml</code>, such as <code>tools_index = "/home/kali/pwn-packages"</code>.</p>
+                    <div class="cmd cmd-block"><pre><code>git clone https://github.com/Real-Fruit-Snacks/pwn-shop
+sh pwn-shop/fetch.sh ~/pwn-packages</code></pre><button class="copy" type="button" data-copy="git clone https://github.com/Real-Fruit-Snacks/pwn-shop&#10;sh pwn-shop/fetch.sh ~/pwn-packages">Copy</button></div>
+                    <p class="install-note">It is POSIX <code>sh</code>, needs <code>curl</code> and <code>sha256sum</code> and no GitHub account, and changes nothing on the machine but that folder. Run it again after a new build is published. The <a href="https://github.com/Real-Fruit-Snacks/pwn-shop/blob/main/docs/guide.md#getting-the-packages">guide</a> has the rest.</p>
+                </div>
+            </div>
+        </div>
+
+        <figure class="session" aria-labelledby="session-cap">
+            <div class="term">
+                <div class="bar" aria-hidden="true"><i></i><i></i><i></i><span>zsh</span></div>
+<pre class="screen" id="screen" tabindex="0" aria-label="Four packages installed at a pwn-broker prompt, then finish"><code><span class="ln"><span class="p">forest/dc01 &gt;</span> <span class="t">tool install kerbrute</span></span>
+
+<span class="ln s">  ok    kerbrute 1.0.3 installed</span>
+<span class="ln o">  run   kerbrute   from any terminal</span>
+
+<span class="ln"><span class="p">forest/dc01 &gt;</span> <span class="t">tool install pspy</span></span>
+
+<span class="ln s">  ok    pspy 1.2.1 installed</span>
+<span class="ln o">  files /opt/pwn-broker/upload/pspy   pspy64  pspy32  pspy64s  pspy32s</span>
+
+<span class="ln"><span class="p">forest/dc01 &gt;</span> <span class="t">tool install certipy</span></span>
+
+<span class="ln s">  ok    python-3.13 3.13.18 installed (runtime, 34 MB)</span>
+<span class="ln s">  ok    certipy 5.1.0 installed</span>
+<span class="ln o">  run   certipy   from any terminal</span>
+
+<span class="ln"><span class="p">forest/dc01 &gt;</span> <span class="t">tool install playbooks</span></span>
+
+<span class="ln s">  ok    playbooks 2026.11.20.1 installed (79 playbooks)</span>
+<span class="ln o">  read  :Pb &lt;name&gt;   in the note window</span>
+
+<span class="ln"><span class="p">forest/dc01 &gt;</span> <span class="t">finish</span></span>
+
+<span class="ln o">  box       forest (htb), started 2026-11-20</span>
+<span class="ln o">  targets   1</span>
+<span class="ln o">  files     14</span>
+<span class="ln o">  archive   /home/kali/pwn-broker/wrapped/2026-11-20_htb_forest.finished.tar.gz</span>
+<span class="ln o">  tools     kerbrute 1.0.3   (will be removed)</span>
+<span class="ln o">            pspy 1.2.1   (will be removed)</span>
+<span class="ln o">            certipy 5.1.0   (will be removed)</span>
+<span class="ln o">            playbooks 2026.11.20.1   (will be removed)</span>
+<span class="ln o">  runtimes  python-3.13 3.13.18   (will be removed)</span>
+
+<span class="ln"><span class="q">  finish this box? [y/N] &gt; </span>y</span>
+
+<span class="ln s">  ok    archive /home/kali/pwn-broker/wrapped/2026-11-20_htb_forest.finished.tar.gz</span>
+<span class="ln s">  ok    kerbrute 1.0.3 removed</span>
+<span class="ln s">  ok    pspy 1.2.1 removed</span>
+<span class="ln s">  ok    certipy 5.1.0 removed</span>
+<span class="ln s">  ok    playbooks 2026.11.20.1 removed</span>
+<span class="ln s">  ok    python-3.13 3.13.18 removed (runtime)</span>
+
+<span class="ln"><span class="q">  remove working folder? [y/N] &gt; </span>y</span>
+
+<span class="ln s">  ok    removed /home/kali/pwn-broker/active/2026-11-20_htb_forest</span>
+
+<span class="ln end"><span class="p">$</span> <span class="cursor"></span></span></code></pre>
+            </div>
+            <figcaption id="session-cap">
+                <span class="cap-note">One box, four kinds of package: a command, files to upload, a Python tool with its runtime, and notes. The lines are pwn-broker 0.1.7's own output, installing from the published index in Kali 2026.2 under WSL 2 as a normal user on 2026-11-20. Left out: the questions that made the box, and its warnings that no VPN was up and no note window could open.</span>
+                <button class="replay" type="button" data-replay="screen" hidden>Replay</button>
+            </figcaption>
+        </figure>
+    </div>
+</div>
+
+<section id="what" class="what" aria-labelledby="what-h">
+    <div class="wrap">
+        <h2 id="what-h">What it does</h2>
+        <div class="blocks">
+            <div class="block">
+                <h3>Upstream's own files, pinned</h3>
+                <p>A recipe pins each upstream file by its size and SHA-256, and the build refuses a download where either differs. Nothing is compiled or patched: the files in a package are upstream's own, beside its licence. No tool binary is committed to this repository.</p>
+            </div>
+            <div class="block">
+                <h3>Installed for a box, taken off at <code>finish</code></h3>
+                <p><code>tool install &lt;name&gt;</code> installs the newest build the index lists, for the open box, with no install script. <code>finish</code> removes it again unless another unfinished box still uses it, and the box records which build it had.</p>
+            </div>
+            <div class="block">
+                <h3>Four kinds of package</h3>
+                <p>Kind <code>kali</code> puts a command on the machine, <code>upload</code> puts files in <code>/opt/pwn-broker/upload</code> to carry to the target, and <code>both</code> does both. A <code>notes</code> package puts nothing on PATH: it holds the playbooks pwn-broker's note window reads with <code>:Pb</code>.</p>
+            </div>
+            <div class="block">
+                <h3>Python tools bring their own Python</h3>
+                <p>A Python tool's dependencies are bundled as wheels pinned by hash, and it runs on the <code>python-3.13</code> runtime package. The runtime puts nothing on PATH, so Kali's <code>python3</code> is never used or shadowed, and it comes and goes with the tools that need it.</p>
+            </div>
+            <div class="block">
+                <h3>Checked before it is published</h3>
+                <p>On every change, CI builds each new package, runs <code>build.py check</code>, and installs it with pwn-broker's own code under Python 3.12, 3.13 and 3.14. Then it installs every package again inside the official Kali image with the network off. Only then, on <code>main</code>, does it publish.</p>
+            </div>
+            <div class="block">
+                <h3>Never changed once published</h3>
+                <p>The version is upstream's; the build number is mine, and goes up each time I repackage the same version. A package is named for both, <code>kerbrute-1.0.3-1.zip</code> under the tag <code>kerbrute-v1.0.3-1</code>. A fix is a new build, never an edit to a published one.</p>
+            </div>
+            <div class="block">
+                <h3>An index you can carry</h3>
+                <p>The index is one file, <code>index.toml</code>, with every build's size and SHA-256. pwn-broker reads the published one by default, or any URL or folder named by <code>tools_index</code>, so a folder filled by <code>fetch.sh</code> works with no network at all.</p>
+            </div>
+            <div class="block">
+                <h3>Built the same way anywhere</h3>
+                <p><code>python build.py build &lt;tool&gt;</code> makes a package from its recipe and <code>build.py check</code> tests it. Builds repeat: CI has rebuilt <code>kerbrute</code>, <code>ligolo-ng</code>, <code>peass-ng</code> and <code>pspy</code> to their published bytes. The <a href="https://github.com/Real-Fruit-Snacks/pwn-shop/blob/main/docs/guide.md#building-the-packages-yourself">guide</a> has the format, and <a href="https://github.com/Real-Fruit-Snacks/pwn-shop/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a> how to add a tool.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section id="packages" class="packages" aria-labelledby="packages-h">
+    <div class="wrap">
+        <h2 id="packages-h">The packages</h2>
+        <div class="table-wrap" tabindex="0" role="region" aria-labelledby="packages-h">
+            <table>
+                <thead><tr><th scope="col">Package</th><th scope="col">Version</th><th scope="col">Kind</th><th scope="col">You get</th><th scope="col">Licence</th></tr></thead>
+                <tbody>
+                    <tr><td><code>cdk</code></td><td>1.5.6</td><td>upload</td><td>to upload: <code>cdk</code>, <code>cdk_thin</code></td><td>Apache-2.0</td></tr>
+                    <tr><td><code>certipy</code></td><td>5.1.0</td><td>kali</td><td><code>certipy</code>, on <code>python-3.13</code></td><td>MIT</td></tr>
+                    <tr><td><code>chisel</code></td><td>1.12.0</td><td>both</td><td><code>chisel</code>; to upload: <code>chisel</code>, <code>chisel.exe</code></td><td>MIT</td></tr>
+                    <tr><td><code>git-dumper</code></td><td>1.0.9</td><td>kali</td><td><code>git-dumper</code>, on <code>python-3.13</code></td><td>MIT</td></tr>
+                    <tr><td><code>godpotato</code></td><td>1.20</td><td>upload</td><td>to upload: <code>GodPotato-NET4.exe</code>, <code>GodPotato-NET35.exe</code></td><td>Apache-2.0</td></tr>
+                    <tr><td><code>kerbrute</code></td><td>1.0.3</td><td>kali</td><td><code>kerbrute</code></td><td>Apache-2.0</td></tr>
+                    <tr><td><code>lazagne</code></td><td>2.4.7</td><td>upload</td><td>to upload: <code>LaZagne.exe</code></td><td>LGPL-3.0</td></tr>
+                    <tr><td><code>ligolo-ng</code></td><td>0.9.2</td><td>both</td><td><code>ligolo-proxy</code> (needs root); to upload: <code>agent</code>, <code>agent.exe</code></td><td>GPL-3.0</td></tr>
+                    <tr><td><code>pspy</code></td><td>1.2.1</td><td>upload</td><td>to upload: <code>pspy64</code>, <code>pspy32</code>, <code>pspy64s</code>, <code>pspy32s</code></td><td>GPL-3.0</td></tr>
+                    <tr><td><code>peass-ng</code></td><td>2026.11.14</td><td>upload</td><td>to upload: <code>linpeas.sh</code>, <code>winPEASx64.exe</code>, <code>winPEASany.exe</code>, <code>winPEAS.bat</code></td><td>GPL-2.0-or-later with additional terms</td></tr>
+                    <tr><td><code>playbooks</code></td><td>2026.11.20.1</td><td>notes</td><td>playbooks to read into the note window with <code>:Pb &lt;name&gt;</code></td><td>CC-BY-4.0</td></tr>
+                    <tr><td><code>rusthound-ce</code></td><td>2.5.51</td><td>kali</td><td><code>rusthound-ce</code></td><td>MIT</td></tr>
+                    <tr><td><code>snaffler</code></td><td>1.0.244</td><td>upload</td><td>to upload: <code>Snaffler.exe</code></td><td>GPL-3.0</td></tr>
+                    <tr><td><code>runascs</code></td><td>1.5</td><td>upload</td><td>to upload: <code>RunasCs.exe</code>, <code>RunasCs_net2.exe</code></td><td>GPL-3.0</td></tr>
+                    <tr><td><code>python-3.13</code></td><td>3.13.18</td><td>runtime</td><td>nothing on PATH; the Python that <code>certipy</code>, <code>git-dumper</code> and <code>targetedkerberoast</code> run on</td><td>PSF-2.0 and others</td></tr>
+                    <tr><td><code>targetedkerberoast</code></td><td>2024.12.16</td><td>kali</td><td><code>targetedKerberoast</code>, on <code>python-3.13</code></td><td>GPL-3.0</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="after">A <code>runtime</code> is never installed on its own: it comes and goes with the tools that require it. A <code>notes</code> package needs pwn-broker 0.1.7 or later. Each package carries the licence of the tool in it, and this project is not affiliated with those projects.</p>
+    </div>
+</section>
+
+<section id="tested" class="tested" aria-labelledby="tested-h">
+    <div class="wrap">
+        <h2 id="tested-h">Tested on</h2>
+        <div class="tested-grid">
+            <ul class="untested" aria-label="Not tested">
+                <li><b>Not tested: a full Kali desktop, or a real target.</b> Packages have been installed in the Kali image in CI and by hand under WSL 2.</li>
+                <li><b>Not tested: the Windows files.</b> No Windows file has been run anywhere, and <code>cdk</code> has not been run in a container. They are upstream's own release files, pinned by hash.</li>
+            </ul>
+            <ul aria-label="Tested">
+                <li><b>The unit suite</b> on Windows 11 under Python 3.13, and on Ubuntu 24.04 in CI under Python 3.11, 3.12, 3.13 and 3.14.</li>
+                <li><b>Every package in CI</b>, built or downloaded on Ubuntu 24.04, passed <code>build.py check</code>, and installed with pwn-broker's own code under Python 3.12, 3.13 and 3.14, each command started once.</li>
+                <li><b>Every package in the official Kali image</b> (Kali 2026.3) with the container's network off, before it was published.</li>
+                <li><b>Builds that repeat</b>: <code>kerbrute</code>, <code>ligolo-ng</code>, <code>peass-ng</code> and <code>pspy</code> rebuilt by CI to their published bytes, and <code>python-3.13</code> built on Windows and on Ubuntu to the same SHA-256.</li>
+                <li><b>By hand in Kali 2026.2 under WSL 2</b>: every tool installed by <code>tool install</code> from the published index or a built folder and removed again by <code>finish</code>, as root and as a normal user whose <code>sudo</code> asks for a password; <code>fetch.sh</code> against the real releases, then three tools installed from its folder with the network off.</li>
+                <li><b>The full record</b>, with counts, runs, commits and dates, is in <a href="https://github.com/Real-Fruit-Snacks/pwn-shop/blob/main/docs/tested.md">docs/tested.md</a>.</li>
+            </ul>
+        </div>
+    </div>
+</section>
+
+<section id="issues" class="issues" aria-labelledby="issues-h">
+    <div class="wrap">
+        <h2 id="issues-h">Known issues</h2>
+        <ul>
+            <li>Packages are x86_64 with glibc only. Build 3 of <code>certipy</code> and <code>targetedkerberoast</code> carries wheels for its runtime's Python 3.13 only.</li>
+            <li>The index and the packages are not signed. The SHA-256 values in the index are the only check: they catch a corrupted or swapped zip, not who published the index.</li>
+            <li><code>kerbrute</code> and <code>pspy</code> publish no checksums upstream. Their pins are the SHA-256 of each file as first downloaded.</li>
+            <li>Kali's own <code>ligolo-ng</code> package also installs a command named <code>ligolo-proxy</code>, and <code>sudo</code> does not use PATH. Use <code>sudo /opt/pwn-broker/bin/ligolo-proxy</code>, the path <code>tool install</code> prints.</li>
+            <li>PEASS-ng's licence has terms beyond the GPL. Read <code>recipes/peass-ng/LICENSE</code> before redistributing the package.</li>
+            <li>The first Python tool on a machine costs the runtime: a 34 MB download and about 100 MB unpacked. Its OpenSSL and other libraries are fixed when a new build of the runtime is published, not when Kali updates.</li>
+        </ul>
+    </div>
+</section>
+</main>
+
+<footer>
+    <div class="wrap">
+        <p>MIT for this repository's own code; each package carries its tool's licence. Not affiliated with Hack The Box.</p>
+        <p><a href="https://github.com/Real-Fruit-Snacks/pwn-shop">Source</a> · <a href="https://github.com/Real-Fruit-Snacks/pwn-shop/blob/main/docs/guide.md">Guide</a> · <a href="https://github.com/Real-Fruit-Snacks/pwn-shop/blob/main/CHANGELOG.md">Changelog</a> · <a href="https://github.com/Real-Fruit-Snacks/pwn-shop/blob/main/SECURITY.md">Security</a> · <a href="https://real-fruit-snacks.github.io/pwn-broker/">pwn-broker</a> · <a href="https://real-fruit-snacks.github.io/">RFS</a></p>
+    </div>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
