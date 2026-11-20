@@ -1,0 +1,11 @@
+version = "2026.11.20"
+build = 1
+
+# The release zip of pwn-playbooks, unpacked whole: LICENSE and playbooks/. Its SHA-256 is the one
+# in that release's SHA256SUMS.txt, which its release workflow recorded when it built the zip.
+[[source]]
+url = "https://github.com/Real-Fruit-Snacks/pwn-playbooks/releases/download/v2026.11.20/playbooks-2026.11.20.zip"
+size = 16926
+sha256 = "d0edc94678746991fdae35f339a19f21b13e9c4e780565f4f25396a6e6c64d29"
+to = "files"
+unpack = true

@@ -78,6 +78,11 @@ def test_manifest_text_for_the_user(loaded):
         # a runtime is never listed, searched or run, so it has no tags and no examples
         assert "tags" not in m and "examples" not in m
         return
+    if m["kind"] == "notes":
+        # notes are listed and searched, but nothing is run at the prompt: :Pb is the note's
+        assert m["tags"] and all(re.fullmatch(r"[a-z0-9]+", t) for t in m["tags"])
+        assert "examples" not in m
+        return
     assert m["tags"] and all(re.fullmatch(r"[a-z0-9]+", t) for t in m["tags"])
     assert 2 <= len(m["examples"]) <= 3
     for example in m["examples"]:
@@ -138,6 +143,15 @@ def lock_problems(lock: Path, build_from_source: list[str]) -> list[str]:
 
 def test_manifest_files_come_from_sources(loaded):
     assert unsourced_files(loaded) == set()
+
+
+def test_a_notes_root_comes_from_an_unpacked_source(loaded):
+    if loaded.manifest["kind"] != "notes":
+        return
+    root = loaded.manifest["notes"]["root"]
+    assert any(
+        s.unpack and (root == s.to or root.startswith(s.to + "/")) for s in loaded.sources
+    ), f"{root} is not in a folder an unpacked source fills"
 
 
 def test_lock_lines_are_plain_hashed_pins(loaded):

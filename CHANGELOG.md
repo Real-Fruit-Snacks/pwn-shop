@@ -35,3 +35,9 @@ Changed on 2026-11-16:
 - Three more packages, each at build 1: `chisel` 1.12.0 (a command on Kali, and its Linux and Windows binaries to upload), `godpotato` 1.20 and `runascs` 1.5 (Windows files to upload). `PrintSpoofer` was looked at and left out: its repository carries no licence, so it may not be redistributed.
 - A recipe's source may be the one file in a plain `.gz`, which is how `chisel` publishes its Linux binary. `member` names the file as the URL does, less the `.gz`.
 - Five more packages, each at build 1: `rusthound-ce` 2.5.51 and `git-dumper` 1.0.9 (commands on Kali, `git-dumper` on the `python-3.13` runtime), and `snaffler` 1.0.244, `lazagne` 2.4.7 and `cdk` 1.5.6 (files to upload).
+
+Changed on 2026-11-20:
+
+- A recipe's source may be a whole `zip`, unpacked with `unpack = true` into `files/` or a folder in it, with every entry checked: no links, special files or encrypted entries, nothing outside the folder, and limits on entries and on the bytes written.
+- A new kind, `notes`: files to read in pwn-broker's note window, with nothing on PATH and nothing to upload. It is manifest and index schema 3, which pwn-broker 0.1.7 and later read, and `arch = "any"`. CI installs it and checks every playbook's first two lines in place of starting commands.
+- A new package, `playbooks` 2026.11.20 build 1: the first release of pwn-playbooks, eight playbooks. The index is schema 3 from its first publish.

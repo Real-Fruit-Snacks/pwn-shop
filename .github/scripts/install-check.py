@@ -373,10 +373,13 @@ def _check_installed_tool(broker, paths, settings, index, entry, env, now) -> st
         on.append(f"on {runtime} {row.version}")
 
     notes = Path(item.notes) if entry.kind == "notes" else None
+    playbooks = 0
     if notes is not None:
         problems = notes_problems(notes, _run_notes(paths))
         if problems:
             raise CheckFailed(f"{label}: " + "; ".join(problems))
+        # counted now: removing the package takes the folder away
+        playbooks = sum(1 for _ in notes.rglob("*.md"))
 
     zip_path = broker.toolindex.fetch_zip(paths, settings, entry)
     types = command_types(zip_path)
@@ -415,7 +418,7 @@ def _check_installed_tool(broker, paths, settings, index, entry, env, now) -> st
 
     files = f"{len(item.uploads)} upload files" if item.uploads else ""
     if notes is not None:
-        files = f"{sum(1 for _ in notes.rglob('*.md'))} playbooks"
+        files = f"{playbooks} playbooks"
     return f"{label}: " + ", ".join([*on, *started_with, *([files] if files else [])])
 
 

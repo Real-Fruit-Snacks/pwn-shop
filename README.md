@@ -55,13 +55,14 @@ pwn-broker keeps a Hack The Box machine in order on Kali Linux, and its `tool in
 | `ligolo-ng` | 0.9.2 | both | `ligolo-proxy` (needs root); to upload: `agent`, `agent.exe` | GPL-3.0 |
 | `pspy` | 1.2.1 | upload | to upload: `pspy64`, `pspy32`, `pspy64s`, `pspy32s` | GPL-3.0 |
 | `peass-ng` | 2026.11.14 | upload | to upload: `linpeas.sh`, `winPEASx64.exe`, `winPEASany.exe`, `winPEAS.bat` | GPL-2.0-or-later with additional terms |
+| `playbooks` | 2026.11.20 | notes | playbooks to read into the note window with `:Pb <name>` | CC-BY-4.0 |
 | `rusthound-ce` | 2.5.51 | kali | `rusthound-ce` | MIT |
 | `snaffler` | 1.0.244 | upload | to upload: `Snaffler.exe` | GPL-3.0 |
 | `runascs` | 1.5 | upload | to upload: `RunasCs.exe`, `RunasCs_net2.exe` | GPL-3.0 |
 | `python-3.13` | 3.13.18 | runtime | nothing on PATH; the Python that `certipy`, `git-dumper` and `targetedkerberoast` run on | PSF-2.0 and others (see its `LICENSE`) |
 | `targetedkerberoast` | 2024.12.16 | kali | `targetedKerberoast`, on `python-3.13` | GPL-3.0 |
 
-Kind `kali` puts a command on the machine, `upload` puts files in a folder to carry to the target, and `both` does both. A `runtime` is never installed on its own: it comes and goes with the tools that require it.
+Kind `kali` puts a command on the machine, `upload` puts files in a folder to carry to the target, and `both` does both. A `runtime` is never installed on its own: it comes and goes with the tools that require it. A `notes` package puts nothing on the machine: it is files to read in pwn-broker's note window, and needs pwn-broker 0.1.7 or later.
 
 `version` is upstream's; `build` is mine, starts at 1, and goes up each time I repackage the same upstream version. A package is named for both: `kerbrute-1.0.3-1.zip`, released under the tag `kerbrute-v1.0.3-1`.
 
