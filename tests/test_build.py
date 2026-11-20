@@ -191,6 +191,201 @@ def test_directory_member_is_refused(tmp_path, net):
         build.stage(r, tmp_path / "w", tmp_path / "c", fetch=net)
 
 
+# ---- a whole zip as a source (unpack = true)
+
+
+def crafted_zip(entries: list[tuple]) -> bytes:
+    """A zip whose entries are written exactly as given: (name, data, mode, flag bits). The
+    name is set after the ZipInfo is made, so zipfile does not tidy it."""
+    import io
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data, mode, flags in entries:
+            info = zipfile.ZipInfo("placeholder", (1980, 1, 1, 0, 0, 0))
+            info.filename = name
+            info.create_system = 3
+            info.external_attr = mode << 16
+            info.compress_type = zipfile.ZIP_DEFLATED
+            zf.writestr(info, data)
+    out = buf.getvalue()
+    if any(flags for *_, flags in entries):
+        # zipfile clears the flag bits it does not use when writing, so set them in the bytes:
+        # at offset 6 of each local header and offset 8 of each central directory record
+        raw = bytearray(out)
+        for signature, offset in ((b"PK\x03\x04", 6), (b"PK\x01\x02", 8)):
+            at = raw.find(signature)
+            while at != -1:
+                raw[at + offset] |= max(flags for *_, flags in entries)
+                at = raw.find(signature, at + 4)
+        out = bytes(raw)
+    return out
+
+
+def plain(name, data=b"x"):
+    return (name, data, stat.S_IFREG | 0o644, 0)
+
+
+def unpack_recipe(tmp_path, net, data, *, to="files", url="https://e.invalid/p.zip", extra=(),
+                  **row):
+    net.files[url] = data
+    src = [{"url": url, "size": len(data), "sha256": digest(data), "to": to, "unpack": True,
+            **row}, *extra]
+    return build.load_recipe(make_recipe(tmp_path / "r" / "kerbrute", net, sources=src))
+
+
+def stage_it(recipe, tmp_path, net):
+    return build.stage(recipe, tmp_path / "w", tmp_path / "c", fetch=net)
+
+
+def test_unpack_puts_every_file_under_to(tmp_path, net):
+    data = zip_bytes({"playbooks/a/x.md": b"X", "playbooks/b.md": b"B", "LICENSE": b"L"})
+    staged = stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+    assert (staged / "files" / "playbooks" / "a" / "x.md").read_bytes() == b"X"
+    assert (staged / "files" / "playbooks" / "b.md").read_bytes() == b"B"
+    assert (staged / "files" / "LICENSE").read_bytes() == b"L"
+
+
+def test_unpack_into_a_subfolder(tmp_path, net):
+    data = zip_bytes({"x.md": b"X"})
+    staged = stage_it(unpack_recipe(tmp_path, net, data, to="files/notes"), tmp_path, net)
+    assert (staged / "files" / "notes" / "x.md").read_bytes() == b"X"
+
+
+def test_unpack_makes_directory_entries_and_copies_files(tmp_path, net):
+    data = crafted_zip([("d/", b"", stat.S_IFDIR | 0o755, 0), plain("d/f.md", b"F")])
+    staged = stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+    assert (staged / "files" / "d" / "f.md").read_bytes() == b"F"
+
+
+def test_unpack_takes_no_member(tmp_path, net):
+    with pytest.raises(build.BuildError, match="takes no member"):
+        unpack_recipe(tmp_path, net, zip_bytes({"a": b"1"}), member="a")
+
+
+def test_unpack_needs_a_zip(tmp_path, net):
+    with pytest.raises(build.BuildError, match="must be a zip"):
+        unpack_recipe(tmp_path, net, tar_gz({"a": b"1"}), url="https://e.invalid/p.tar.gz")
+
+
+@pytest.mark.parametrize("value", ["yes", 1])
+def test_unpack_is_true_or_false(tmp_path, net, value):
+    with pytest.raises(build.BuildError, match="unpack: must be true or false"):
+        unpack_recipe(tmp_path, net, zip_bytes({"a": b"1"}), unpack=value)
+
+
+@pytest.mark.parametrize("to", ["other", "/files", "files/../x", "files\\x"])
+def test_unpack_to_must_be_files_or_under_it(tmp_path, net, to):
+    with pytest.raises(build.BuildError):
+        unpack_recipe(tmp_path, net, zip_bytes({"a": b"1"}), to=to)
+
+
+def test_a_file_source_still_may_not_go_to_files_itself(tmp_path, net):
+    src = [{"url": "https://e.invalid/x", "size": 1, "sha256": "0" * 64, "to": "files"}]
+    with pytest.raises(build.BuildError):
+        build.load_recipe(make_recipe(tmp_path / "r" / "kerbrute", net, sources=src))
+
+
+@pytest.mark.parametrize("name", ["../x", "/etc/x", "C:x", "a\\b", "a/./b", "a//b", "a/../../x"])
+def test_unpack_refuses_unsafe_paths(tmp_path, net, name):
+    data = crafted_zip([plain("ok.md"), plain(name)])
+    with pytest.raises(build.BuildError, match="would write outside files"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+    assert not (tmp_path / "x").exists()
+    assert not (tmp_path / "w" / "x").exists()
+
+
+def test_unpack_refuses_a_link(tmp_path, net):
+    data = crafted_zip([("l", b"/etc/passwd", stat.S_IFLNK | 0o777, 0)])
+    with pytest.raises(build.BuildError, match="'l' is a link or special file"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+def test_unpack_refuses_an_encrypted_entry(tmp_path, net):
+    data = crafted_zip([("e.md", b"x", stat.S_IFREG | 0o644, 0x1)])
+    with pytest.raises(build.BuildError, match="'e.md' is encrypted"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+def test_unpack_refuses_case_twins(tmp_path, net):
+    data = crafted_zip([plain("playbooks/A.md"), plain("playbooks/a.md")])
+    with pytest.raises(build.BuildError, match="more than one source.*without case"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+def test_unpack_refuses_landing_on_another_source(tmp_path, net):
+    licence = b"other licence"
+    net.files["https://e.invalid/LICENSE"] = licence
+    other = {"url": "https://e.invalid/LICENSE", "size": len(licence), "sha256": digest(licence),
+             "to": "files/LICENSE"}
+    data = zip_bytes({"LICENSE": b"L", "x.md": b"X"})
+    with pytest.raises(build.BuildError, match="files/LICENSE is written by more than one source"):
+        stage_it(unpack_recipe(tmp_path, net, data, extra=[other]), tmp_path, net)
+
+
+def test_a_file_source_may_not_land_inside_an_unpacked_one(tmp_path, net):
+    one = b"one"
+    net.files["https://e.invalid/one"] = one
+    first = {"url": "https://e.invalid/one", "size": len(one), "sha256": digest(one),
+             "to": "files/x.md"}
+    data = zip_bytes({"X.md": b"X"})
+    recipe = build.load_recipe(make_recipe(
+        tmp_path / "r" / "kerbrute", net,
+        sources=[first, {"url": "https://e.invalid/p.zip", "size": len(data),
+                         "sha256": digest(data), "to": "files", "unpack": True}],
+    ))
+    net.files["https://e.invalid/p.zip"] = data
+    with pytest.raises(build.BuildError, match="files/X.md is written by more than one source"):
+        stage_it(recipe, tmp_path, net)
+
+
+def test_unpack_refuses_too_many_entries(tmp_path, net, monkeypatch):
+    monkeypatch.setattr(build, "MAX_MEMBERS", 2)
+    data = zip_bytes({"a": b"1", "b": b"2", "c": b"3"})
+    with pytest.raises(build.BuildError, match="3 entries; the limit is 2"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+def test_unpack_refuses_too_many_bytes(tmp_path, net, monkeypatch):
+    monkeypatch.setattr(build, "MAX_UNPACKED_BYTES", 15)
+    data = zip_bytes({"a": b"1" * 10, "b": b"2" * 10})
+    with pytest.raises(build.BuildError, match="unpacks to more than 15 bytes"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+def test_unpack_counts_the_bytes_it_copies_not_the_header(tmp_path, net, monkeypatch):
+    monkeypatch.setattr(build, "MAX_UNPACKED_BYTES", 15)
+    data = zip_bytes({"a": b"1" * 20})
+    infolist = zipfile.ZipFile.infolist
+
+    def small_headers(self):
+        infos = infolist(self)
+        for info in infos:
+            info.file_size = 1
+        return infos
+
+    monkeypatch.setattr(zipfile.ZipFile, "infolist", small_headers)
+    # zipfile reads no more than a header states, and then the CRC fails; either way it stops
+    with pytest.raises(build.BuildError, match="unpacks to more than 15 bytes|Bad CRC-32"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+def test_unpack_refuses_an_empty_zip(tmp_path, net):
+    data = crafted_zip([("d/", b"", stat.S_IFDIR | 0o755, 0)])
+    with pytest.raises(build.BuildError, match="holds no files"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+def test_unpacked_package_validates_and_rebuilds_the_same(tmp_path, net):
+    data = zip_bytes({"kerbrute": b"#!/bin/sh\n", "doc/readme.md": b"R"})
+    recipe = unpack_recipe(tmp_path, net, data)
+    first = build.build_one(recipe, tmp_path / "out1", tmp_path / "c", fetch_fn=net)
+    second = build.build_one(recipe, tmp_path / "out2", tmp_path / "c", fetch_fn=net)
+    assert first.read_bytes() == second.read_bytes()
+    with zipfile.ZipFile(first) as zf:
+        assert "files/doc/readme.md" in zf.namelist()
+
+
 def test_the_one_file_in_a_plain_gz_is_a_member(tmp_path, net):
     # chisel publishes its Linux binary this way: one file, gzipped on its own
     data = gzip.compress(b"BINARY", mtime=0)

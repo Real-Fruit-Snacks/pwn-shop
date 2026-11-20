@@ -186,6 +186,8 @@ class Source:
     sha256: str
     to: str
     member: str | None = None
+    # the whole zip, unpacked into the folder `to`
+    unpack: bool = False
 
 
 @dataclass
@@ -283,11 +285,22 @@ def _source(row: object, index: int) -> Source:
     sha = row.get("sha256")
     if not isinstance(sha, str) or not _SHA256.fullmatch(sha.lower()):
         raise BuildError(f"{label}.sha256: must be 64 hexadecimal characters")
-    to = _relative(row.get("to"), f"{label}.to", under="files")
+    unpack = row.get("unpack", False)
+    if not isinstance(unpack, bool):
+        raise BuildError(f"{label}.unpack: must be true or false")
     member = row.get("member")
+    if unpack:
+        if member is not None:
+            raise BuildError(f"{label}: unpack takes no member; the whole zip is unpacked")
+        if not urllib.parse.urlsplit(url).path.lower().endswith(".zip"):
+            raise BuildError(f"{label}: a source with unpack must be a zip")
+        # a zip may be unpacked into files/ itself, a file only somewhere under it
+        to = "files" if row.get("to") == "files" else _relative(row.get("to"), f"{label}.to", under="files")
+    else:
+        to = _relative(row.get("to"), f"{label}.to", under="files")
     if member is not None:
         member = _relative(member, f"{label}.member")
-    return Source(url, _int(row, "size", f"{label}.size"), sha.lower(), to, member)
+    return Source(url, _int(row, "size", f"{label}.size"), sha.lower(), to, member, unpack)
 
 
 def load_recipe(folder: Path) -> Recipe:
@@ -570,6 +583,60 @@ def _extract_member(archive: Path, kind: str, member: str, dest: Path, label: st
         raise BuildError(f"{label}: cannot read the archive ({exc})") from exc
 
 
+def _unpack_zip(archive: Path, root: Path, to: str, claim: Callable[[str], None], label: str) -> None:
+    """Every file in the zip, at to/<its name> under root. The entries are checked as
+    pwn-broker checks a package's: nothing outside the folder, no links or special files, nothing
+    encrypted, and limits on the number of entries and on the bytes actually written."""
+    try:
+        with zipfile.ZipFile(archive) as zf:
+            infos = zf.infolist()
+            if len(infos) > MAX_MEMBERS:
+                raise BuildError(f"{label}: the zip has {len(infos)} entries; the limit is {MAX_MEMBERS}")
+            total = files = 0
+            for info in infos:
+                name = info.filename
+                bare = name[:-1] if name.endswith("/") else name
+                parts = bare.split("/")
+                # zipfile on Windows turns a backslash in a name into a slash, so the name as
+                # stored is checked too, or the two systems would build different packages
+                if (
+                    not bare
+                    or name.startswith("/")
+                    or "\\" in info.orig_filename
+                    or "\0" in name
+                    or ":" in name
+                    or any(p in ("", ".", "..") for p in parts)
+                ):
+                    raise BuildError(f"{label}: entry {name!r} would write outside {to}")
+                if info.flag_bits & 0x1:
+                    raise BuildError(f"{label}: entry {name!r} is encrypted")
+                mode = stat.S_IFMT(info.external_attr >> 16)
+                wanted = stat.S_IFDIR if info.is_dir() else stat.S_IFREG
+                if mode not in (0, wanted):
+                    raise BuildError(f"{label}: entry {name!r} is a link or special file")
+                rel = f"{to}/{bare}"
+                target = root.joinpath(*rel.split("/"))
+                if info.is_dir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+                claim(rel)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                # counted as it is written, since a header's size is only a claim
+                with zf.open(info) as src, open(target, "wb") as out:
+                    while chunk := src.read(_CHUNK):
+                        total += len(chunk)
+                        if total > MAX_UNPACKED_BYTES:
+                            raise BuildError(
+                                f"{label}: the zip unpacks to more than {MAX_UNPACKED_BYTES} bytes"
+                            )
+                        out.write(chunk)
+                files += 1
+            if not files:
+                raise BuildError(f"{label}: the zip holds no files")
+    except (zipfile.BadZipFile, zlib.error, EOFError, OSError, RuntimeError, NotImplementedError) as exc:
+        raise BuildError(f"{label}: cannot read the archive ({exc})") from exc
+
+
 def _python_manifest(recipe: Recipe) -> tuple[dict, bool]:
     manifest = dict(recipe.manifest)
     table = manifest.get("python")
@@ -613,8 +680,23 @@ def stage(
         root.mkdir(parents=True)
         _write_toml(root / MANIFEST, manifest)
         _write_bytes(root / "LICENSE", licence.read_bytes())
+        # every path a source writes, compared without case, so a build on Windows and one on
+        # Linux cannot differ
+        written: set[str] = set()
+
+        def claim(rel: str) -> None:
+            if rel.casefold() in written:
+                raise BuildError(
+                    f"{recipe.name}: {rel} is written by more than one source (compared without case)"
+                )
+            written.add(rel.casefold())
+
         for source in recipe.sources:
             downloaded = fetch_source(source, cache, fetch=fetch)
+            if source.unpack:
+                _unpack_zip(downloaded, root, source.to, claim, source.url)
+                continue
+            claim(source.to)
             target = root.joinpath(*source.to.split("/"))
             target.parent.mkdir(parents=True, exist_ok=True)
             if source.member is None:
