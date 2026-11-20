@@ -1,12 +1,13 @@
 # What has been tested
 
-Everything the packages, `build.py` and `fetch.sh` have been run on, with the counts, runs, commits and dates, and what has not been run. The [README](../README.md#tested-on) has the short list. This record is updated by hand after each CI run; it is as of 2026-11-16.
+Everything the packages, `build.py` and `fetch.sh` have been run on, with the counts, runs, commits and dates, and what has not been run. The [README](../README.md#tested-on) has the short list. This record is updated by hand after each CI run; it is as of 2026-11-20.
 
 ## Unit tests
 
 - Passed in CI on Ubuntu 24.04 under Python 3.11, 3.12 and 3.13, and on Windows 11 with Python 3.13 (516 passed and 3 skipped; the skips need a POSIX file system), warnings treated as errors. They also passed in CI under Python 3.14.
 - With runtimes, on Windows 11 with Python 3.13: 719 passed, 4 skipped, warnings treated as errors.
 - With `fetch.sh` on `curl`, on Windows 11 with Python 3.13 on 2026-11-16: 947 passed, 23 skipped, warnings treated as errors. Nineteen of the skips are `fetch.sh` tests that need links, signals or file names Windows does not allow.
+- With `notes` packages and whole-zip sources, in CI on Ubuntu 24.04 in run 44803871439 at commit 59b1a25 on 2026-11-20: 1084 passed and 3 skipped on each of Python 3.11, 3.12, 3.13 and 3.14.
 
 ## Packages in CI
 
@@ -15,16 +16,20 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 - Runtimes, in GitHub Actions run 43768259174 at commit a33db87, with pwn-broker at its `runtimes` branch: every job passed (`lint`, `test` on Python 3.11, 3.12, 3.13 and 3.14, `packages` on 3.12, 3.13 and 3.14, and `kali`); `publish` was skipped because the run was not on `main`. `shellcheck` passed on `fetch.sh` in the `lint` job of that run, after the change that lets a package name hold a dot. In the `packages` job, `certipy` 5.1.0 build 3, `python-3.13` 3.13.18 build 1 and `targetedkerberoast` 2024.12.16 build 3 were built, and `kerbrute`, `ligolo-ng`, `peass-ng` and `pspy` were downloaded from their published zips and tested; each was installed with pwn-broker's own code. The `python-3.13` zip built on Ubuntu has the same SHA-256 as the one built on Windows (`ef33f7a02247e396ef8cc72e53a7f222d5637ce375b10eb598c00e5d234667b7`).
 - The same jobs passed on `main` at commit 988be1c (run 43772170454): `packages` built the runtime and build 3 of the two tools, and rebuilt the four published packages to the same bytes; `kali` installed all seven with the network off; `publish` then published the three new builds and replaced the index.
 - The next run (43773278524, a pull request) failed in `packages`: with build 3 published, CI rebuilt `certipy` alone and `build` refused the folder's index for want of the runtime. That is fixed with `build --skip-index`; see the [changelog](../CHANGELOG.md).
+- `playbooks`, the first `notes` package, in run 44727853299 on `main` at commit 4b2afc9 on 2026-11-20: every job passed. `packages` built 2026.11.20 build 1 from pwn-playbooks' release zip and installed it with pwn-broker's own code under Python 3.12, 3.13 and 3.14, each reporting `ok    playbooks 2026.11.20-1: 8 playbooks`; `kali` installed it with the network off, and `publish` published it with an index of schema 3.
+- `playbooks` 2026.11.20.1 build 1, in run 44803871439 on `main` at commit 59b1a25 the same day: every job passed. The three `packages` jobs built it to the same SHA-256 (`bedfe72680c448b9c73f7d6479f67ce3508ad57f535e4cb08bd20ac4bff66804`) and each reported `ok    playbooks 2026.11.20.1-1: 79 playbooks`, and `publish` published it.
 
 ## In Kali
 
 - The `kali` job of run 43768259174 ran inside `kalilinux/kali-rolling` (Kali 2026.3, Python 3.14.8) with Docker reporting the container on no network, and it confirmed that resolving `github.com` and connecting to `1.1.1.1:443` both failed. There, `python-3.13` 3.13.18 build 1 was installed and its interpreter reported `Python 3.13.18`; `certipy` 5.1.0 build 3 and `targetedkerberoast` 2024.12.16 build 3 were each installed on that runtime and answered `--help`; `kerbrute` and the proxy of `ligolo-ng` answered `--help`; `peass-ng` and `pspy` installed their upload files.
 - In run 43772170454 on `main`, the `kali` job installed all seven with the network off, before `publish`.
+- In run 44803871439 on `main` on 2026-11-20, in Kali 2026.3 with the network off, the `kali` job installed every package, `playbooks` 2026.11.20.1 build 1 included, checked the first two lines of each of its 79 playbooks, and printed `ok    every package installed and started in Kali with the network off`.
 
 - By hand on 2026-11-16, in Kali 2026.2 under WSL 2 on Windows 11, as root, with pwn-broker 0.1.0 installed from its release: `tool install` ran for `kerbrute`, `pspy`, `certipy`, `targetedkerberoast`, `ligolo-ng` and `peass-ng`, each from the published index, and `certipy` brought `python-3.13` 3.13.18 with it. `kerbrute version`, `certipy -h`, `targetedKerberoast -h` and `ligolo-proxy -h` each started and printed their own first lines; the ten upload files of `ligolo-ng`, `peass-ng` and `pspy` were in `/opt/pwn-broker/upload` and were not run. Kali's `python3` was still `/usr/bin/python3`, 3.14.7. `finish` then removed all six tools and the runtime, and left only pwn-broker's own two commands in `/opt/pwn-broker/bin`.
 - By hand the same day and in the same Kali, as a normal user in the `sudo` group whose `sudo` asks for a password, with pwn-broker 0.1.0 installed by that user: `tool install` ran for `kerbrute`, `ligolo-ng` and `certipy` from the published index, and `certipy` brought the runtime. `kerbrute version`, `certipy -h` and `ligolo-proxy -h` each started, and so did `sudo /opt/pwn-broker/bin/ligolo-proxy -h`, the line `tool install` prints. Nothing under `/opt/pwn-broker` or the user's home belonged to root afterwards. `finish` removed the three tools and the runtime, with a `warn` line that root's home could not be checked for `ligolo-ng`'s data.
 - `chisel` 1.12.0, `godpotato` 1.20 and `runascs` 1.5, by hand on 2026-11-16 in the same Kali, as a normal user: `build.py build` and `build.py check` passed for all three, and the two `chisel` downloads matched upstream's `chisel_1.12.0_checksums.txt`. With pwn-broker 0.1.0 and `tools_index` set to the built folder, `tool install` ran for each; `chisel server --help` printed its usage; the six upload files were in `/opt/pwn-broker/upload`, the two `godpotato` files with the SHA-256 the recipe pins (the other four are members of archives, and it is the archive's hash that is pinned and that the build checked); and `finish` removed all three. No Windows file was run.
 - `rusthound-ce` 2.5.51, `git-dumper` 1.0.9, `snaffler` 1.0.244, `lazagne` 2.4.7 and `cdk` 1.5.6, by hand on 2026-11-16 in the same Kali, as a normal user and with no display: `build.py lock git-dumper` pinned its 15 distributions with uv 0.13.8, and `build.py build` and `build.py check` passed for all five. The `rusthound-ce` download matched upstream's `.sha256` file. With pwn-broker 0.1.0 and `tools_index` set to the built folder, `tool install` ran for each, and `git-dumper` brought the `python-3.13` runtime; `rusthound-ce --version` printed `rusthound-ce 2.5.51` and `git-dumper --help` its usage; `Snaffler.exe`, `LaZagne.exe`, `cdk` and `cdk_thin` were in `/opt/pwn-broker/upload` with the SHA-256 their recipes pin; and `finish` removed all five and the runtime. No upload file was run.
+- `playbooks` 2026.11.20.1 build 1, by hand on 2026-11-20 in the same Kali, as a normal user, with pwn-broker 0.1.7 and no `tools_index` set: `tool install playbooks` from the published index printed `ok    playbooks 2026.11.20.1 installed (79 playbooks)`. In the note window, `:Pb kerberoa` and Tab read in the Kerberoasting playbook, and `finish` removed the package and emptied `/opt/pwn-broker/run/notes`.
 
 ## Builds on Windows
 
@@ -38,7 +43,9 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 - Build 2 of `certipy` and `targetedkerberoast` was published from the run that added Python 3.14.
 - `python-3.13` 3.13.18 build 1, with build 3 of `certipy` and `targetedkerberoast`, was published from run 43772170454 on 2026-11-15.
 - Builds 1 and 2 of `certipy` and `targetedkerberoast` were withdrawn the same day, by deleting their releases and tags, so each package now has one published build. They had carried no runtime and ran on Kali's own Python, and only when it was one they listed (build 1: 3.12 and 3.13; build 2: 3.12, 3.13 and 3.14). No box had used them.
-- The `index` release is schema 2 and lists the runtime, build 3 of those two tools and build 1 of the other four.
+- `chisel`, `godpotato`, `runascs`, `rusthound-ce`, `git-dumper`, `snaffler`, `lazagne` and `cdk`, build 1 each, were published on 2026-11-17.
+- `playbooks` 2026.11.20 build 1 and 2026.11.20.1 build 1 were published on 2026-11-20, from runs 44727853299 and 44803871439.
+- The `index` release is schema 3 and lists 16 packages: the runtime, build 3 of `certipy` and `targetedkerberoast`, build 1 of the other twelve tools, and both builds of `playbooks`.
 
 ## fetch.sh
 
