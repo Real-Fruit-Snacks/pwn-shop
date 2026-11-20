@@ -113,4 +113,4 @@ The rest of the list is in [docs/tested.md](docs/tested.md#known-limits).
 ## License
 
 [MIT](LICENSE) for this repository's own code. Each package carries the licence of the tool in it, and this project is not affiliated with those projects.
-[pwn-broker](https://github.com/Real-Fruit-Snacks/pwn-broker) · [Guide](docs/guide.md) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
+[Project page](https://real-fruit-snacks.github.io/pwn-shop/) · [pwn-broker](https://github.com/Real-Fruit-Snacks/pwn-broker) · [Guide](docs/guide.md) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
