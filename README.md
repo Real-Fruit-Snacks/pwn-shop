@@ -80,13 +80,14 @@ The [guide](docs/guide.md) has the package format, the runtime, `build.py` and C
 
 - The unit tests on Windows 11 with Python 3.13, and on Ubuntu 24.04 in CI under Python 3.11, 3.12, 3.13 and 3.14, with warnings treated as errors
 - Every package built or downloaded by CI on Ubuntu 24.04, passed `build.py check`, and installed with pwn-broker's own code running on Python 3.12, 3.13 and 3.14, each command started once
-- All seven installed inside the official Kali image (Kali 2026.3) with the container's network off, before they were published
+- Every package installed inside the official Kali image (Kali 2026.3) with the container's network off, before it was published
 - `kerbrute`, `ligolo-ng`, `peass-ng` and `pspy` rebuilt by CI to their published bytes, and `python-3.13` built on Windows and on Ubuntu to the same SHA-256
 - `fetch.sh` against the real releases in Kali 2026.2, as a normal user with no GitHub account: every zip matched the index, and pwn-broker then installed three tools from the folder with the network off
 - All six tools installed by `tool install` from the published index, by hand in Kali 2026.2 under WSL 2 as root, each command started once, and removed again by `finish`
 - Three of them again there as a normal user whose `sudo` asks for a password, `sudo /opt/pwn-broker/bin/ligolo-proxy` included
 - `chisel`, `godpotato` and `runascs` built in Kali 2026.2 and installed there from the built folder by a normal user: `chisel` started, the six upload files were in place, and `finish` removed all three
 - `cdk`, `git-dumper`, `lazagne`, `rusthound-ce` and `snaffler` built in Kali 2026.2 and installed there from the built folder by a normal user: `rusthound-ce` and `git-dumper` started, the four upload files matched their pinned hashes, and `finish` removed all five
+- `playbooks` installed from the published index in Kali 2026.2 by a normal user with pwn-broker 0.1.7: `:Pb` read a playbook into the note, and `finish` removed it
 - *Not* tested: any package on a full Kali desktop or against a real target; no Windows file has been run anywhere, and `cdk` has not been run in a container
 
 [docs/tested.md](docs/tested.md) is the full record: counts, runs, commits and dates.
