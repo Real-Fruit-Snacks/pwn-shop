@@ -62,7 +62,7 @@ pwn-broker keeps a Hack The Box machine in order on Kali Linux, and its `tool in
 | `python-3.13` | 3.13.18 | runtime | nothing on PATH; the Python that `certipy`, `git-dumper` and `targetedkerberoast` run on | PSF-2.0 and others (see its `LICENSE`) |
 | `targetedkerberoast` | 2024.12.16 | kali | `targetedKerberoast`, on `python-3.13` | GPL-3.0 |
 
-Kind `kali` puts a command on the machine, `upload` puts files in a folder to carry to the target, and `both` does both. A `runtime` is never installed on its own: it comes and goes with the tools that require it. A `notes` package puts nothing on the machine: it is files to read in pwn-broker's note window, and needs pwn-broker 0.1.7 or later.
+Kind `kali` puts a command on the machine, `upload` puts files in a folder to carry to the target, and `both` does both. A `runtime` is never installed on its own: it comes and goes with the tools that require it. A `notes` package puts nothing on PATH and nothing to upload: it is files to read in pwn-broker's note window, and needs pwn-broker 0.1.7 or later.
 
 `version` is upstream's; `build` is mine, starts at 1, and goes up each time I repackage the same upstream version. A package is named for both: `kerbrute-1.0.3-1.zip`, released under the tag `kerbrute-v1.0.3-1`.
 

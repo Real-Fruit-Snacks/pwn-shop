@@ -339,6 +339,59 @@ def test_a_file_source_may_not_land_inside_an_unpacked_one(tmp_path, net):
         stage_it(recipe, tmp_path, net)
 
 
+def test_unpack_refuses_one_folder_in_two_cases(tmp_path, net):
+    data = crafted_zip([plain("Playbooks/a.md"), plain("playbooks/b.md")])
+    with pytest.raises(build.BuildError,
+                       match="files/playbooks and files/Playbooks name one folder in different cases"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+def test_unpack_refuses_a_folder_in_another_case_than_a_file_source(tmp_path, net):
+    one = b"one"
+    net.files["https://e.invalid/one"] = one
+    first = {"url": "https://e.invalid/one", "size": len(one), "sha256": digest(one),
+             "to": "files/Tools/x"}
+    data = zip_bytes({"tools/y": b"Y"})
+    with pytest.raises(build.BuildError, match="name one folder in different cases"):
+        stage_it(unpack_recipe(tmp_path, net, data, extra=[first]), tmp_path, net)
+
+
+@pytest.mark.parametrize("entries", [
+    [plain("a"), ("A/", b"", stat.S_IFDIR | 0o755, 0)],
+    [("A/", b"", stat.S_IFDIR | 0o755, 0), plain("a")],
+    [plain("a"), plain("A/b")],
+    [plain("A/b"), plain("a")],
+])
+def test_unpack_refuses_a_file_and_a_folder_of_one_name(tmp_path, net, entries):
+    with pytest.raises(build.BuildError, match="is both a file and a folder"):
+        stage_it(unpack_recipe(tmp_path, net, crafted_zip(entries)), tmp_path, net)
+
+
+@pytest.mark.parametrize("name", ["a.md.", "a.md ", "dir./a.md", "dir /a.md"])
+def test_unpack_refuses_a_part_ending_in_a_dot_or_a_space(tmp_path, net, name):
+    data = crafted_zip([plain("a.md"), plain(name)])
+    with pytest.raises(build.BuildError, match="ends in a dot or a space"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+@pytest.mark.parametrize("name", ["x\x01.md", "x\x7f.md", "a\x00b.md"])
+def test_unpack_refuses_a_control_character(tmp_path, net, name):
+    data = crafted_zip([plain(name)])
+    with pytest.raises(build.BuildError, match="control character"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+@pytest.mark.parametrize(("name", "fault"), [
+    ("a" * 256 + ".md", "with a part longer than 255 bytes"),
+    ("/".join(["d"] * 64) + "/x.md", "with more than 64 parts"),
+    ("/".join(["d" * 200] * 21) + "/x.md", "longer than 4096 bytes"),
+])
+def test_unpack_refuses_what_pwn_broker_finds_too_long(tmp_path, net, name, fault):
+    data = crafted_zip([plain(name)])
+    with pytest.raises(build.BuildError, match=fault):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
 def test_unpack_refuses_too_many_entries(tmp_path, net, monkeypatch):
     monkeypatch.setattr(build, "MAX_MEMBERS", 2)
     data = zip_bytes({"a": b"1", "b": b"2", "c": b"3"})

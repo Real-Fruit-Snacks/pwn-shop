@@ -17,6 +17,7 @@ import tarfile
 import tempfile
 import time
 import tomllib
+import unicodedata
 import urllib.parse
 import urllib.request
 import zipfile
@@ -35,6 +36,10 @@ SUMS = "SHA256SUMS.txt"
 INDEX = "index.toml"
 MAX_MEMBERS = 10_000
 MAX_UNPACKED_BYTES = 1024**3
+# pwn-broker's limits on a name in a package (toolpkg.MAX_PATH_BYTES, MAX_PART_BYTES, MAX_DEPTH)
+MAX_PATH_BYTES = 4096
+MAX_PART_BYTES = 255
+MAX_DEPTH = 64
 MANIFEST_LIMIT = 1024 * 1024
 FETCH_TIMEOUT = 60
 FETCH_DEADLINE = 900.0
@@ -589,7 +594,19 @@ def _extract_member(archive: Path, kind: str, member: str, dest: Path, label: st
         raise BuildError(f"{label}: cannot read the archive ({exc})") from exc
 
 
-def _unpack_zip(archive: Path, root: Path, to: str, claim: Callable[[str], None], label: str) -> None:
+def _too_long(name: str) -> str | None:
+    """pwn-broker's toolpkg.too_long: what is wrong with the length of a name in a package."""
+    if len(name.encode("utf-8", "surrogateescape")) > MAX_PATH_BYTES:
+        return f"longer than {MAX_PATH_BYTES} bytes"
+    parts = (name[:-1] if name.endswith("/") else name).split("/")
+    if any(len(part.encode("utf-8", "surrogateescape")) > MAX_PART_BYTES for part in parts):
+        return f"with a part longer than {MAX_PART_BYTES} bytes"
+    if len(parts) > MAX_DEPTH:
+        return f"with more than {MAX_DEPTH} parts"
+    return None
+
+
+def _unpack_zip(archive: Path, root: Path, to: str, claim: Callable[..., None], label: str) -> None:
     """Every file in the zip, at to/<its name> under root. The entries are checked as
     pwn-broker checks a package's: nothing outside the folder, no links or special files, nothing
     encrypted, and limits on the number of entries and on the bytes actually written."""
@@ -603,26 +620,34 @@ def _unpack_zip(archive: Path, root: Path, to: str, claim: Callable[[str], None]
                 name = info.filename
                 bare = name[:-1] if name.endswith("/") else name
                 parts = bare.split("/")
+                rel = f"{to}/{bare}"
+                if fault := _too_long(rel + ("/" if info.is_dir() else "")):
+                    raise BuildError(f"{label}: entry {name[:100]!r} has a name {fault}")
                 # zipfile on Windows turns a backslash in a name into a slash, so the name as
                 # stored is checked too, or the two systems would build different packages
                 if (
                     not bare
                     or name.startswith("/")
                     or "\\" in info.orig_filename
-                    or "\0" in name
                     or ":" in name
                     or any(p in ("", ".", "..") for p in parts)
                 ):
                     raise BuildError(f"{label}: entry {name!r} would write outside {to}")
+                # zipfile cuts a name at a NUL, so the name as stored is the one to look at
+                if any(unicodedata.category(c) == "Cc" for c in info.orig_filename):
+                    raise BuildError(f"{label}: entry {info.orig_filename!r} has a control character in its name")
+                # Windows drops a dot or space at the end of a name, so two names would be one
+                if any(p.endswith((".", " ")) for p in parts):
+                    raise BuildError(f"{label}: entry {name!r} has a part that ends in a dot or a space")
                 if info.flag_bits & 0x1:
                     raise BuildError(f"{label}: entry {name!r} is encrypted")
                 mode = stat.S_IFMT(info.external_attr >> 16)
                 wanted = stat.S_IFDIR if info.is_dir() else stat.S_IFREG
                 if mode not in (0, wanted):
                     raise BuildError(f"{label}: entry {name!r} is a link or special file")
-                rel = f"{to}/{bare}"
                 target = root.joinpath(*rel.split("/"))
                 if info.is_dir():
+                    claim(rel, folder=True)
                     target.mkdir(parents=True, exist_ok=True)
                     continue
                 claim(rel)
@@ -686,16 +711,35 @@ def stage(
         root.mkdir(parents=True)
         _write_toml(root / MANIFEST, manifest)
         _write_bytes(root / "LICENSE", licence.read_bytes())
-        # every path a source writes, compared without case, so a build on Windows and one on
-        # Linux cannot differ
-        written: set[str] = set()
+        # every file and folder the sources write, compared without case, so a build on Windows
+        # and one on Linux cannot differ: one path, one spelling, and never both a file and a folder
+        files: set[str] = set()
+        folders: dict[str, str] = {}
 
-        def claim(rel: str) -> None:
-            if rel.casefold() in written:
+        def claim(rel: str, folder: bool = False) -> None:
+            parts = rel.split("/")
+            for end in range(1, len(parts) + folder):
+                spelt = "/".join(parts[:end])
+                if spelt.casefold() in files:
+                    raise BuildError(
+                        f"{recipe.name}: {spelt} is both a file and a folder (compared without case)"
+                    )
+                other = folders.setdefault(spelt.casefold(), spelt)
+                if other != spelt:
+                    raise BuildError(
+                        f"{recipe.name}: {spelt} and {other} name one folder in different cases"
+                    )
+            if folder:
+                return
+            if rel.casefold() in folders:
+                raise BuildError(
+                    f"{recipe.name}: {rel} is both a file and a folder (compared without case)"
+                )
+            if rel.casefold() in files:
                 raise BuildError(
                     f"{recipe.name}: {rel} is written by more than one source (compared without case)"
                 )
-            written.add(rel.casefold())
+            files.add(rel.casefold())
 
         for source in recipe.sources:
             downloaded = fetch_source(source, cache, fetch=fetch)

@@ -50,7 +50,7 @@ Kind `kali` puts a command on the machine, `upload` puts files in a folder to ca
 
 A Python tool built now does not run on Kali's own Python. It names the runtime it requires (`requires = ["python-3.13"]` in its manifest), a package of kind `runtime` that carries one Python build from [python-build-standalone](https://github.com/astral-sh/python-build-standalone) byte for byte, and its wheels are for that Python alone. pwn-broker installs the runtime with the first tool that requires it, makes the tool's virtual environment with the runtime's interpreter, and removes the runtime once no installed tool requires it. A runtime puts nothing in `/opt/pwn-broker/bin`, so Kali's `python3` is never shadowed. When Kali moves to a new Python, a tool on a runtime is not affected.
 
-A runtime or a tool that requires one is schema 2; every other package is schema 1, so the packages published before runtimes rebuild byte for byte.
+A runtime or a tool that requires one is schema 2, a notes package is schema 3, and every other package is schema 1, so the packages published before runtimes rebuild byte for byte.
 
 The runtime's `LICENSE` holds these parts, each under a heading that names it and where it came from, each copied byte for byte:
 
