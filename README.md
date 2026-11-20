@@ -55,7 +55,7 @@ pwn-broker keeps a Hack The Box machine in order on Kali Linux, and its `tool in
 | `ligolo-ng` | 0.9.2 | both | `ligolo-proxy` (needs root); to upload: `agent`, `agent.exe` | GPL-3.0 |
 | `pspy` | 1.2.1 | upload | to upload: `pspy64`, `pspy32`, `pspy64s`, `pspy32s` | GPL-3.0 |
 | `peass-ng` | 2026.11.14 | upload | to upload: `linpeas.sh`, `winPEASx64.exe`, `winPEASany.exe`, `winPEAS.bat` | GPL-2.0-or-later with additional terms |
-| `playbooks` | 2026.11.20 | notes | playbooks to read into the note window with `:Pb <name>` | CC-BY-4.0 |
+| `playbooks` | 2026.11.20.1 | notes | playbooks to read into the note window with `:Pb <name>` | CC-BY-4.0 |
 | `rusthound-ce` | 2.5.51 | kali | `rusthound-ce` | MIT |
 | `snaffler` | 1.0.244 | upload | to upload: `Snaffler.exe` | GPL-3.0 |
 | `runascs` | 1.5 | upload | to upload: `RunasCs.exe`, `RunasCs_net2.exe` | GPL-3.0 |
