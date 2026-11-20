@@ -1,0 +1,10 @@
+schema = 3
+kind = "notes"
+description = "Playbooks to read into the note and fill in"
+tags = ["notes", "playbooks"]
+upstream = "https://github.com/Real-Fruit-Snacks/pwn-playbooks"
+licence = "CC-BY-4.0"
+arch = "any"
+
+[notes]
+root = "files/playbooks"

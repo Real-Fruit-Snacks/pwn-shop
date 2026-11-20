@@ -13,7 +13,10 @@ names is checked in a temporary install root, app home and user home of its own:
   virtual environment made by that runtime's interpreter, and then the tool is removed the way
   tool remove does it, runtime and all;
 - a runtime on its own is unpacked through toolinstall.install_runtime, its interpreter must
-  report the version the index gives, and it is removed again.
+  report the version the index gives, and it is removed again;
+- a notes package has no command to start. It is installed like a tool, and then its notes
+  folder must hold .md files that each begin with the note's fold marker and a Playbook: line,
+  /opt/pwn-broker/run/notes must name that folder, and once it is removed run/notes must not.
 
 With --network-off, the check first shows that no name resolves and no address can be
 reached, and stops if either can: it is how the Kali job proves its installs reach nothing.
@@ -49,6 +52,8 @@ PYTHON_TYPES = ("python-entry", "python-script")
 PUBLIC_NAME = "github.com"
 PUBLIC_ADDRESS = ("1.1.1.1", 443)
 NETWORK_TIMEOUT = 5
+# the first line of every playbook: the fold marker of pwn-broker's note
+FOLD_START = "##########@@@@@@@@@@"
 
 
 class CheckFailed(Exception):
@@ -138,6 +143,33 @@ def upload_problems(zip_path: Path, upload_dir: Path) -> list[str]:
                     f"{row['as']} is {target.stat().st_size} bytes, the package holds {expected}"
                 )
     return problems
+
+
+def notes_problems(root: Path, run_notes: str) -> list[str]:
+    """What is wrong with an installed notes package's folder, and with run/notes, which tells
+    the note window where the open box's playbooks are."""
+    shown = root.as_posix()
+    if not root.is_dir():
+        return [f"the notes folder {shown} is missing"]
+    found = sorted(root.rglob("*.md"), key=lambda p: p.relative_to(root).as_posix())
+    if not found:
+        return [f"the notes folder {shown} holds no .md files"]
+    problems = []
+    for path in found:
+        lines = path.read_text(encoding="utf-8", errors="replace").split("\n")
+        if len(lines) < 2 or lines[0] != FOLD_START or not lines[1].startswith("Playbook: "):
+            rel = path.relative_to(root).as_posix()
+            problems.append(f"{rel} does not start with the fold marker and a Playbook: line")
+    if shown not in run_notes.splitlines():
+        problems.append(f"run/notes does not name {shown}")
+    return problems
+
+
+def _run_notes(paths) -> str:
+    try:
+        return paths.run_notes.read_text(encoding="utf-8")
+    except OSError:
+        return ""
 
 
 def leftovers(opt: Path, name: str, commands: list[str], runtimes: list[str] = ()) -> list[str]:
@@ -340,6 +372,15 @@ def _check_installed_tool(broker, paths, settings, index, entry, env, now) -> st
             raise CheckFailed(f"{label}: {problem}")
         on.append(f"on {runtime} {row.version}")
 
+    notes = Path(item.notes) if entry.kind == "notes" else None
+    playbooks = 0
+    if notes is not None:
+        problems = notes_problems(notes, _run_notes(paths))
+        if problems:
+            raise CheckFailed(f"{label}: " + "; ".join(problems))
+        # counted now: removing the package takes the folder away
+        playbooks = sum(1 for _ in notes.rglob("*.md"))
+
     zip_path = broker.toolindex.fetch_zip(paths, settings, entry)
     types = command_types(zip_path)
     started_with = []
@@ -370,10 +411,14 @@ def _check_installed_tool(broker, paths, settings, index, entry, env, now) -> st
             left.append(f"{name} in the list of installed tools")
     if any(t.name == entry.name for t in broker.current_tools(box)):
         left.append("a current record in the box")
+    if notes is not None and notes.as_posix() in _run_notes(paths).splitlines():
+        left.append("run/notes still names its folder")
     if left:
         raise CheckFailed(f"{label}: left behind after removal: {', '.join(left)}{_said(console)}")
 
     files = f"{len(item.uploads)} upload files" if item.uploads else ""
+    if notes is not None:
+        files = f"{playbooks} playbooks"
     return f"{label}: " + ", ".join([*on, *started_with, *([files] if files else [])])
 
 

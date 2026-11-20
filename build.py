@@ -17,6 +17,7 @@ import tarfile
 import tempfile
 import time
 import tomllib
+import unicodedata
 import urllib.parse
 import urllib.request
 import zipfile
@@ -27,14 +28,18 @@ from pathlib import Path
 
 import tomli_w
 
-KINDS = ("kali", "upload", "both", "runtime")
-SCHEMAS = (1, 2)
+KINDS = ("kali", "upload", "both", "runtime", "notes")
+SCHEMAS = (1, 2, 3)
 COMMAND_TYPES = ("binary", "python-entry", "python-script")
 MANIFEST = "manifest.toml"
 SUMS = "SHA256SUMS.txt"
 INDEX = "index.toml"
 MAX_MEMBERS = 10_000
 MAX_UNPACKED_BYTES = 1024**3
+# pwn-broker's limits on a name in a package (toolpkg.MAX_PATH_BYTES, MAX_PART_BYTES, MAX_DEPTH)
+MAX_PATH_BYTES = 4096
+MAX_PART_BYTES = 255
+MAX_DEPTH = 64
 MANIFEST_LIMIT = 1024 * 1024
 FETCH_TIMEOUT = 60
 FETCH_DEADLINE = 900.0
@@ -186,6 +191,8 @@ class Source:
     sha256: str
     to: str
     member: str | None = None
+    # the whole zip, unpacked into the folder `to`
+    unpack: bool = False
 
 
 @dataclass
@@ -283,11 +290,22 @@ def _source(row: object, index: int) -> Source:
     sha = row.get("sha256")
     if not isinstance(sha, str) or not _SHA256.fullmatch(sha.lower()):
         raise BuildError(f"{label}.sha256: must be 64 hexadecimal characters")
-    to = _relative(row.get("to"), f"{label}.to", under="files")
+    unpack = row.get("unpack", False)
+    if not isinstance(unpack, bool):
+        raise BuildError(f"{label}.unpack: must be true or false")
     member = row.get("member")
+    if unpack:
+        if member is not None:
+            raise BuildError(f"{label}: unpack takes no member; the whole zip is unpacked")
+        if not urllib.parse.urlsplit(url).path.lower().endswith(".zip"):
+            raise BuildError(f"{label}: a source with unpack must be a zip")
+        # a zip may be unpacked into files/ itself, a file only somewhere under it
+        to = "files" if row.get("to") == "files" else _relative(row.get("to"), f"{label}.to", under="files")
+    else:
+        to = _relative(row.get("to"), f"{label}.to", under="files")
     if member is not None:
         member = _relative(member, f"{label}.member")
-    return Source(url, _int(row, "size", f"{label}.size"), sha.lower(), to, member)
+    return Source(url, _int(row, "size", f"{label}.size"), sha.lower(), to, member, unpack)
 
 
 def load_recipe(folder: Path) -> Recipe:
@@ -371,12 +389,18 @@ def load_recipe(folder: Path) -> Recipe:
 
 
 def _recipe_schema(manifest: dict, who: str) -> int:
-    """2 for a runtime and for a tool that requires one, else 1; a stated schema must agree."""
+    """3 for notes, 2 for a runtime and for a tool that requires one, else 1; a stated schema
+    must agree."""
     runtime = manifest.get("kind") == "runtime"
-    schema = 2 if runtime or "requires" in manifest else 1
+    notes = manifest.get("kind") == "notes"
+    schema = 3 if notes else 2 if runtime or "requires" in manifest else 1
     stated = manifest.get("schema", schema)
     if isinstance(stated, bool) or stated not in SCHEMAS:
-        raise BuildError(f"{who}: manifest schema must be 1 or 2")
+        raise BuildError(f"{who}: manifest schema must be 1, 2 or 3")
+    if notes and stated != 3:
+        raise BuildError(f"{who}: kind: notes needs schema 3")
+    if stated == 3 and not notes:
+        raise BuildError(f"{who}: schema: only a notes package is schema 3")
     if stated == 1 and runtime:
         raise BuildError(f"{who}: kind: a runtime needs schema 2")
     if stated == 1 and schema == 2:
@@ -570,6 +594,80 @@ def _extract_member(archive: Path, kind: str, member: str, dest: Path, label: st
         raise BuildError(f"{label}: cannot read the archive ({exc})") from exc
 
 
+def _too_long(name: str) -> str | None:
+    """pwn-broker's toolpkg.too_long: what is wrong with the length of a name in a package."""
+    if len(name.encode("utf-8", "surrogateescape")) > MAX_PATH_BYTES:
+        return f"longer than {MAX_PATH_BYTES} bytes"
+    parts = (name[:-1] if name.endswith("/") else name).split("/")
+    if any(len(part.encode("utf-8", "surrogateescape")) > MAX_PART_BYTES for part in parts):
+        return f"with a part longer than {MAX_PART_BYTES} bytes"
+    if len(parts) > MAX_DEPTH:
+        return f"with more than {MAX_DEPTH} parts"
+    return None
+
+
+def _unpack_zip(archive: Path, root: Path, to: str, claim: Callable[..., None], label: str) -> None:
+    """Every file in the zip, at to/<its name> under root. The entries are checked as
+    pwn-broker checks a package's: nothing outside the folder, no links or special files, nothing
+    encrypted, and limits on the number of entries and on the bytes actually written."""
+    try:
+        with zipfile.ZipFile(archive) as zf:
+            infos = zf.infolist()
+            if len(infos) > MAX_MEMBERS:
+                raise BuildError(f"{label}: the zip has {len(infos)} entries; the limit is {MAX_MEMBERS}")
+            total = files = 0
+            for info in infos:
+                name = info.filename
+                bare = name[:-1] if name.endswith("/") else name
+                parts = bare.split("/")
+                rel = f"{to}/{bare}"
+                if fault := _too_long(rel + ("/" if info.is_dir() else "")):
+                    raise BuildError(f"{label}: entry {name[:100]!r} has a name {fault}")
+                # zipfile on Windows turns a backslash in a name into a slash, so the name as
+                # stored is checked too, or the two systems would build different packages
+                if (
+                    not bare
+                    or name.startswith("/")
+                    or "\\" in info.orig_filename
+                    or ":" in name
+                    or any(p in ("", ".", "..") for p in parts)
+                ):
+                    raise BuildError(f"{label}: entry {name!r} would write outside {to}")
+                # zipfile cuts a name at a NUL, so the name as stored is the one to look at
+                if any(unicodedata.category(c) == "Cc" for c in info.orig_filename):
+                    raise BuildError(f"{label}: entry {info.orig_filename!r} has a control character in its name")
+                # Windows drops a dot or space at the end of a name, so two names would be one
+                if any(p.endswith((".", " ")) for p in parts):
+                    raise BuildError(f"{label}: entry {name!r} has a part that ends in a dot or a space")
+                if info.flag_bits & 0x1:
+                    raise BuildError(f"{label}: entry {name!r} is encrypted")
+                mode = stat.S_IFMT(info.external_attr >> 16)
+                wanted = stat.S_IFDIR if info.is_dir() else stat.S_IFREG
+                if mode not in (0, wanted):
+                    raise BuildError(f"{label}: entry {name!r} is a link or special file")
+                target = root.joinpath(*rel.split("/"))
+                if info.is_dir():
+                    claim(rel, folder=True)
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+                claim(rel)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                # counted as it is written, since a header's size is only a claim
+                with zf.open(info) as src, open(target, "wb") as out:
+                    while chunk := src.read(_CHUNK):
+                        total += len(chunk)
+                        if total > MAX_UNPACKED_BYTES:
+                            raise BuildError(
+                                f"{label}: the zip unpacks to more than {MAX_UNPACKED_BYTES} bytes"
+                            )
+                        out.write(chunk)
+                files += 1
+            if not files:
+                raise BuildError(f"{label}: the zip holds no files")
+    except (zipfile.BadZipFile, zlib.error, EOFError, OSError, RuntimeError, NotImplementedError) as exc:
+        raise BuildError(f"{label}: cannot read the archive ({exc})") from exc
+
+
 def _python_manifest(recipe: Recipe) -> tuple[dict, bool]:
     manifest = dict(recipe.manifest)
     table = manifest.get("python")
@@ -613,8 +711,42 @@ def stage(
         root.mkdir(parents=True)
         _write_toml(root / MANIFEST, manifest)
         _write_bytes(root / "LICENSE", licence.read_bytes())
+        # every file and folder the sources write, compared without case, so a build on Windows
+        # and one on Linux cannot differ: one path, one spelling, and never both a file and a folder
+        files: set[str] = set()
+        folders: dict[str, str] = {}
+
+        def claim(rel: str, folder: bool = False) -> None:
+            parts = rel.split("/")
+            for end in range(1, len(parts) + folder):
+                spelt = "/".join(parts[:end])
+                if spelt.casefold() in files:
+                    raise BuildError(
+                        f"{recipe.name}: {spelt} is both a file and a folder (compared without case)"
+                    )
+                other = folders.setdefault(spelt.casefold(), spelt)
+                if other != spelt:
+                    raise BuildError(
+                        f"{recipe.name}: {spelt} and {other} name one folder in different cases"
+                    )
+            if folder:
+                return
+            if rel.casefold() in folders:
+                raise BuildError(
+                    f"{recipe.name}: {rel} is both a file and a folder (compared without case)"
+                )
+            if rel.casefold() in files:
+                raise BuildError(
+                    f"{recipe.name}: {rel} is written by more than one source (compared without case)"
+                )
+            files.add(rel.casefold())
+
         for source in recipe.sources:
             downloaded = fetch_source(source, cache, fetch=fetch)
+            if source.unpack:
+                _unpack_zip(downloaded, root, source.to, claim, source.url)
+                continue
+            claim(source.to)
             target = root.joinpath(*source.to.split("/"))
             target.parent.mkdir(parents=True, exist_ok=True)
             if source.member is None:
@@ -1100,6 +1232,13 @@ def _check_index_build(name: str, c: dict) -> list[str]:
             raise BuildError(f"{label}: a runtime has no commands")
         if requires:
             raise BuildError(f"{label}: requires: a runtime requires nothing")
+    if c["kind"] == "notes":
+        if c["commands"]:
+            raise BuildError(f"{label}: a notes package has no commands")
+        if requires:
+            raise BuildError(f"{label}: requires: a notes package requires nothing")
+        if c["needs_root"]:
+            raise BuildError(f"{label}: a notes package never needs root")
     return requires
 
 
@@ -1110,13 +1249,17 @@ def build_index(cards: list[dict], *, base_url: str | None) -> dict:
     _check_shared_commands({name: rows[-1]["commands"] for name, rows in grouped.items()})
     tools = []
     needs: list[tuple[str, str, str]] = []
-    # schema 2 only when a build needs it, so an index of schema 1 builds stays as it was
+    # schema 2 or 3 only when a build needs it, so an index of older builds stays as it was: 3
+    # for a notes build, which a pwn-broker older than 0.1.7 cannot read and tells to upgrade
     schema = 1
+    notes = False
     for name, rows in grouped.items():
         if not _NAME.fullmatch(name):
             raise BuildError(f"name {name!r} {_NAME_RULE}")
         if len({c["kind"] == "runtime" for c in rows}) > 1:
             raise BuildError(f"{name}: its builds mix kind runtime with other kinds")
+        if len({c["kind"] == "notes" for c in rows}) > 1:
+            raise BuildError(f"{name}: its builds mix kind notes with other kinds")
         seen = set()
         builds = []
         for c in rows:
@@ -1128,6 +1271,7 @@ def build_index(cards: list[dict], *, base_url: str | None) -> dict:
             needs.extend((name, f"{c['version']}-{c['build']}", wanted) for wanted in requires)
             if requires or c["kind"] == "runtime":
                 schema = 2
+            notes = notes or c["kind"] == "notes"
             builds.append(
                 {
                     "version": c["version"],
@@ -1162,7 +1306,7 @@ def build_index(cards: list[dict], *, base_url: str | None) -> dict:
             )
         if wanted not in runtimes:
             raise BuildError(f"{name} {build_id}: requires {wanted}, which is not a runtime")
-    return {"schema": schema, "tool": tools}
+    return {"schema": 3 if notes else schema, "tool": tools}
 
 
 _CARD_FILE = re.compile(_NAME.pattern + r"-[^/\\\s:]+-[1-9][0-9]*\.toml")
@@ -1422,11 +1566,43 @@ def _runtime_table(data: dict) -> tuple[str, str, str]:
     return archive, python, series
 
 
+# what a notes package may not carry, each with why it is refused (pwn-broker's toolpkg)
+_NOT_IN_NOTES = (
+    ("command", "command: a notes package has no commands"),
+    ("upload", "upload: a notes package has no uploads"),
+    ("python", "python: a notes package has no Python"),
+    ("requires", "requires: a notes package requires nothing"),
+    ("data", "data: a notes package keeps no tool data"),
+    ("runtime", "runtime: a notes package is not a runtime"),
+)
+
+
+def _check_notes(data: dict) -> None:
+    """A notes package: files to read, nothing to run, upload or keep, for any machine."""
+    for key, message in _NOT_IN_NOTES:
+        if key in data:
+            raise BuildError(message)
+    if data.get("needs_root", False):
+        raise BuildError("needs_root: a notes package never needs root")
+    for key in ("description", "upstream", "licence", "arch"):
+        _text(data, key, key)
+    if data["arch"] != "any":
+        raise BuildError('arch: a notes package is for any machine (arch = "any")')
+    _strings(data, "tags", "tags")
+    _strings(data, "examples", "examples")
+    table = data.get("notes")
+    if table is None:
+        raise BuildError("notes: a notes package needs a [notes] table")
+    if not isinstance(table, dict):
+        raise BuildError("notes: must be a table")
+    _relative(_text(table, "root", "notes.root"), "notes.root", under="files")
+
+
 def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
     """Returns the files the manifest names, its wheels folder (or None) and its lock path."""
     schema = data.get("schema")
     if isinstance(schema, bool) or schema not in SCHEMAS:
-        raise BuildError("schema: must be 1 or 2")
+        raise BuildError("schema: must be 1, 2 or 3")
     name = _text(data, "name", "name")
     if not _NAME.fullmatch(name):
         raise BuildError(f"name: {name!r} {_NAME_RULE}")
@@ -1443,6 +1619,13 @@ def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
         raise BuildError("needs_root: must be true or false")
     if kind == "runtime" and schema == 1:
         raise BuildError("kind: a runtime needs schema 2")
+    if kind == "notes" and schema != 3:
+        raise BuildError("kind: notes needs schema 3")
+    if schema == 3 and kind != "notes":
+        raise BuildError("schema: only a notes package is schema 3")
+    if kind == "notes":
+        _check_notes(data)
+        return [], None, []
     requires: list[str] = []
     if "requires" in data:
         if schema == 1:
@@ -1634,6 +1817,13 @@ def validate(zip_path: Path, *, file_name: str | None = None) -> None:
                     raise BuildError(f"{name}: named in the manifest but missing from the package")
             for name in lock:
                 _check_lock(zf, seen[name])
+            if data["kind"] == "notes":
+                root = data["notes"]["root"]
+                if not any(
+                    not i.is_dir() and b.startswith(root + "/") and b.endswith(".md")
+                    for b, i in seen.items()
+                ):
+                    raise BuildError(f"{root}: the package holds no .md files")
             if wheels is not None:
                 prefix = wheels + "/"
                 if not any(not i.is_dir() and b.startswith(prefix) for b, i in seen.items()):

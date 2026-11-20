@@ -759,3 +759,62 @@ def test_a_runtime_left_after_the_tool_is_removed_fails(check, tmp_path, monkeyp
     message = str(err.value)
     assert message.startswith("tinytool 1.0-1: left behind after removal: ")
     assert "python-3.13 in the list of installed tools" in message
+
+
+
+# ---- a notes package's playbooks
+
+GOOD = "##########@@@@@@@@@@\nPlaybook: SMB enumeration   02-enum/smb   2026.11.20\nmy\n"
+
+
+def notes_root(tmp_path, files):
+    root = tmp_path / "files" / "playbooks"
+    root.mkdir(parents=True)
+    for rel, text in files.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8", newline="\n")
+    return root
+
+
+def test_good_notes_have_no_problems(check, tmp_path):
+    root = notes_root(tmp_path, {"02-enum/smb.md": GOOD, "01-checklists/web.md": GOOD})
+    assert check.notes_problems(root, f"{root.as_posix()}\n") == []
+
+
+def test_a_missing_root_is_named(check, tmp_path):
+    root = tmp_path / "nowhere"
+    assert check.notes_problems(root, f"{root.as_posix()}\n") == [
+        f"the notes folder {root.as_posix()} is missing"
+    ]
+
+
+def test_a_root_with_no_md_is_named(check, tmp_path):
+    root = notes_root(tmp_path, {"readme.txt": GOOD})
+    assert check.notes_problems(root, f"{root.as_posix()}\n") == [
+        f"the notes folder {root.as_posix()} holds no .md files"
+    ]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Playbook: SMB   02-enum/smb   2026.11.20\n",
+        "##########@@@@@@@@@@\n## SMB\n",
+        "",
+        "  ##########@@@@@@@@@@\nPlaybook: SMB   02-enum/smb   2026.11.20\n",
+    ],
+)
+def test_an_md_without_the_fold_marker_and_playbook_line_is_named(check, tmp_path, text):
+    root = notes_root(tmp_path, {"02-enum/smb.md": text, "02-enum/ldap.md": GOOD})
+    assert check.notes_problems(root, f"{root.as_posix()}\n") == [
+        "02-enum/smb.md does not start with the fold marker and a Playbook: line"
+    ]
+
+
+def test_run_notes_must_name_the_root(check, tmp_path):
+    root = notes_root(tmp_path, {"02-enum/smb.md": GOOD})
+    assert check.notes_problems(root, "/opt/other/files/playbooks\n") == [
+        f"run/notes does not name {root.as_posix()}"
+    ]
+    assert check.notes_problems(root, "") == [f"run/notes does not name {root.as_posix()}"]

@@ -14,7 +14,7 @@ import tomli_w
 
 import build
 from conftest import (
-    PLAIN_MANIFEST, PY_MANIFEST, RUNTIME_ARCHIVE, RUNTIME_MANIFEST, FakeTools, digest, lock_text,
+    NOTES_MANIFEST, PLAYBOOK, PLAIN_MANIFEST, PY_MANIFEST, RUNTIME_ARCHIVE, RUNTIME_MANIFEST, FakeTools, digest, lock_text,
     make_python_recipe, make_recipe, make_runtime_recipe, make_wheel,
     tar_gz, wheel_bytes, wheel_name, zip_bytes,
 )
@@ -189,6 +189,254 @@ def test_directory_member_is_refused(tmp_path, net):
     r = one_member_recipe(tmp_path, net, "https://e.invalid/x.tgz", data, "d")
     with pytest.raises(build.BuildError, match="regular file"):
         build.stage(r, tmp_path / "w", tmp_path / "c", fetch=net)
+
+
+# ---- a whole zip as a source (unpack = true)
+
+
+def crafted_zip(entries: list[tuple]) -> bytes:
+    """A zip whose entries are written exactly as given: (name, data, mode, flag bits). The
+    name is set after the ZipInfo is made, so zipfile does not tidy it."""
+    import io
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data, mode, flags in entries:
+            info = zipfile.ZipInfo("placeholder", (1980, 1, 1, 0, 0, 0))
+            info.filename = name
+            info.create_system = 3
+            info.external_attr = mode << 16
+            info.compress_type = zipfile.ZIP_DEFLATED
+            zf.writestr(info, data)
+    out = buf.getvalue()
+    if any(flags for *_, flags in entries):
+        # zipfile clears the flag bits it does not use when writing, so set them in the bytes:
+        # at offset 6 of each local header and offset 8 of each central directory record
+        raw = bytearray(out)
+        for signature, offset in ((b"PK\x03\x04", 6), (b"PK\x01\x02", 8)):
+            at = raw.find(signature)
+            while at != -1:
+                raw[at + offset] |= max(flags for *_, flags in entries)
+                at = raw.find(signature, at + 4)
+        out = bytes(raw)
+    return out
+
+
+def plain(name, data=b"x"):
+    return (name, data, stat.S_IFREG | 0o644, 0)
+
+
+def unpack_recipe(tmp_path, net, data, *, to="files", url="https://e.invalid/p.zip", extra=(),
+                  **row):
+    net.files[url] = data
+    src = [{"url": url, "size": len(data), "sha256": digest(data), "to": to, "unpack": True,
+            **row}, *extra]
+    return build.load_recipe(make_recipe(tmp_path / "r" / "kerbrute", net, sources=src))
+
+
+def stage_it(recipe, tmp_path, net):
+    return build.stage(recipe, tmp_path / "w", tmp_path / "c", fetch=net)
+
+
+def test_unpack_puts_every_file_under_to(tmp_path, net):
+    data = zip_bytes({"playbooks/a/x.md": b"X", "playbooks/b.md": b"B", "LICENSE": b"L"})
+    staged = stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+    assert (staged / "files" / "playbooks" / "a" / "x.md").read_bytes() == b"X"
+    assert (staged / "files" / "playbooks" / "b.md").read_bytes() == b"B"
+    assert (staged / "files" / "LICENSE").read_bytes() == b"L"
+
+
+def test_unpack_into_a_subfolder(tmp_path, net):
+    data = zip_bytes({"x.md": b"X"})
+    staged = stage_it(unpack_recipe(tmp_path, net, data, to="files/notes"), tmp_path, net)
+    assert (staged / "files" / "notes" / "x.md").read_bytes() == b"X"
+
+
+def test_unpack_makes_directory_entries_and_copies_files(tmp_path, net):
+    data = crafted_zip([("d/", b"", stat.S_IFDIR | 0o755, 0), plain("d/f.md", b"F")])
+    staged = stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+    assert (staged / "files" / "d" / "f.md").read_bytes() == b"F"
+
+
+def test_unpack_takes_no_member(tmp_path, net):
+    with pytest.raises(build.BuildError, match="takes no member"):
+        unpack_recipe(tmp_path, net, zip_bytes({"a": b"1"}), member="a")
+
+
+def test_unpack_needs_a_zip(tmp_path, net):
+    with pytest.raises(build.BuildError, match="must be a zip"):
+        unpack_recipe(tmp_path, net, tar_gz({"a": b"1"}), url="https://e.invalid/p.tar.gz")
+
+
+@pytest.mark.parametrize("value", ["yes", 1])
+def test_unpack_is_true_or_false(tmp_path, net, value):
+    with pytest.raises(build.BuildError, match="unpack: must be true or false"):
+        unpack_recipe(tmp_path, net, zip_bytes({"a": b"1"}), unpack=value)
+
+
+@pytest.mark.parametrize("to", ["other", "/files", "files/../x", "files\\x"])
+def test_unpack_to_must_be_files_or_under_it(tmp_path, net, to):
+    with pytest.raises(build.BuildError):
+        unpack_recipe(tmp_path, net, zip_bytes({"a": b"1"}), to=to)
+
+
+def test_a_file_source_still_may_not_go_to_files_itself(tmp_path, net):
+    src = [{"url": "https://e.invalid/x", "size": 1, "sha256": "0" * 64, "to": "files"}]
+    with pytest.raises(build.BuildError):
+        build.load_recipe(make_recipe(tmp_path / "r" / "kerbrute", net, sources=src))
+
+
+@pytest.mark.parametrize("name", ["../x", "/etc/x", "C:x", "a\\b", "a/./b", "a//b", "a/../../x"])
+def test_unpack_refuses_unsafe_paths(tmp_path, net, name):
+    data = crafted_zip([plain("ok.md"), plain(name)])
+    with pytest.raises(build.BuildError, match="would write outside files"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+    assert not (tmp_path / "x").exists()
+    assert not (tmp_path / "w" / "x").exists()
+
+
+def test_unpack_refuses_a_link(tmp_path, net):
+    data = crafted_zip([("l", b"/etc/passwd", stat.S_IFLNK | 0o777, 0)])
+    with pytest.raises(build.BuildError, match="'l' is a link or special file"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+def test_unpack_refuses_an_encrypted_entry(tmp_path, net):
+    data = crafted_zip([("e.md", b"x", stat.S_IFREG | 0o644, 0x1)])
+    with pytest.raises(build.BuildError, match="'e.md' is encrypted"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+def test_unpack_refuses_case_twins(tmp_path, net):
+    data = crafted_zip([plain("playbooks/A.md"), plain("playbooks/a.md")])
+    with pytest.raises(build.BuildError, match="more than one source.*without case"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+def test_unpack_refuses_landing_on_another_source(tmp_path, net):
+    licence = b"other licence"
+    net.files["https://e.invalid/LICENSE"] = licence
+    other = {"url": "https://e.invalid/LICENSE", "size": len(licence), "sha256": digest(licence),
+             "to": "files/LICENSE"}
+    data = zip_bytes({"LICENSE": b"L", "x.md": b"X"})
+    with pytest.raises(build.BuildError, match="files/LICENSE is written by more than one source"):
+        stage_it(unpack_recipe(tmp_path, net, data, extra=[other]), tmp_path, net)
+
+
+def test_a_file_source_may_not_land_inside_an_unpacked_one(tmp_path, net):
+    one = b"one"
+    net.files["https://e.invalid/one"] = one
+    first = {"url": "https://e.invalid/one", "size": len(one), "sha256": digest(one),
+             "to": "files/x.md"}
+    data = zip_bytes({"X.md": b"X"})
+    recipe = build.load_recipe(make_recipe(
+        tmp_path / "r" / "kerbrute", net,
+        sources=[first, {"url": "https://e.invalid/p.zip", "size": len(data),
+                         "sha256": digest(data), "to": "files", "unpack": True}],
+    ))
+    net.files["https://e.invalid/p.zip"] = data
+    with pytest.raises(build.BuildError, match="files/X.md is written by more than one source"):
+        stage_it(recipe, tmp_path, net)
+
+
+def test_unpack_refuses_one_folder_in_two_cases(tmp_path, net):
+    data = crafted_zip([plain("Playbooks/a.md"), plain("playbooks/b.md")])
+    with pytest.raises(build.BuildError,
+                       match="files/playbooks and files/Playbooks name one folder in different cases"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+def test_unpack_refuses_a_folder_in_another_case_than_a_file_source(tmp_path, net):
+    one = b"one"
+    net.files["https://e.invalid/one"] = one
+    first = {"url": "https://e.invalid/one", "size": len(one), "sha256": digest(one),
+             "to": "files/Tools/x"}
+    data = zip_bytes({"tools/y": b"Y"})
+    with pytest.raises(build.BuildError, match="name one folder in different cases"):
+        stage_it(unpack_recipe(tmp_path, net, data, extra=[first]), tmp_path, net)
+
+
+@pytest.mark.parametrize("entries", [
+    [plain("a"), ("A/", b"", stat.S_IFDIR | 0o755, 0)],
+    [("A/", b"", stat.S_IFDIR | 0o755, 0), plain("a")],
+    [plain("a"), plain("A/b")],
+    [plain("A/b"), plain("a")],
+])
+def test_unpack_refuses_a_file_and_a_folder_of_one_name(tmp_path, net, entries):
+    with pytest.raises(build.BuildError, match="is both a file and a folder"):
+        stage_it(unpack_recipe(tmp_path, net, crafted_zip(entries)), tmp_path, net)
+
+
+@pytest.mark.parametrize("name", ["a.md.", "a.md ", "dir./a.md", "dir /a.md"])
+def test_unpack_refuses_a_part_ending_in_a_dot_or_a_space(tmp_path, net, name):
+    data = crafted_zip([plain("a.md"), plain(name)])
+    with pytest.raises(build.BuildError, match="ends in a dot or a space"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+@pytest.mark.parametrize("name", ["x\x01.md", "x\x7f.md", "a\x00b.md"])
+def test_unpack_refuses_a_control_character(tmp_path, net, name):
+    data = crafted_zip([plain(name)])
+    with pytest.raises(build.BuildError, match="control character"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+@pytest.mark.parametrize(("name", "fault"), [
+    ("a" * 256 + ".md", "with a part longer than 255 bytes"),
+    ("/".join(["d"] * 64) + "/x.md", "with more than 64 parts"),
+    ("/".join(["d" * 200] * 21) + "/x.md", "longer than 4096 bytes"),
+])
+def test_unpack_refuses_what_pwn_broker_finds_too_long(tmp_path, net, name, fault):
+    data = crafted_zip([plain(name)])
+    with pytest.raises(build.BuildError, match=fault):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+def test_unpack_refuses_too_many_entries(tmp_path, net, monkeypatch):
+    monkeypatch.setattr(build, "MAX_MEMBERS", 2)
+    data = zip_bytes({"a": b"1", "b": b"2", "c": b"3"})
+    with pytest.raises(build.BuildError, match="3 entries; the limit is 2"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+def test_unpack_refuses_too_many_bytes(tmp_path, net, monkeypatch):
+    monkeypatch.setattr(build, "MAX_UNPACKED_BYTES", 15)
+    data = zip_bytes({"a": b"1" * 10, "b": b"2" * 10})
+    with pytest.raises(build.BuildError, match="unpacks to more than 15 bytes"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+def test_unpack_counts_the_bytes_it_copies_not_the_header(tmp_path, net, monkeypatch):
+    monkeypatch.setattr(build, "MAX_UNPACKED_BYTES", 15)
+    data = zip_bytes({"a": b"1" * 20})
+    infolist = zipfile.ZipFile.infolist
+
+    def small_headers(self):
+        infos = infolist(self)
+        for info in infos:
+            info.file_size = 1
+        return infos
+
+    monkeypatch.setattr(zipfile.ZipFile, "infolist", small_headers)
+    # zipfile reads no more than a header states, and then the CRC fails; either way it stops
+    with pytest.raises(build.BuildError, match="unpacks to more than 15 bytes|Bad CRC-32"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+def test_unpack_refuses_an_empty_zip(tmp_path, net):
+    data = crafted_zip([("d/", b"", stat.S_IFDIR | 0o755, 0)])
+    with pytest.raises(build.BuildError, match="holds no files"):
+        stage_it(unpack_recipe(tmp_path, net, data), tmp_path, net)
+
+
+def test_unpacked_package_validates_and_rebuilds_the_same(tmp_path, net):
+    data = zip_bytes({"kerbrute": b"#!/bin/sh\n", "doc/readme.md": b"R"})
+    recipe = unpack_recipe(tmp_path, net, data)
+    first = build.build_one(recipe, tmp_path / "out1", tmp_path / "c", fetch_fn=net)
+    second = build.build_one(recipe, tmp_path / "out2", tmp_path / "c", fetch_fn=net)
+    assert first.read_bytes() == second.read_bytes()
+    with zipfile.ZipFile(first) as zf:
+        assert "files/doc/readme.md" in zf.namelist()
 
 
 def test_the_one_file_in_a_plain_gz_is_a_member(tmp_path, net):
@@ -1744,15 +1992,15 @@ def test_what_write_wheels_lock_writes_passes_validate(tmp_path):
 
 # ---- the rules shared with pwn-broker
 
-# literal copies of pwn-broker's toolpkg._NAME.pattern and toolpkg.KINDS
+# literal copies of pwn-broker's toolpkg._NAME.pattern, toolpkg.KINDS and toolpkg.SCHEMAS (0.1.7)
 NAME_PATTERN = r"[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*"
-APP_KINDS = ("kali", "upload", "both", "runtime")
+APP_KINDS = ("kali", "upload", "both", "runtime", "notes")
 
 
 def test_name_pattern_and_kinds_equal_the_apps():
     assert build._NAME.pattern == NAME_PATTERN
     assert build.KINDS == APP_KINDS
-    assert build.SCHEMAS == (1, 2)
+    assert build.SCHEMAS == (1, 2, 3)
 
 
 def pkg_manifest(**over):
@@ -1848,8 +2096,9 @@ BAD_SCHEMA_2 = [
      "python.versions: schema 2 has no versions"),
     (runtime_manifest(runtime=None), r"runtime: a runtime package needs a \[runtime\] table"),
     (runtime_manifest(runtime="files/python.tar.gz"), "runtime: must be a table"),
-    (pkg_manifest(schema=3), "schema: must be 1 or 2"),
-    (pkg_manifest(schema=True), "schema: must be 1 or 2"),
+    (pkg_manifest(schema=3), "schema: only a notes package is schema 3"),
+    (pkg_manifest(schema=4), "schema: must be 1, 2 or 3"),
+    (pkg_manifest(schema=True), "schema: must be 1, 2 or 3"),
 ]
 
 
@@ -2209,7 +2458,10 @@ def test_a_stated_schema_must_agree_with_what_the_recipe_is(tmp_path, net):
     with pytest.raises(build.BuildError, match="requires nothing must be schema 1"):
         build.load_recipe(folder)
     folder = make_recipe(tmp_path / "third" / "kerbrute", net, manifest={**PLAIN_MANIFEST, "schema": 3})
-    with pytest.raises(build.BuildError, match="schema must be 1 or 2"):
+    with pytest.raises(build.BuildError, match="schema: only a notes package is schema 3"):
+        build.load_recipe(folder)
+    folder = make_recipe(tmp_path / "fourth" / "kerbrute", net, manifest={**PLAIN_MANIFEST, "schema": 4})
+    with pytest.raises(build.BuildError, match="manifest schema must be 1, 2 or 3"):
         build.load_recipe(folder)
 
 
@@ -2289,7 +2541,7 @@ def test_the_index_is_schema_2_with_a_runtime_alone():
         ([{**cardf(), "requires": ["Bad"]}], "'Bad' is not a valid package name"),
         ([{**cardf(), "requires": ["a", "a"]}], "'a' appears more than once"),
         ([{**cardf(), "requires": ["kerbrute"]}], "kerbrute cannot require itself"),
-        ([{**cardf(), "kind": "other"}], "kind must be one of kali, upload, both, runtime"),
+        ([{**cardf(), "kind": "other"}], "kind must be one of kali, upload, both, runtime, notes"),
     ],
 )
 def test_the_index_refuses_what_the_app_refuses(cards, message):
@@ -2417,3 +2669,148 @@ def test_the_index_holds_the_real_case():
 def test_the_index_refuses_a_card_whose_name_breaks_the_name_rule():
     with pytest.raises(build.BuildError, match="name 'Bad_Name' must be lower-case"):
         build.build_index([cardf(name="Bad_Name")], base_url=None)
+
+
+
+# ---- notes packages (schema 3)
+
+
+def notes_zip(files=None) -> bytes:
+    return zip_bytes(files if files is not None else
+                     {"LICENSE": b"CC BY 4.0\n", "playbooks/02-enum/smb.md": PLAYBOOK})
+
+
+def notes_recipe(tmp_path, net, manifest=None, data=None, where="r"):
+    data = notes_zip() if data is None else data
+    url = "https://e.invalid/playbooks-2026.11.20.zip"
+    net.files[url] = data
+    src = [{"url": url, "size": len(data), "sha256": digest(data), "to": "files", "unpack": True}]
+    folder = make_recipe(tmp_path / where / "playbooks", net, sources=src, version="2026.11.20",
+                         manifest=NOTES_MANIFEST if manifest is None else manifest)
+    return folder
+
+
+def notes_manifest(**over):
+    m = {"schema": 3, "name": "playbooks", "version": "2026.11.20", "build": 1, **NOTES_MANIFEST}
+    return {k: v for k, v in {**m, **over}.items() if v is not None}
+
+
+def notes_card(version="2026.11.20", build_no=1, **over):
+    return {
+        "name": "playbooks", "version": version, "build": build_no, "kind": "notes",
+        "description": "d", "tags": ["notes"], "upstream": "https://u", "licence": "CC-BY-4.0",
+        "arch": "any", "needs_root": False, "commands": [],
+        "file": f"playbooks-{version}-{build_no}.zip", "size": 10, "sha256": "b" * 64, **over,
+    }
+
+
+def test_a_notes_recipe_is_schema_3(tmp_path, net):
+    recipe = build.load_recipe(notes_recipe(tmp_path, net))
+    assert recipe.manifest["schema"] == 3
+    assert build.load_recipe(notes_recipe(tmp_path, net, {**NOTES_MANIFEST, "schema": 3}, where="s"))
+
+
+@pytest.mark.parametrize("schema", [1, 2])
+def test_a_notes_recipe_stating_another_schema_is_refused(tmp_path, net, schema):
+    with pytest.raises(build.BuildError, match="kind: notes needs schema 3"):
+        build.load_recipe(notes_recipe(tmp_path, net, {**NOTES_MANIFEST, "schema": schema}))
+
+
+@pytest.mark.parametrize(
+    ("over", "message"),
+    [
+        ({"command": [{"name": "x", "type": "binary", "path": "files/x"}]},
+         "command: a notes package has no commands"),
+        ({"upload": [{"path": "files/x", "as": "x"}]}, "upload: a notes package has no uploads"),
+        ({"python": {"lock": "wheels.lock", "wheels": "wheels"}}, "python: a notes package has no Python"),
+        ({"requires": ["python-3.13"]}, "requires: a notes package requires nothing"),
+        ({"data": {"home": [".playbooks"]}}, "data: a notes package keeps no tool data"),
+        ({"runtime": {"archive": "files/x"}}, "runtime: a notes package is not a runtime"),
+        ({"needs_root": True}, "needs_root: a notes package never needs root"),
+        ({"arch": "x86_64"}, r'arch: a notes package is for any machine \(arch = "any"\)'),
+        ({"notes": None}, r"notes: a notes package needs a \[notes\] table"),
+        ({"notes": "files/playbooks"}, "notes: must be a table"),
+        ({"notes": {"root": "playbooks"}}, "notes.root: 'playbooks' must start with files/"),
+        ({"notes": {"root": "files/../x"}}, "notes.root"),
+        ({"notes": {}}, "notes.root: must be a non-empty string"),
+        ({"schema": 2}, "kind: notes needs schema 3"),
+        ({"description": ""}, "description: must be a non-empty string"),
+    ],
+)
+def test_notes_manifest_rules_are_the_apps(over, message):
+    with pytest.raises(build.BuildError, match=message):
+        build._check_manifest(notes_manifest(**over))
+
+
+def test_a_good_notes_manifest_names_no_files():
+    assert build._check_manifest(notes_manifest()) == ([], None, [])
+
+
+def test_any_arch_is_only_for_notes():
+    with pytest.raises(build.BuildError, match="arch: 'any' must be x86_64"):
+        build._check_manifest(pkg_manifest(arch="any"))
+
+
+def notes_pkg(tmp_path, files):
+    entries = {"manifest.toml": tomli_w.dumps(notes_manifest()).encode(), "LICENSE": b"l\n", **files}
+    path = tmp_path / "playbooks-2026.11.20-1.zip"
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+    return path
+
+
+def test_validate_needs_an_md_under_the_notes_root(tmp_path):
+    with pytest.raises(build.BuildError, match="files/playbooks: the package holds no .md files"):
+        build.validate(notes_pkg(tmp_path, {"files/playbooks/readme.txt": b"x", "files/other.md": b"x"}))
+    build.validate(notes_pkg(tmp_path, {"files/playbooks/02-enum/smb.md": PLAYBOOK}))
+
+
+def test_the_index_is_schema_3_with_a_notes_build():
+    idx = build.build_index(build.card_order([cardf(), runtime_card(), notes_card()]), base_url=None)
+    assert idx["schema"] == 3
+    notes = next(t for t in idx["tool"] if t["name"] == "playbooks")["build"][0]
+    assert notes["kind"] == "notes" and notes["commands"] == [] and notes["needs_root"] is False
+
+
+def test_an_index_without_notes_keeps_its_schema():
+    assert build.build_index([cardf()], base_url=None)["schema"] == 1
+    assert build.build_index(build.card_order([cardf(), runtime_card()]), base_url=None)["schema"] == 2
+
+
+@pytest.mark.parametrize(
+    ("cards", "message"),
+    [
+        ([notes_card(), {**notes_card("2026.12.01"), "kind": "kali", "commands": ["playbooks"]}],
+         "playbooks: its builds mix kind notes with other kinds"),
+        ([notes_card(commands=["pb"])], "a notes package has no commands"),
+        ([notes_card(requires=["python-3.13"]), runtime_card()], "requires: a notes package requires nothing"),
+        ([notes_card(needs_root=True)], "a notes package never needs root"),
+    ],
+)
+def test_the_index_refuses_what_the_app_refuses_of_notes(cards, message):
+    with pytest.raises(build.BuildError, match=message):
+        build.build_index(build.card_order(cards), base_url=None)
+
+
+def test_a_notes_package_builds_end_to_end(tmp_path, net):
+    recipe = build.load_recipe(notes_recipe(tmp_path, net))
+    out = tmp_path / "dist"
+    zip_path = build.build_one(recipe, out, tmp_path / "c", fetch_fn=net)
+    assert zip_path.name == "playbooks-2026.11.20-1.zip"
+    with zipfile.ZipFile(zip_path) as zf:
+        assert sorted(zf.namelist()) == [
+            "LICENSE", "files/LICENSE", "files/playbooks/02-enum/smb.md", "manifest.toml"
+        ]
+        assert zf.read("files/playbooks/02-enum/smb.md") == PLAYBOOK
+    card = tomllib.loads((out / "playbooks-2026.11.20-1.toml").read_text())
+    assert (card["kind"], card["commands"], card["arch"], card["needs_root"]) == ("notes", [], "any", False)
+    index = tomllib.loads(build.write_index_from_cards(out, out / "index.toml", base_url=None).read_text())
+    assert index["schema"] == 3
+    assert index["tool"][0]["build"][0]["kind"] == "notes"
+
+
+def test_a_notes_recipe_whose_zip_holds_no_playbooks_fails_to_build(tmp_path, net):
+    recipe = build.load_recipe(notes_recipe(tmp_path, net, data=notes_zip({"LICENSE": b"x"})))
+    with pytest.raises(build.BuildError, match="files/playbooks: the package holds no .md files"):
+        build.build_one(recipe, tmp_path / "dist", tmp_path / "c", fetch_fn=net)

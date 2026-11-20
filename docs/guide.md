@@ -42,15 +42,15 @@ That writes `dist/` with the zips, a card for each, `dist/sums/<tag>/SHA256SUMS.
 
 A package is one zip for one build of one tool: `manifest.toml`, the upstream licence as `LICENSE`, the tool's files under `files/` exactly as upstream published them, and for a Python tool every dependency as a wheel under `wheels/`, each recorded with its SHA-256 in `wheels.lock`. The format is the one pwn-broker reads, described in its `docs/design.md`, section 8.
 
-No tool binary is committed here. A recipe (`recipes/<tool>/recipe.toml`) names each upstream file by its address, size and SHA-256, and where it goes in the package; a source may be a bare file or one member of a `tar.gz` or `zip`. `build.py` downloads it, refuses it if the size or the SHA-256 differs, and writes the zip. The zip's entries are stored, not compressed, with a fixed date and no executable bits, so its bytes do not depend on the machine that built it. pwn-broker makes everything under `files/` executable when it installs.
+No tool binary is committed here. A recipe (`recipes/<tool>/recipe.toml`) names each upstream file by its address, size and SHA-256, and where it goes in the package; a source may be a bare file, one member of a `tar.gz` or `zip`, or a whole `zip` unpacked into a folder under `files/`. `build.py` downloads it, refuses it if the size or the SHA-256 differs, and writes the zip. The zip's entries are stored, not compressed, with a fixed date and no executable bits, so its bytes do not depend on the machine that built it. pwn-broker makes everything under `files/` executable when it installs.
 
-Kind `kali` puts a command on the machine, `upload` puts files in a folder to carry to the target, and `both` does both. A `runtime` is never installed on its own: `tool install` and `tool remove` refuse its name, and it comes and goes with the tools that require it.
+Kind `kali` puts a command on the machine, `upload` puts files in a folder to carry to the target, and `both` does both. A `runtime` is never installed on its own: `tool install` and `tool remove` refuse its name, and it comes and goes with the tools that require it. A `notes` package puts nothing on PATH and nothing to upload: it holds files to read, such as the playbooks pwn-broker's note window reads with `:Pb`. It is manifest and index schema 3. pwn-broker 0.1.7 and later read it; an older pwn-broker refuses an index holding a `notes` build and says to upgrade.
 
 ## The runtime
 
 A Python tool built now does not run on Kali's own Python. It names the runtime it requires (`requires = ["python-3.13"]` in its manifest), a package of kind `runtime` that carries one Python build from [python-build-standalone](https://github.com/astral-sh/python-build-standalone) byte for byte, and its wheels are for that Python alone. pwn-broker installs the runtime with the first tool that requires it, makes the tool's virtual environment with the runtime's interpreter, and removes the runtime once no installed tool requires it. A runtime puts nothing in `/opt/pwn-broker/bin`, so Kali's `python3` is never shadowed. When Kali moves to a new Python, a tool on a runtime is not affected.
 
-A runtime or a tool that requires one is schema 2; every other package is schema 1, so the packages published before runtimes rebuild byte for byte.
+A runtime or a tool that requires one is schema 2, a notes package is schema 3, and every other package is schema 1, so the packages published before runtimes rebuild byte for byte.
 
 The runtime's `LICENSE` holds these parts, each under a heading that names it and where it came from, each copied byte for byte:
 
