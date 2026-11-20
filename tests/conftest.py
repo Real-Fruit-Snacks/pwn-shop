@@ -79,6 +79,22 @@ PLAIN_MANIFEST = {
 }
 
 
+# design 8.14's playbooks manifest, as a recipe holds it
+NOTES_MANIFEST = {
+    "kind": "notes",
+    "description": "Playbooks to read into the note and fill in",
+    "tags": ["notes", "playbooks"],
+    "upstream": "https://github.com/Real-Fruit-Snacks/pwn-playbooks",
+    "licence": "CC-BY-4.0",
+    "arch": "any",
+    "notes": {"root": "files/playbooks"},
+}
+
+PLAYBOOK = (
+    b"##########@@@@@@@@@@\nPlaybook: SMB enumeration   02-enum/smb   2026.11.20\n\n"
+    b"## Null session\nnxc smb 10.10.10.5\n\nEND OF smb PLAYBOOK\n@@@@@@@@@@##########\n"
+)
+
 def make_recipe(folder: Path, net: FakeNet, *, sources: list[dict] | None = None,
                 manifest: dict | None = None, licence: bool = True, version="1.0.3", name=None, build_no=1) -> Path:
     folder.mkdir(parents=True, exist_ok=True)

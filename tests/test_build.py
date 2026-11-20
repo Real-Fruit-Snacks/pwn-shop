@@ -14,7 +14,7 @@ import tomli_w
 
 import build
 from conftest import (
-    PLAIN_MANIFEST, PY_MANIFEST, RUNTIME_ARCHIVE, RUNTIME_MANIFEST, FakeTools, digest, lock_text,
+    NOTES_MANIFEST, PLAYBOOK, PLAIN_MANIFEST, PY_MANIFEST, RUNTIME_ARCHIVE, RUNTIME_MANIFEST, FakeTools, digest, lock_text,
     make_python_recipe, make_recipe, make_runtime_recipe, make_wheel,
     tar_gz, wheel_bytes, wheel_name, zip_bytes,
 )
@@ -1939,15 +1939,15 @@ def test_what_write_wheels_lock_writes_passes_validate(tmp_path):
 
 # ---- the rules shared with pwn-broker
 
-# literal copies of pwn-broker's toolpkg._NAME.pattern and toolpkg.KINDS
+# literal copies of pwn-broker's toolpkg._NAME.pattern, toolpkg.KINDS and toolpkg.SCHEMAS (0.1.7)
 NAME_PATTERN = r"[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*"
-APP_KINDS = ("kali", "upload", "both", "runtime")
+APP_KINDS = ("kali", "upload", "both", "runtime", "notes")
 
 
 def test_name_pattern_and_kinds_equal_the_apps():
     assert build._NAME.pattern == NAME_PATTERN
     assert build.KINDS == APP_KINDS
-    assert build.SCHEMAS == (1, 2)
+    assert build.SCHEMAS == (1, 2, 3)
 
 
 def pkg_manifest(**over):
@@ -2043,8 +2043,9 @@ BAD_SCHEMA_2 = [
      "python.versions: schema 2 has no versions"),
     (runtime_manifest(runtime=None), r"runtime: a runtime package needs a \[runtime\] table"),
     (runtime_manifest(runtime="files/python.tar.gz"), "runtime: must be a table"),
-    (pkg_manifest(schema=3), "schema: must be 1 or 2"),
-    (pkg_manifest(schema=True), "schema: must be 1 or 2"),
+    (pkg_manifest(schema=3), "schema: only a notes package is schema 3"),
+    (pkg_manifest(schema=4), "schema: must be 1, 2 or 3"),
+    (pkg_manifest(schema=True), "schema: must be 1, 2 or 3"),
 ]
 
 
@@ -2404,7 +2405,10 @@ def test_a_stated_schema_must_agree_with_what_the_recipe_is(tmp_path, net):
     with pytest.raises(build.BuildError, match="requires nothing must be schema 1"):
         build.load_recipe(folder)
     folder = make_recipe(tmp_path / "third" / "kerbrute", net, manifest={**PLAIN_MANIFEST, "schema": 3})
-    with pytest.raises(build.BuildError, match="schema must be 1 or 2"):
+    with pytest.raises(build.BuildError, match="schema: only a notes package is schema 3"):
+        build.load_recipe(folder)
+    folder = make_recipe(tmp_path / "fourth" / "kerbrute", net, manifest={**PLAIN_MANIFEST, "schema": 4})
+    with pytest.raises(build.BuildError, match="manifest schema must be 1, 2 or 3"):
         build.load_recipe(folder)
 
 
@@ -2484,7 +2488,7 @@ def test_the_index_is_schema_2_with_a_runtime_alone():
         ([{**cardf(), "requires": ["Bad"]}], "'Bad' is not a valid package name"),
         ([{**cardf(), "requires": ["a", "a"]}], "'a' appears more than once"),
         ([{**cardf(), "requires": ["kerbrute"]}], "kerbrute cannot require itself"),
-        ([{**cardf(), "kind": "other"}], "kind must be one of kali, upload, both, runtime"),
+        ([{**cardf(), "kind": "other"}], "kind must be one of kali, upload, both, runtime, notes"),
     ],
 )
 def test_the_index_refuses_what_the_app_refuses(cards, message):
@@ -2612,3 +2616,148 @@ def test_the_index_holds_the_real_case():
 def test_the_index_refuses_a_card_whose_name_breaks_the_name_rule():
     with pytest.raises(build.BuildError, match="name 'Bad_Name' must be lower-case"):
         build.build_index([cardf(name="Bad_Name")], base_url=None)
+
+
+
+# ---- notes packages (schema 3)
+
+
+def notes_zip(files=None) -> bytes:
+    return zip_bytes(files if files is not None else
+                     {"LICENSE": b"CC BY 4.0\n", "playbooks/02-enum/smb.md": PLAYBOOK})
+
+
+def notes_recipe(tmp_path, net, manifest=None, data=None, where="r"):
+    data = notes_zip() if data is None else data
+    url = "https://e.invalid/playbooks-2026.11.20.zip"
+    net.files[url] = data
+    src = [{"url": url, "size": len(data), "sha256": digest(data), "to": "files", "unpack": True}]
+    folder = make_recipe(tmp_path / where / "playbooks", net, sources=src, version="2026.11.20",
+                         manifest=NOTES_MANIFEST if manifest is None else manifest)
+    return folder
+
+
+def notes_manifest(**over):
+    m = {"schema": 3, "name": "playbooks", "version": "2026.11.20", "build": 1, **NOTES_MANIFEST}
+    return {k: v for k, v in {**m, **over}.items() if v is not None}
+
+
+def notes_card(version="2026.11.20", build_no=1, **over):
+    return {
+        "name": "playbooks", "version": version, "build": build_no, "kind": "notes",
+        "description": "d", "tags": ["notes"], "upstream": "https://u", "licence": "CC-BY-4.0",
+        "arch": "any", "needs_root": False, "commands": [],
+        "file": f"playbooks-{version}-{build_no}.zip", "size": 10, "sha256": "b" * 64, **over,
+    }
+
+
+def test_a_notes_recipe_is_schema_3(tmp_path, net):
+    recipe = build.load_recipe(notes_recipe(tmp_path, net))
+    assert recipe.manifest["schema"] == 3
+    assert build.load_recipe(notes_recipe(tmp_path, net, {**NOTES_MANIFEST, "schema": 3}, where="s"))
+
+
+@pytest.mark.parametrize("schema", [1, 2])
+def test_a_notes_recipe_stating_another_schema_is_refused(tmp_path, net, schema):
+    with pytest.raises(build.BuildError, match="kind: notes needs schema 3"):
+        build.load_recipe(notes_recipe(tmp_path, net, {**NOTES_MANIFEST, "schema": schema}))
+
+
+@pytest.mark.parametrize(
+    ("over", "message"),
+    [
+        ({"command": [{"name": "x", "type": "binary", "path": "files/x"}]},
+         "command: a notes package has no commands"),
+        ({"upload": [{"path": "files/x", "as": "x"}]}, "upload: a notes package has no uploads"),
+        ({"python": {"lock": "wheels.lock", "wheels": "wheels"}}, "python: a notes package has no Python"),
+        ({"requires": ["python-3.13"]}, "requires: a notes package requires nothing"),
+        ({"data": {"home": [".playbooks"]}}, "data: a notes package keeps no tool data"),
+        ({"runtime": {"archive": "files/x"}}, "runtime: a notes package is not a runtime"),
+        ({"needs_root": True}, "needs_root: a notes package never needs root"),
+        ({"arch": "x86_64"}, r'arch: a notes package is for any machine \(arch = "any"\)'),
+        ({"notes": None}, r"notes: a notes package needs a \[notes\] table"),
+        ({"notes": "files/playbooks"}, "notes: must be a table"),
+        ({"notes": {"root": "playbooks"}}, "notes.root: 'playbooks' must start with files/"),
+        ({"notes": {"root": "files/../x"}}, "notes.root"),
+        ({"notes": {}}, "notes.root: must be a non-empty string"),
+        ({"schema": 2}, "kind: notes needs schema 3"),
+        ({"description": ""}, "description: must be a non-empty string"),
+    ],
+)
+def test_notes_manifest_rules_are_the_apps(over, message):
+    with pytest.raises(build.BuildError, match=message):
+        build._check_manifest(notes_manifest(**over))
+
+
+def test_a_good_notes_manifest_names_no_files():
+    assert build._check_manifest(notes_manifest()) == ([], None, [])
+
+
+def test_any_arch_is_only_for_notes():
+    with pytest.raises(build.BuildError, match="arch: 'any' must be x86_64"):
+        build._check_manifest(pkg_manifest(arch="any"))
+
+
+def notes_pkg(tmp_path, files):
+    entries = {"manifest.toml": tomli_w.dumps(notes_manifest()).encode(), "LICENSE": b"l\n", **files}
+    path = tmp_path / "playbooks-2026.11.20-1.zip"
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+    return path
+
+
+def test_validate_needs_an_md_under_the_notes_root(tmp_path):
+    with pytest.raises(build.BuildError, match="files/playbooks: the package holds no .md files"):
+        build.validate(notes_pkg(tmp_path, {"files/playbooks/readme.txt": b"x", "files/other.md": b"x"}))
+    build.validate(notes_pkg(tmp_path, {"files/playbooks/02-enum/smb.md": PLAYBOOK}))
+
+
+def test_the_index_is_schema_3_with_a_notes_build():
+    idx = build.build_index(build.card_order([cardf(), runtime_card(), notes_card()]), base_url=None)
+    assert idx["schema"] == 3
+    notes = next(t for t in idx["tool"] if t["name"] == "playbooks")["build"][0]
+    assert notes["kind"] == "notes" and notes["commands"] == [] and notes["needs_root"] is False
+
+
+def test_an_index_without_notes_keeps_its_schema():
+    assert build.build_index([cardf()], base_url=None)["schema"] == 1
+    assert build.build_index(build.card_order([cardf(), runtime_card()]), base_url=None)["schema"] == 2
+
+
+@pytest.mark.parametrize(
+    ("cards", "message"),
+    [
+        ([notes_card(), {**notes_card("2026.12.01"), "kind": "kali", "commands": ["playbooks"]}],
+         "playbooks: its builds mix kind notes with other kinds"),
+        ([notes_card(commands=["pb"])], "a notes package has no commands"),
+        ([notes_card(requires=["python-3.13"]), runtime_card()], "requires: a notes package requires nothing"),
+        ([notes_card(needs_root=True)], "a notes package never needs root"),
+    ],
+)
+def test_the_index_refuses_what_the_app_refuses_of_notes(cards, message):
+    with pytest.raises(build.BuildError, match=message):
+        build.build_index(build.card_order(cards), base_url=None)
+
+
+def test_a_notes_package_builds_end_to_end(tmp_path, net):
+    recipe = build.load_recipe(notes_recipe(tmp_path, net))
+    out = tmp_path / "dist"
+    zip_path = build.build_one(recipe, out, tmp_path / "c", fetch_fn=net)
+    assert zip_path.name == "playbooks-2026.11.20-1.zip"
+    with zipfile.ZipFile(zip_path) as zf:
+        assert sorted(zf.namelist()) == [
+            "LICENSE", "files/LICENSE", "files/playbooks/02-enum/smb.md", "manifest.toml"
+        ]
+        assert zf.read("files/playbooks/02-enum/smb.md") == PLAYBOOK
+    card = tomllib.loads((out / "playbooks-2026.11.20-1.toml").read_text())
+    assert (card["kind"], card["commands"], card["arch"], card["needs_root"]) == ("notes", [], "any", False)
+    index = tomllib.loads(build.write_index_from_cards(out, out / "index.toml", base_url=None).read_text())
+    assert index["schema"] == 3
+    assert index["tool"][0]["build"][0]["kind"] == "notes"
+
+
+def test_a_notes_recipe_whose_zip_holds_no_playbooks_fails_to_build(tmp_path, net):
+    recipe = build.load_recipe(notes_recipe(tmp_path, net, data=notes_zip({"LICENSE": b"x"})))
+    with pytest.raises(build.BuildError, match="files/playbooks: the package holds no .md files"):
+        build.build_one(recipe, tmp_path / "dist", tmp_path / "c", fetch_fn=net)
