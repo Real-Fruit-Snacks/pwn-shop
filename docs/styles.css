@@ -19,6 +19,7 @@
     --font: "Overpass", "Segoe UI", system-ui, sans-serif;
     --mono: "Overpass Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
     --wrap: 1240px; --gutter: clamp(.75rem, 3vw, 2.5rem); --pad: clamp(1.25rem, 3.4vw, 3rem);
+    --between: clamp(1.75rem, 1rem + 2.6vw, 3.25rem);   /* the ground left between two cards */
     --r: 14px; --ease: cubic-bezier(.2, .7, .2, 1);
     color-scheme: dark;
 }
@@ -87,11 +88,10 @@ p { margin: 0 0 1rem; text-wrap: pretty; }
 .card { position: relative; background: var(--card); border-radius: var(--r); padding: var(--pad); }
 .card.first { border-top-left-radius: 0; }
 .card.first::before { content: ""; position: absolute; z-index: -1; inset: 14px -12px -12px 14px; background: var(--card-2); border-radius: var(--r); }
-/* sheets overlap: each lies on the one above it, its edge a line of ground and its corners showing the sheet beneath */
-.stack { padding-bottom: 2rem; position: relative; z-index: 0; }   /* its own layer, so the sheet beneath the first card shows over the ground */
-.stack > .card + .card { margin-top: -6px; border-top: 2px solid var(--ground); background-clip: padding-box; }
-.stack > .card.ref:nth-of-type(even) { translate: 10px 0; }
-.stack > .card.first + .card { margin-top: 6px; }
+/* its own layer, so the sheet beneath the first card shows over the ground; open ground sets each card
+   apart from the next, with room left for that sheet */
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--between); padding-bottom: var(--between); position: relative; z-index: 0; }
+.stack > .card.first { margin-bottom: 12px; }
 .runhead { display: flex; flex-wrap: wrap; gap: .25rem 1.5rem; justify-content: space-between; margin: calc(-1 * var(--pad) + .9rem) 0 calc(var(--pad) - .2rem);
     padding-bottom: .7rem; border-bottom: 2px solid var(--ink); font: 600 .75rem/1.4 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--mute); }
 .runhead b { color: var(--ink); font-weight: 600; }
@@ -189,8 +189,8 @@ p { margin: 0 0 1rem; text-wrap: pretty; }
 .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr)); column-gap: clamp(1.5rem, 3vw, 3rem); }
 .cols > .ck { border-top-width: 3px; }
 .cols > .ck + .ck { border-top: 3px solid var(--ink); }
-.plain { margin: 0; padding: 0; list-style: none; border-top: 3px solid var(--ink); }
-.plain li { padding: .8rem 0 .8rem 1.6rem; border-bottom: 1px solid var(--rule); position: relative; max-width: 52em; }
+.plain { margin: 0; padding: 0; list-style: none; border-top: 3px solid var(--ink); max-width: 56rem; }
+.plain li { padding: .8rem 0 .8rem 1.6rem; border-bottom: 1px solid var(--rule); position: relative; }
 .plain li::before { content: ""; position: absolute; left: .2rem; top: 1.38rem; width: .7rem; height: 3px; background: var(--rule-strong); }
 .limits .plain li::before { background: var(--red); }
 
@@ -210,7 +210,6 @@ p { margin: 0 0 1rem; text-wrap: pretty; }
     .ck > li { grid-template-columns: 1.4rem auto minmax(.8rem, 1fr) auto; column-gap: .5rem; }
     .ck .ch { font-size: .9rem; }
     .ck .rs { font-size: .82rem; }
-    .stack > .card.ref:nth-of-type(even) { translate: none; }
     .screen { font-size: 12px; line-height: 19px; padding: .85rem .9rem 1rem; }
     .cmd:not(.cmd-block) { flex-direction: column; }
     .copy { min-height: 44px; }
