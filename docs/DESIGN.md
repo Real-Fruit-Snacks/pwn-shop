@@ -31,6 +31,16 @@ colors:
   screen-text: "#E8E6E1"
   screen-dim: "#9AA0A8"
   screen-ok: "#6FD39A"
+  screen-bright: "#FFFFFF"
+  screen-rule: "#2A2E34"
+  screen-scroll: "#3A3F46"
+  vim-marker: "#8A8F99"
+  vim-ip: "#FFC247"
+  vim-placeholder: "#FF6A3D"
+  vim-selection: "#2A2F36"
+  foot: "#C3C7CC"
+  print-paper: "#FFFFFF"
+  print-ink: "#000000"
 typography:
   display: { fontFamily: "Overpass, Segoe UI, system-ui, sans-serif", fontSize: "clamp(3rem, 1.2rem + 6vw, 6rem)", fontWeight: 900, lineHeight: 0.9, letterSpacing: "-0.035em" }
   headline: { fontFamily: "Overpass, Segoe UI, system-ui, sans-serif", fontSize: "clamp(1.9rem, 1.3rem + 2vw, 2.8rem)", fontWeight: 900, lineHeight: 1, letterSpacing: "-0.025em" }
@@ -52,6 +62,7 @@ spacing:
   gutter: "clamp(.75rem, 3vw, 2.5rem)"
   card-pad: "clamp(1.25rem, 3.4vw, 3rem)"
   wrap: "1240px"
+  between: "clamp(1.75rem, 1rem + 2.6vw, 3.25rem)"
   item: ".78rem .2rem"
 components:
   card: { backgroundColor: "{colors.card}", rounded: "{rounded.card}", padding: "{spacing.card-pad}" }
@@ -88,7 +99,7 @@ Night is the cockpit at night; Day lights the card, and the glareshield stays da
 
 | Role | Night | Day | Use |
 |---|---|---|---|
-| ground | `#0E1012` | `#34373C` | The glareshield behind the cards, and the seam between overlapping cards |
+| ground | `#0E1012` | `#34373C` | The glareshield behind the cards, and the open ground between them |
 | card / card-2 | `#1C1F23` / `#24282D` | `#F7F7F3` / `#E4E4DD` | The laminated sheet; the sheet beneath, tabs at rest, inline code |
 | display | `#08090A` | `#101214` | Session windows and command lines: dark in both themes, as a cockpit screen is |
 | rule / rule-strong | `#33383F` / `#6B717A` | `#D3D3CC` / `#85888C` | Item rules; dotted leaders, control borders, link underlines |
@@ -97,21 +108,21 @@ Night is the cockpit at night; Day lights the card, and the glareshield stays da
 | Red | `#F0565B` | `#C8102E` | Known issues and checks not run. Nothing else |
 | Broker / Shop / Playbooks | `#ECEBE6` / `#3FA86B` / `#4D93DB` | `#15171A` / `#2E7D4F` / `#2F6FB2` | Each project's tab hue: its tab's top edge, its title bars, link hovers |
 
-Broker's hue is ink, so the parent project reads as the handbook's own. Inside the display, text is `#E8E6E1`, dim lines `#9AA0A8`, prompts white and `ok` lines `#6FD39A` in both themes; the vim buffers on pwn-broker and pwn-playbooks use the note window's own colours, IPs `#FFC247` and placeholders `#FF6A3D`. Every state carries a word as well as a colour: "Passed", "Not run", "On PATH".
+Broker's hue is ink, so the parent project reads as the handbook's own. Inside the display, text is `#E8E6E1`, dim lines `#9AA0A8`, prompts white and `ok` lines `#6FD39A` in both themes, with `#2A2E34` under the window's bar and a `#3A3F46` scrollbar; the vim buffers on pwn-broker and pwn-playbooks use the note window's own colours, IPs `#FFC247`, placeholders `#FF6A3D`, fold markers `#8A8F99` and a `#2A2F36` selection. The foot's text is `#C3C7CC` on the ground in both themes, and print is black on white. Every state carries a word as well as a colour: "Passed", "Not run", "On PATH".
 
 **The one amber line.** At most one item on a card is amber. While a live item exists, the copy control on that card turns to a grey outline, so amber never appears twice.
 
 ## Layout
 
-A 1240px wrap with a gutter of `clamp(.75rem, 3vw, 2.5rem)`. Above the cards, the spine holds the RFS mark, GitHub and the theme switch, then the three tabs: the current one raised, flush with its card and joined to it. The first card's hero is two columns (6fr to 7fr): title, one-liner, text and checklist on the left, the display on the right. Reference cards follow, each a titled sheet: a spec list (leaders with no box), command blocks, a two-column "Tested on" checklist, and "Known issues" as a plain list with red marks. pwn-shop adds the package table; pwn-playbooks adds the finder, the folder index and the placeholder glossary.
+A 1240px wrap with a gutter of `clamp(.75rem, 3vw, 2.5rem)`. Above the cards, the spine holds the RFS mark, GitHub and the theme switch, then the three tabs: the current one raised, flush with its card and joined to it. The first card's hero is two columns (6fr to 7fr): title, one-liner, text and checklist on the left, the display on the right. Reference cards follow, each a titled sheet: a spec list (leaders with no box), command blocks, a two-column "Tested on" checklist, and "Known issues" as a plain list with red marks. pwn-shop adds the package table; pwn-playbooks adds the finder, the folder index and the placeholder glossary. Open ground of `clamp(1.75rem, 1rem + 2.6vw, 3.25rem)` sets each card apart from the next, 12px more after the first so its second sheet shows, and all cards share one left edge.
 
-Below 980px the hero is one column, so the checklist comes before the display. Below 640px the tabs share the width and drop their sub-lines, a command stacks above its copy control, spec lists drop their leaders, and the alternate reference cards stop shifting. Below 720px pwn-shop's table becomes one block per package.
+Below 980px the hero is one column, so the checklist comes before the display. Below 640px the tabs share the width and drop their sub-lines, a command stacks above its copy control, and spec lists drop their leaders. Below 720px pwn-shop's table becomes one block per package.
 
 ## Signature
 
 The checklist line. A 1.15rem box with a 2.5px border, the challenge in capitals, a 3px dotted leader, the response in mono, right-aligned. An item is open (empty box, muted response), live (the whole line amber), done (box filled in ink with a tick drawn from two strokes) or not run (red box with a drawn cross, red response). A list ends with a closeout line between two rules: "Box closed out", "Playbook filled".
 
-**Depth by overlap only.** No drop shadows. Cards overlap by 6px, each one's top edge a 2px line of ground; every other reference card sits 10px to the right; the first card has a second sheet showing 12px beneath its corner. Tabs rest 6px down and rise to meet their card.
+**Depth by overlap only.** No drop shadows. The first card has a second sheet showing 12px beneath its corner, and its tab overlaps its top edge; the reference cards below it are single sheets on open ground, so a section ends where its sheet does. Tabs rest 6px down and rise to meet their card.
 
 ## Wow moment
 
