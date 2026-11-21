@@ -42,3 +42,7 @@ Changed on 2026-11-20:
 - A new kind, `notes`: files to read in pwn-broker's note window, with nothing on PATH and nothing to upload. It is manifest and index schema 3, which pwn-broker 0.1.7 and later read, and `arch = "any"`. CI installs it and checks every playbook's first two lines in place of starting commands.
 - A new package, `playbooks` 2026.11.20 build 1: the first release of pwn-playbooks, eight playbooks. The index is schema 3 from its first publish.
 - `playbooks` 2026.11.20.1 build 1: pwn-playbooks' second release, with 79 playbooks in place of 8.
+
+Changed on 2026-11-21:
+
+- `playbooks` 2026.11.21 build 1: pwn-playbooks' third release, with 83 playbooks in place of 79. The four new ones are for Active Directory: certificate services, delegation, GPO abuse and lateral movement.
