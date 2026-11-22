@@ -70,7 +70,7 @@ When the tool's own metadata would otherwise resolve a Git dependency at a movin
 
 ## .NET source builds
 
-A `[dotnet]` recipe builds one executable from a pinned source zip with a fixed SDK and pinned .NET Framework reference-assembly package. It names `sdk`, the source `url`, `size` and `sha256`, the project and output paths inside the archive, the final `to` path, and `framework_url`, `framework_size`, `framework_sha256` and `framework`. The builder checks `dotnet --version`, unpacks both archives with the usual path checks, and runs only `dotnet msbuild` with Release, `FrameworkPathOverride` and deterministic compilation. It does not restore packages. Only the output named by `to` enters the package. Rubeus uses SDK 9.0.320 and the .NET 4.0 reference assemblies; CI installs that SDK in the package jobs.
+A `[dotnet]` recipe builds one executable from a pinned source zip with a fixed SDK and pinned .NET Framework reference-assembly package. It names `sdk`, the source `url`, `size` and `sha256`, the project and output paths inside the archive, the final `to` path, and `framework_url`, `framework_size`, `framework_sha256` and `framework`. The builder checks `dotnet --version`, unpacks both archives with the usual path checks, and runs only `dotnet msbuild` with Release, `FrameworkPathOverride` and deterministic compilation. It does not restore packages. Only the output named by `to` enters the package. Rubeus uses SDK 9.0.320 and the .NET 4.0 reference assemblies; `global.json` stops a newer SDK already on the machine from being selected, and CI installs that SDK in the package jobs.
 
 ## Versions and builds
 
