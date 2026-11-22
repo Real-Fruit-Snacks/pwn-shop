@@ -120,7 +120,7 @@ The [guide](docs/guide.md) has the package format, the runtime, `build.py` and C
 - `autorecon` bundles its Python code and dependencies, but its scans call nmap and other Kali system tools. Install those base tools separately; the package check starts the CLI but does not run a scan.
 - `evil-winrm-py` is not a drop-in replacement for Ruby Evil-WinRM: it uses `--ssl` rather than `-S` and has no `-s` or `-e` directory options. Its Kerberos extra is not bundled because `gssapi` has no compatible Python 3.13 Linux wheel and needs a native build. Kali's Ruby `evil-winrm` remains separate.
 - `penelope` 0.21.0 fixes the session-archive path traversal, and `--oscp-safe` disables Meterpreter, Traitor and ngrok, but this release still starts its local MCP socket unconditionally. It is therefore a general lab/CTF package, not an OSCP-approved profile; use Kali's nc, ncat or socat for the basic OSCP shell workflow.
-- PrintSpoofer, SharpEfsPotato, SweetPotato, Hot Potato and SharpGPOAbuse have no upstream redistribution licence, and Microsoft's Sysinternals terms prohibit publishing AccessChk for others to copy. They are not redistributed here. `godpotato` is already packaged; obtain AccessChk directly from Microsoft.
+- PrintSpoofer, SharpEfsPotato, SweetPotato, Hot Potato and SharpGPOAbuse have no upstream redistribution licence, and Microsoft's Sysinternals terms prohibit publishing AccessChk for others to copy. They are not redistributed here. `godpotato`, `juicypotato`, `roguepotato`, `localpotato` and `coercedpotato` are packaged; obtain AccessChk directly from Microsoft.
 
 The rest of the list is in [docs/tested.md](docs/tested.md#known-limits).
 
