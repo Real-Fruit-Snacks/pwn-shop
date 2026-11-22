@@ -51,14 +51,17 @@ pwn-broker keeps a Hack The Box machine in order on Kali Linux, and its `tool in
 | `cdk` | 1.5.6 | upload | to upload: `cdk`, `cdk_thin` | Apache-2.0 |
 | `certipy` | 5.1.0 | kali | `certipy`, on `python-3.13` | MIT |
 | `chisel` | 1.12.0 | both | `chisel`; to upload: `chisel`, `chisel.exe` | MIT |
+| `coercedpotato` | 2026.07.30 | upload | to upload: `CoercedPotato_x64.exe`, `CoercedPotato_x86.exe` | MIT |
 | `evil-winrm-py` | 1.7.0 | kali | `evil-winrm-py`, `ewp`, on `python-3.13` | MIT |
 | `git-dumper` | 1.0.9 | kali | `git-dumper`, on `python-3.13` | MIT |
 | `godpotato` | 1.20 | upload | to upload: `GodPotato-NET4.exe`, `GodPotato-NET35.exe` | Apache-2.0 |
 | `impacket` | 0.13.1 | kali | the `impacket-*` commands and `ldapdomaindump`, on `python-3.13` | Apache-2.0 with additional notices |
+| `juicypotato` | 0.1 | upload | to upload: `JuicyPotato.exe` | GPL-3.0 |
 | `jwt-tool` | 2.3.0 | kali | `jwt_tool`, on `python-3.13` | GPL-3.0 |
 | `kerbrute` | 1.0.3 | kali | `kerbrute` | Apache-2.0 |
 | `lazagne` | 2.4.7 | upload | to upload: `LaZagne.exe` | LGPL-3.0 |
 | `ligolo-ng` | 0.9.2 | both | `ligolo-proxy` (needs root); to upload: `agent`, `agent.exe` | GPL-3.0 |
+| `localpotato` | 1.1 | upload | to upload: `LocalPotato.exe` | MIT |
 | `netexec` | 1.5.1 | kali | `nxc`, `netexec`, `nxcdb`, on `python-3.13` | BSD-2-Clause |
 | `peass-ng` | 2026.11.22 | upload | to upload: `linpeas.sh`, `winPEASx64.exe`, `winPEASany.exe`, `winPEAS.bat` | GPL-2.0-or-later with additional terms |
 | `penelope` | 0.21.0 | kali | `penelope`, on `python-3.13` | GPL-3.0-or-later |
@@ -67,6 +70,7 @@ pwn-broker keeps a Hack The Box machine in order on Kali Linux, and its `tool in
 | `pspy` | 1.2.1 | upload | to upload: `pspy64`, `pspy32`, `pspy64s`, `pspy32s` | GPL-3.0 |
 | `pypykatz` | 0.6.13 | kali | `pypykatz`, on `python-3.13` | MIT |
 | `python-3.13` | 3.13.18 | runtime | nothing on PATH; the Python that the Python tools run on | PSF-2.0 and others (see its `LICENSE`) |
+| `roguepotato` | 1.0 | upload | to upload: `RoguePotato.exe`, `RogueOxidResolver.exe` | GPL-3.0 |
 | `rubeus` | 2025.11.14 | upload | to upload: `Rubeus.exe` | BSD-3-Clause |
 | `runascs` | 1.5 | upload | to upload: `RunasCs.exe`, `RunasCs_net2.exe` | GPL-3.0 |
 | `rusthound-ce` | 2.5.52 | kali | `rusthound-ce` | MIT |
@@ -101,7 +105,7 @@ The [guide](docs/guide.md) has the package format, the runtime, `build.py` and C
 - `chisel`, `godpotato` and `runascs` built in Kali 2026.2 and installed there from the built folder by a normal user: `chisel` started, the six upload files were in place, and `finish` removed all three
 - `cdk`, `git-dumper`, `lazagne`, `rusthound-ce` and `snaffler` built in Kali 2026.2 and installed there from the built folder by a normal user: `rusthound-ce` and `git-dumper` started, the four upload files matched their pinned hashes, and `finish` removed all five
 - `playbooks` installed from the published index in Kali 2026.2 by a normal user with pwn-broker 0.1.7: `:Pb` read a playbook into the note, and `finish` removed it
-- All 29 current recipes built and checked in Kali under WSL 2, then installed and help-tested through pwn-broker, including a complete run in a network namespace with no network; the unit suite also passed there and on Windows 11
+- All 33 current recipes built and checked in Kali under WSL 2, then installed and help-tested through pwn-broker, including a complete run in a network namespace with no network; the unit suite also passed there and on Windows 11
 
 [docs/tested.md](docs/tested.md) is the full record: counts, runs, commits and dates, and what has not been run.
 
@@ -116,7 +120,7 @@ The [guide](docs/guide.md) has the package format, the runtime, `build.py` and C
 - `autorecon` bundles its Python code and dependencies, but its scans call nmap and other Kali system tools. Install those base tools separately; the package check starts the CLI but does not run a scan.
 - `evil-winrm-py` is not a drop-in replacement for Ruby Evil-WinRM: it uses `--ssl` rather than `-S` and has no `-s` or `-e` directory options. Its Kerberos extra is not bundled because `gssapi` has no compatible Python 3.13 Linux wheel and needs a native build. Kali's Ruby `evil-winrm` remains separate.
 - `penelope` 0.21.0 fixes the session-archive path traversal, and `--oscp-safe` disables Meterpreter, Traitor and ngrok, but this release still starts its local MCP socket unconditionally. It is therefore a general lab/CTF package, not an OSCP-approved profile; use Kali's nc, ncat or socat for the basic OSCP shell workflow.
-- PrintSpoofer and SharpGPOAbuse have no upstream redistribution licence, and Microsoft's Sysinternals terms prohibit publishing AccessChk for others to copy. They are not redistributed here. `godpotato` is already packaged; obtain AccessChk directly from Microsoft.
+- PrintSpoofer, SharpEfsPotato, SweetPotato, Hot Potato and SharpGPOAbuse have no upstream redistribution licence, and Microsoft's Sysinternals terms prohibit publishing AccessChk for others to copy. They are not redistributed here. `godpotato` is already packaged; obtain AccessChk directly from Microsoft.
 
 The rest of the list is in [docs/tested.md](docs/tested.md#known-limits).
 

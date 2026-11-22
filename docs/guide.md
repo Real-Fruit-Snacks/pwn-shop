@@ -76,7 +76,7 @@ A `[dotnet]` recipe builds one executable from a pinned source zip with a fixed 
 
 `version` is upstream's. `build` is mine: it starts at 1 and goes up each time I repackage the same upstream version. A published build is never changed or replaced. A build is released under the tag `<tool>-v<version>-<build>` with the zip `<tool>-<version>-<build>.zip`, and its card is the zip's name with `.toml`.
 
-Some versions are dates rather than upstream release numbers: `targetedkerberoast`, `powerview` and `rubeus` use the date of the pinned commit, and `autorecon` does the same because it has no releases. The `peass-ng` version is the date of the pinned upstream tag `20261122-25957cb1`. Rubeus upstream deliberately publishes no binaries; its package is a deterministic build of the pinned source.
+Some versions are dates rather than upstream release numbers: `targetedkerberoast`, `powerview` and `rubeus` use the date of the pinned commit, `autorecon` does the same because it has no releases, and `coercedpotato` uses the publication date of its unnumbered release. The `peass-ng` version is the date of the pinned upstream tag `20261122-25957cb1`. Rubeus upstream deliberately publishes no binaries; its package is a deterministic build of the pinned source.
 
 ## build.py
 

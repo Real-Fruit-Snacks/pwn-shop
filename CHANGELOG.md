@@ -52,6 +52,7 @@ Changed on 2026-11-21:
 Changed on 2026-11-22:
 
 - Thirteen new tool packages: `autorecon` 2026.11.03, `bloodhound-ce` 1.9.1, `bloodyad` 2.5.7, `evil-winrm-py` 1.7.0, `impacket` 0.13.1, `jwt-tool` 2.3.0, `netexec` 1.5.1, `penelope` 0.21.0, `powerview` 2020.08.17, `pypykatz` 0.6.13, `rubeus` 2025.11.14, `sharphound` 2.18.0 and `sshuttle` 2.0.0.
+- Four more Windows potato packages: `juicypotato` 0.1, `roguepotato` 1.0 (including `RogueOxidResolver.exe`), `localpotato` 1.1 and `coercedpotato` 2026.07.30 (x64 and x86). SharpEfsPotato, SweetPotato and Hot Potato remain unredistributed because their upstream repositories have no licence.
 - `rusthound-ce` 2.5.52 build 1 fixes cleartext-password logging and adds collection timeout, concurrency and pacing controls. `peass-ng` 2026.11.22 build 1 updates the four Linux and Windows enumeration files.
 - NetExec and its four custom Git dependencies are pinned to full commits and archive hashes. `wheel_source` builds those archives into pure-Python wheels, `overrides.in` stops transitive resolution at moving branches, and direct requirements in wheel metadata are pinned to the bundled versions. `jwt-tool` builds its two source-only dependencies under the existing opt-in rule.
 - Rubeus is compiled deterministically from the official source with .NET SDK 9.0.320 and pinned .NET 4.0 reference assemblies; no unofficial binary mirror is used. The package jobs install the same SDK, and `global.json` prevents a newer installed SDK from being selected.
