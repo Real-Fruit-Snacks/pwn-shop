@@ -59,4 +59,5 @@ Changed on 2026-11-22:
 - The install checker retries a Python help command with a pseudo-terminal only after the specific termios/no-terminal traceback. Penelope uses that path; other tracebacks still fail.
 - `playbooks` 2026.11.22 build 1: pwn-playbooks' sixth release, still 84 playbooks; the potatoes playbook now says that JuicyPotato is in pwn-shop.
 - `playbooks` 2026.11.22.1 build 1: pwn-playbooks' seventh release, still 84 playbooks; the potatoes playbook adds RoguePotato, LocalPotato and CoercedPotato, which are in pwn-shop.
+- `playbooks` 2026.11.22.2 build 1: pwn-playbooks' eighth release, still 84 playbooks; every tool in pwn-shop now has a `tool install` line in the playbooks that use it.
 - Documented the limits of `autorecon`'s system-tool dependencies, `evil-winrm-py` compatibility and Kerberos support, and Penelope's always-on MCP socket. PrintSpoofer, SharpGPOAbuse and AccessChk remain unredistributed for licensing reasons.
