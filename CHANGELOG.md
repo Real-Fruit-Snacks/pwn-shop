@@ -58,4 +58,5 @@ Changed on 2026-11-22:
 - Rubeus is compiled deterministically from the official source with .NET SDK 9.0.320 and pinned .NET 4.0 reference assemblies; no unofficial binary mirror is used. The package jobs install the same SDK, and `global.json` prevents a newer installed SDK from being selected.
 - The install checker retries a Python help command with a pseudo-terminal only after the specific termios/no-terminal traceback. Penelope uses that path; other tracebacks still fail.
 - `playbooks` 2026.11.22 build 1: pwn-playbooks' sixth release, still 84 playbooks; the potatoes playbook now says that JuicyPotato is in pwn-shop.
+- `playbooks` 2026.11.22.1 build 1: pwn-playbooks' seventh release, still 84 playbooks; the potatoes playbook adds RoguePotato, LocalPotato and CoercedPotato, which are in pwn-shop.
 - Documented the limits of `autorecon`'s system-tool dependencies, `evil-winrm-py` compatibility and Kerberos support, and Penelope's always-on MCP socket. PrintSpoofer, SharpGPOAbuse and AccessChk remain unredistributed for licensing reasons.
