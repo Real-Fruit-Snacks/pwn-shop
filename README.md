@@ -88,9 +88,8 @@ The [guide](docs/guide.md) has the package format, the runtime, `build.py` and C
 - `chisel`, `godpotato` and `runascs` built in Kali 2026.2 and installed there from the built folder by a normal user: `chisel` started, the six upload files were in place, and `finish` removed all three
 - `cdk`, `git-dumper`, `lazagne`, `rusthound-ce` and `snaffler` built in Kali 2026.2 and installed there from the built folder by a normal user: `rusthound-ce` and `git-dumper` started, the four upload files matched their pinned hashes, and `finish` removed all five
 - `playbooks` installed from the published index in Kali 2026.2 by a normal user with pwn-broker 0.1.7: `:Pb` read a playbook into the note, and `finish` removed it
-- *Not* tested: any package on a full Kali desktop or against a real target; no Windows file has been run anywhere, and `cdk` has not been run in a container
 
-[docs/tested.md](docs/tested.md) is the full record: counts, runs, commits and dates.
+[docs/tested.md](docs/tested.md) is the full record: counts, runs, commits and dates, and what has not been run.
 
 ## Known issues
 

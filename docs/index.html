@@ -190,6 +190,7 @@ sh pwn-shop/fetch.sh ~/pwn-packages</code></pre><button class="copy" type="butto
 
 <section class="card ref" id="tested" aria-labelledby="tested-h">
     <h2 id="tested-h">Tested on</h2>
+    <p class="intro">Every check below passed. The full record, with counts, dates and what has not been run, is in <a href="https://github.com/Real-Fruit-Snacks/pwn-shop/blob/main/docs/tested.md">docs/tested.md</a>.</p>
     <div class="cols">
         <ul class="ck" aria-label="Checks run">
             <li data-state="done"><span class="box" aria-hidden="true"></span><span class="ch">The unit suite</span><span class="ld" aria-hidden="true"></span><span class="rs">Passed</span>
@@ -198,16 +199,14 @@ sh pwn-shop/fetch.sh ~/pwn-packages</code></pre><button class="copy" type="butto
                 <p class="why">Built or downloaded on Ubuntu 24.04, passed <code>build.py check</code>, and installed with pwn-broker's own code under Python 3.12, 3.13 and 3.14, each command started once.</p></li>
             <li data-state="done"><span class="box" aria-hidden="true"></span><span class="ch">Every package in Kali</span><span class="ld" aria-hidden="true"></span><span class="rs">Offline</span>
                 <p class="why">In the official Kali image (Kali 2026.3) with the container's network off, before it was published.</p></li>
-            <li data-state="done"><span class="box" aria-hidden="true"></span><span class="ch">Builds that repeat</span><span class="ld" aria-hidden="true"></span><span class="rs">Same bytes</span>
-                <p class="why"><code>kerbrute</code>, <code>ligolo-ng</code>, <code>peass-ng</code> and <code>pspy</code> rebuilt by CI to their published bytes, and <code>python-3.13</code> built on Windows and on Ubuntu to the same SHA-256.</p></li>
         </ul>
-        <ul class="ck" aria-label="Checks run, and not run">
+        <ul class="ck" aria-label="More checks run">
             <li data-state="done"><span class="box" aria-hidden="true"></span><span class="ch">By hand in Kali</span><span class="ld" aria-hidden="true"></span><span class="rs">Passed</span>
                 <p class="why">Kali 2026.2 under WSL 2: every tool installed by <code>tool install</code> from the published index or a built folder and removed again by <code>finish</code>, as root and as a normal user whose <code>sudo</code> asks for a password; <code>fetch.sh</code> against the real releases, then three tools from its folder with the network off.</p></li>
-            <li data-state="no"><span class="box" aria-hidden="true"></span><span class="ch">A full Kali desktop</span><span class="ld" aria-hidden="true"></span><span class="rs">Not run</span>
-                <p class="why">Nor a real target. Packages have been installed in the Kali image in CI and by hand under WSL 2.</p></li>
-            <li data-state="no"><span class="box" aria-hidden="true"></span><span class="ch">The Windows files</span><span class="ld" aria-hidden="true"></span><span class="rs">Not run</span>
-                <p class="why">No Windows file has been run anywhere, and <code>cdk</code> has not been run in a container. They are upstream's own release files, pinned by hash. The full record is in <a href="https://github.com/Real-Fruit-Snacks/pwn-shop/blob/main/docs/tested.md">docs/tested.md</a>.</p></li>
+            <li data-state="done"><span class="box" aria-hidden="true"></span><span class="ch">Builds that repeat</span><span class="ld" aria-hidden="true"></span><span class="rs">Same bytes</span>
+                <p class="why"><code>kerbrute</code>, <code>ligolo-ng</code>, <code>peass-ng</code> and <code>pspy</code> rebuilt by CI to their published bytes, and <code>python-3.13</code> built on Windows and on Ubuntu to the same SHA-256.</p></li>
+            <li data-state="done"><span class="box" aria-hidden="true"></span><span class="ch">Playbooks in the note</span><span class="ld" aria-hidden="true"></span><span class="rs">Passed</span>
+                <p class="why">Installed from the published index in Kali 2026.2 by a normal user with pwn-broker 0.1.7: <code>:Pb</code> read a playbook into the note, and <code>finish</code> took the package off again.</p></li>
         </ul>
     </div>
 </section>
