@@ -45,21 +45,34 @@ pwn-broker keeps a Hack The Box machine in order on Kali Linux, and its `tool in
 
 | Package | Version | Kind | You get | Licence |
 |---|---|---|---|---|
+| `autorecon` | 2026.11.03 | kali | `autorecon`, on `python-3.13` | GPL-3.0 |
+| `bloodhound-ce` | 1.9.1 | kali | `bloodhound-ce-python`, on `python-3.13` | MIT |
+| `bloodyad` | 2.5.7 | kali | `bloodyAD`, `bloodyad`, on `python-3.13` | MIT |
 | `cdk` | 1.5.6 | upload | to upload: `cdk`, `cdk_thin` | Apache-2.0 |
 | `certipy` | 5.1.0 | kali | `certipy`, on `python-3.13` | MIT |
 | `chisel` | 1.12.0 | both | `chisel`; to upload: `chisel`, `chisel.exe` | MIT |
+| `evil-winrm-py` | 1.7.0 | kali | `evil-winrm-py`, `ewp`, on `python-3.13` | MIT |
 | `git-dumper` | 1.0.9 | kali | `git-dumper`, on `python-3.13` | MIT |
 | `godpotato` | 1.20 | upload | to upload: `GodPotato-NET4.exe`, `GodPotato-NET35.exe` | Apache-2.0 |
+| `impacket` | 0.13.1 | kali | the `impacket-*` commands and `ldapdomaindump`, on `python-3.13` | Apache-2.0 with additional notices |
+| `jwt-tool` | 2.3.0 | kali | `jwt_tool`, on `python-3.13` | GPL-3.0 |
 | `kerbrute` | 1.0.3 | kali | `kerbrute` | Apache-2.0 |
 | `lazagne` | 2.4.7 | upload | to upload: `LaZagne.exe` | LGPL-3.0 |
 | `ligolo-ng` | 0.9.2 | both | `ligolo-proxy` (needs root); to upload: `agent`, `agent.exe` | GPL-3.0 |
-| `pspy` | 1.2.1 | upload | to upload: `pspy64`, `pspy32`, `pspy64s`, `pspy32s` | GPL-3.0 |
-| `peass-ng` | 2026.11.14 | upload | to upload: `linpeas.sh`, `winPEASx64.exe`, `winPEASany.exe`, `winPEAS.bat` | GPL-2.0-or-later with additional terms |
+| `netexec` | 1.5.1 | kali | `nxc`, `netexec`, `nxcdb`, on `python-3.13` | BSD-2-Clause |
+| `peass-ng` | 2026.11.22 | upload | to upload: `linpeas.sh`, `winPEASx64.exe`, `winPEASany.exe`, `winPEAS.bat` | GPL-2.0-or-later with additional terms |
+| `penelope` | 0.21.0 | kali | `penelope`, on `python-3.13` | GPL-3.0-or-later |
 | `playbooks` | 2026.11.21.2 | notes | playbooks to read into the note window with `:Pb <name>` | CC-BY-4.0 |
-| `rusthound-ce` | 2.5.51 | kali | `rusthound-ce` | MIT |
-| `snaffler` | 1.0.244 | upload | to upload: `Snaffler.exe` | GPL-3.0 |
+| `powerview` | 2020.08.17 | upload | to upload: `PowerView.ps1` | BSD-3-Clause |
+| `pspy` | 1.2.1 | upload | to upload: `pspy64`, `pspy32`, `pspy64s`, `pspy32s` | GPL-3.0 |
+| `pypykatz` | 0.6.13 | kali | `pypykatz`, on `python-3.13` | MIT |
+| `python-3.13` | 3.13.18 | runtime | nothing on PATH; the Python that the Python tools run on | PSF-2.0 and others (see its `LICENSE`) |
+| `rubeus` | 2025.11.14 | upload | to upload: `Rubeus.exe` | BSD-3-Clause |
 | `runascs` | 1.5 | upload | to upload: `RunasCs.exe`, `RunasCs_net2.exe` | GPL-3.0 |
-| `python-3.13` | 3.13.18 | runtime | nothing on PATH; the Python that `certipy`, `git-dumper` and `targetedkerberoast` run on | PSF-2.0 and others (see its `LICENSE`) |
+| `rusthound-ce` | 2.5.52 | kali | `rusthound-ce` | MIT |
+| `sharphound` | 2.18.0 | upload | to upload: `SharpHound.exe` | GPL-3.0 |
+| `snaffler` | 1.0.244 | upload | to upload: `Snaffler.exe` | GPL-3.0 |
+| `sshuttle` | 2.0.0 | kali | `sshuttle`, on `python-3.13` | LGPL-2.1-or-later |
 | `targetedkerberoast` | 2024.12.16 | kali | `targetedKerberoast`, on `python-3.13` | GPL-3.0 |
 
 Kind `kali` puts a command on the machine, `upload` puts files in a folder to carry to the target, and `both` does both. A `runtime` is never installed on its own: it comes and goes with the tools that require it. A `notes` package puts nothing on PATH and nothing to upload: it is files to read in pwn-broker's note window, and needs pwn-broker 0.1.7 or later.
@@ -71,8 +84,8 @@ The [guide](docs/guide.md) has the package format, the runtime, `build.py` and C
 ## How a package is made
 
 - A recipe pins each upstream file by its size and SHA-256. No tool binary is committed here.
-- The build downloads the file and refuses it if either differs. Nothing is compiled or patched: the files in the zip are upstream's own.
-- A Python tool's dependencies are bundled as wheels pinned by hash, and it runs on the `python-3.13` runtime package, not on Kali's own Python, which it never shadows.
+- The build downloads the file and refuses it if either differs. Most files are upstream's own; exceptions are source-built Python wheels and Rubeus, which is compiled deterministically from its pinned official source with a fixed .NET SDK and reference assemblies.
+- A Python tool's dependencies are bundled as wheels pinned by hash, and it runs on the `python-3.13` runtime package, not on Kali's own Python, which it never shadows. Git dependencies are pinned to full commits and their archives' hashes; direct references in a built wheel's metadata are rewritten to the exact bundled versions.
 - Before anything is published, CI installs every package with pwn-broker's own code, then again inside the Kali image with the network off.
 - A published build is never changed. A fix is a new build.
 
@@ -88,6 +101,7 @@ The [guide](docs/guide.md) has the package format, the runtime, `build.py` and C
 - `chisel`, `godpotato` and `runascs` built in Kali 2026.2 and installed there from the built folder by a normal user: `chisel` started, the six upload files were in place, and `finish` removed all three
 - `cdk`, `git-dumper`, `lazagne`, `rusthound-ce` and `snaffler` built in Kali 2026.2 and installed there from the built folder by a normal user: `rusthound-ce` and `git-dumper` started, the four upload files matched their pinned hashes, and `finish` removed all five
 - `playbooks` installed from the published index in Kali 2026.2 by a normal user with pwn-broker 0.1.7: `:Pb` read a playbook into the note, and `finish` removed it
+- All 29 current recipes built and checked in Kali under WSL 2, then installed and help-tested through pwn-broker, including a complete run in a network namespace with no network; the unit suite also passed there and on Windows 11
 
 [docs/tested.md](docs/tested.md) is the full record: counts, runs, commits and dates, and what has not been run.
 
@@ -99,6 +113,10 @@ The [guide](docs/guide.md) has the package format, the runtime, `build.py` and C
 - Kali's own `ligolo-ng` package also installs a command named `ligolo-proxy`. While this package is installed a bare `ligolo-proxy` runs this one, but `sudo` does not use PATH, so `sudo ligolo-proxy` runs Kali's. Use `sudo /opt/pwn-broker/bin/ligolo-proxy`, the path `tool install` prints.
 - PEASS-ng's licence has terms beyond the GPL. Read `recipes/peass-ng/LICENSE` before redistributing the package.
 - The first Python tool on a machine costs the runtime: a 34 MB download (mebibytes, the unit pwn-broker prints) and about 100 MB unpacked. Its OpenSSL and other libraries are as new as its build: they are fixed when I publish a new build of the runtime, not when Kali updates.
+- `autorecon` bundles its Python code and dependencies, but its scans call nmap and other Kali system tools. Install those base tools separately; the package check starts the CLI but does not run a scan.
+- `evil-winrm-py` is not a drop-in replacement for Ruby Evil-WinRM: it uses `--ssl` rather than `-S` and has no `-s` or `-e` directory options. Its Kerberos extra is not bundled because `gssapi` has no compatible Python 3.13 Linux wheel and needs a native build. Kali's Ruby `evil-winrm` remains separate.
+- `penelope` 0.21.0 fixes the session-archive path traversal, and `--oscp-safe` disables Meterpreter, Traitor and ngrok, but this release still starts its local MCP socket unconditionally. It is therefore a general lab/CTF package, not an OSCP-approved profile; use Kali's nc, ncat or socat for the basic OSCP shell workflow.
+- PrintSpoofer and SharpGPOAbuse have no upstream redistribution licence, and Microsoft's Sysinternals terms prohibit publishing AccessChk for others to copy. They are not redistributed here. `godpotato` is already packaged; obtain AccessChk directly from Microsoft.
 
 The rest of the list is in [docs/tested.md](docs/tested.md#known-limits).
 

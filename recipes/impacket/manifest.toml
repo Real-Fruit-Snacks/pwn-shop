@@ -1,0 +1,180 @@
+schema = 2
+requires = ["python-3.13"]
+kind = "kali"
+description = "Windows network protocols, Active Directory attacks and remote administration"
+tags = ["ad", "smb", "kerberos", "windows"]
+upstream = "https://github.com/fortra/impacket"
+licence = "Apache-2.0 with additional notices"
+arch = "x86_64"
+examples = [
+  "impacket-GetUserSPNs '{domain}/user:password' -dc-ip {ip} -request",
+  "impacket-secretsdump '{domain}/user:password@{ip}'",
+  "impacket-psexec '{domain}/user:password@{hostname}'",
+]
+
+[[command]]
+name = "impacket-addcomputer"
+type = "python-entry"
+entry = "addcomputer.py"
+
+[[command]]
+name = "impacket-atexec"
+type = "python-entry"
+entry = "atexec.py"
+
+[[command]]
+name = "impacket-badsuccessor"
+type = "python-entry"
+entry = "badsuccessor.py"
+
+[[command]]
+name = "impacket-changepasswd"
+type = "python-entry"
+entry = "changepasswd.py"
+
+[[command]]
+name = "impacket-dacledit"
+type = "python-entry"
+entry = "dacledit.py"
+
+[[command]]
+name = "impacket-dcomexec"
+type = "python-entry"
+entry = "dcomexec.py"
+
+[[command]]
+name = "impacket-describeTicket"
+type = "python-entry"
+entry = "describeTicket.py"
+
+[[command]]
+name = "impacket-dpapi"
+type = "python-entry"
+entry = "dpapi.py"
+
+[[command]]
+name = "impacket-findDelegation"
+type = "python-entry"
+entry = "findDelegation.py"
+
+[[command]]
+name = "impacket-Get-GPPPassword"
+type = "python-entry"
+entry = "Get-GPPPassword.py"
+
+[[command]]
+name = "impacket-GetADUsers"
+type = "python-entry"
+entry = "GetADUsers.py"
+
+[[command]]
+name = "impacket-GetNPUsers"
+type = "python-entry"
+entry = "GetNPUsers.py"
+
+[[command]]
+name = "impacket-getST"
+type = "python-entry"
+entry = "getST.py"
+
+[[command]]
+name = "impacket-getTGT"
+type = "python-entry"
+entry = "getTGT.py"
+
+[[command]]
+name = "impacket-GetUserSPNs"
+type = "python-entry"
+entry = "GetUserSPNs.py"
+
+[[command]]
+name = "impacket-lookupsid"
+type = "python-entry"
+entry = "lookupsid.py"
+
+[[command]]
+name = "impacket-mssqlclient"
+type = "python-entry"
+entry = "mssqlclient.py"
+
+[[command]]
+name = "impacket-ntlmrelayx"
+type = "python-entry"
+entry = "ntlmrelayx.py"
+
+[[command]]
+name = "impacket-owneredit"
+type = "python-entry"
+entry = "owneredit.py"
+
+[[command]]
+name = "impacket-psexec"
+type = "python-entry"
+entry = "psexec.py"
+
+[[command]]
+name = "impacket-rbcd"
+type = "python-entry"
+entry = "rbcd.py"
+
+[[command]]
+name = "impacket-reg"
+type = "python-entry"
+entry = "reg.py"
+
+[[command]]
+name = "impacket-rpcdump"
+type = "python-entry"
+entry = "rpcdump.py"
+
+[[command]]
+name = "impacket-samrdump"
+type = "python-entry"
+entry = "samrdump.py"
+
+[[command]]
+name = "impacket-secretsdump"
+type = "python-entry"
+entry = "secretsdump.py"
+
+[[command]]
+name = "impacket-smbclient"
+type = "python-entry"
+entry = "smbclient.py"
+
+[[command]]
+name = "impacket-smbexec"
+type = "python-entry"
+entry = "smbexec.py"
+
+[[command]]
+name = "impacket-smbserver"
+type = "python-entry"
+entry = "smbserver.py"
+
+[[command]]
+name = "impacket-ticketConverter"
+type = "python-entry"
+entry = "ticketConverter.py"
+
+[[command]]
+name = "impacket-ticketer"
+type = "python-entry"
+entry = "ticketer.py"
+
+[[command]]
+name = "impacket-wmiexec"
+type = "python-entry"
+entry = "wmiexec.py"
+
+[[command]]
+name = "impacket-wmiquery"
+type = "python-entry"
+entry = "wmiquery.py"
+
+[[command]]
+name = "ldapdomaindump"
+type = "python-entry"
+entry = "ldapdomaindump"
+
+[python]

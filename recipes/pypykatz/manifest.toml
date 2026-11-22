@@ -1,0 +1,19 @@
+schema = 2
+requires = ["python-3.13"]
+kind = "kali"
+description = "Offline Windows credential and security-artifact parsing in Python"
+tags = ["windows", "credentials", "lsass", "registry"]
+upstream = "https://github.com/skelsec/pypykatz"
+licence = "MIT"
+arch = "x86_64"
+examples = [
+  "pypykatz lsa minidump lsass.dmp",
+  "pypykatz registry --sam sam.hive --system system.hive",
+]
+
+[[command]]
+name = "pypykatz"
+type = "python-entry"
+entry = "pypykatz"
+
+[python]

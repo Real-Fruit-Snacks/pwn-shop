@@ -87,6 +87,31 @@ def first_line(output: str) -> str:
     return ""
 
 
+def run_with_tty(argv: list[str], env) -> subprocess.CompletedProcess:
+    """Run a help command with a terminal on stdin, but still capture all of its output."""
+    import pty
+
+    master, slave = pty.openpty()
+    try:
+        process = subprocess.Popen(
+            argv, stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, errors="replace", env=env,
+        )
+        os.close(slave)
+        slave = None
+        try:
+            stdout, _ = process.communicate(timeout=TIMEOUT)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
+            raise
+        return subprocess.CompletedProcess(argv, process.returncode, stdout, "")
+    finally:
+        os.close(master)
+        if slave is not None:
+            os.close(slave)
+
+
 def probe(launcher: Path, *, python: bool = False, run=subprocess.run, env=None) -> tuple[bool, str]:
     """Runs the launcher with --help, then -h. Returns whether it started and a note."""
     notes = []
@@ -105,8 +130,19 @@ def probe(launcher: Path, *, python: bool = False, run=subprocess.run, env=None)
         except OSError as exc:
             return False, f"cannot run it ({exc})"
         output = (result.stdout or "") + (result.stderr or "")
+        tty = False
+        if python and TRACEBACK in output and "termios.error" in output and "Inappropriate ioctl" in output:
+            try:
+                result = run_with_tty([str(launcher), flag], env)
+            except subprocess.TimeoutExpired:
+                notes.append(f"{flag}: no answer in {TIMEOUT} seconds with a terminal")
+                break
+            except OSError as exc:
+                return False, f"cannot run it with a terminal ({exc})"
+            output = result.stdout or ""
+            tty = True
         if started(result.returncode, output, python=python):
-            return True, f"{flag}: {first_line(output)}"
+            return True, f"{flag}{' with a terminal' if tty else ''}: {first_line(output)}"
         if TRACEBACK in output:
             said = "printed a traceback"
         elif output.strip():

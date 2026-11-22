@@ -1,0 +1,23 @@
+schema = 2
+requires = ["python-3.13"]
+kind = "kali"
+description = "JSON Web Token inspection, signing and attack-testing utility"
+tags = ["web", "jwt", "tokens", "crypto"]
+upstream = "https://github.com/ticarpi/jwt_tool"
+licence = "GPL-3.0"
+arch = "x86_64"
+examples = [
+  "jwt_tool 'THE-JWT'",
+  "jwt_tool 'THE-JWT' -T -S hs256 -p 'THE-SECRET'",
+  "jwt_tool 'THE-JWT' -X k -pk public.pem",
+]
+
+[[command]]
+name = "jwt_tool"
+type = "python-script"
+script = "files/jwt_tool.py"
+
+[data]
+home = [".jwt_tool"]
+
+[python]

@@ -223,6 +223,22 @@ def test_a_binary_may_exit_2_on_help(check):
     assert check.probe(Path("t"), python=False, run=Runner(result(2, err="usage\n")))[0]
 
 
+@pytest.mark.skipif(os.name == "nt", reason="a pseudo-terminal is POSIX-only")
+def test_a_python_help_command_that_needs_a_terminal_gets_one(check, tmp_path):
+    launcher = tmp_path / "terminal-tool"
+    launcher.write_text(
+        f"#!{sys.executable}\n"
+        "import sys, termios\n"
+        "termios.tcgetattr(sys.stdin)\n"
+        "print('usage: terminal-tool')\n",
+        encoding="utf-8",
+    )
+    launcher.chmod(0o755)
+    assert check.probe(launcher, python=True) == (
+        True, "--help with a terminal: usage: terminal-tool"
+    )
+
+
 # ---- which commands are Python
 
 

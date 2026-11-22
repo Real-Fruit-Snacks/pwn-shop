@@ -36,11 +36,11 @@ python3 -m venv .venv
 .venv/bin/python build.py build
 ```
 
-That writes `dist/` with the zips, a card for each, `dist/sums/<tag>/SHA256SUMS.txt` and an `index.toml`. Build on Linux, or let CI do it: antivirus on a Windows machine removes several upstream files while a build runs. [CONTRIBUTING.md](../CONTRIBUTING.md) has how to add a tool or a runtime.
+That writes `dist/` with the zips, a card for each, `dist/sums/<tag>/SHA256SUMS.txt` and an `index.toml`. Building every recipe also needs .NET SDK 9.0.320 on PATH for Rubeus. Build on Linux, or let CI do it: antivirus on a Windows machine removes several upstream files while a build runs. [CONTRIBUTING.md](../CONTRIBUTING.md) has how to add a tool or a runtime.
 
 ## The package format
 
-A package is one zip for one build of one tool: `manifest.toml`, the upstream licence as `LICENSE`, the tool's files under `files/` exactly as upstream published them, and for a Python tool every dependency as a wheel under `wheels/`, each recorded with its SHA-256 in `wheels.lock`. The format is the one pwn-broker reads, described in its `docs/design.md`, section 8.
+A package is one zip for one build of one tool: `manifest.toml`, the upstream licence as `LICENSE`, the tool's files under `files/`, and for a Python tool every dependency as a wheel under `wheels/`, each recorded with its SHA-256 in `wheels.lock`. Most tool files are exactly as upstream published them. A Python dependency with no suitable wheel can be built from a pinned source archive, and Rubeus is built from its pinned official source. The format is the one pwn-broker reads, described in its `docs/design.md`, section 8.
 
 No tool binary is committed here. A recipe (`recipes/<tool>/recipe.toml`) names each upstream file by its address, size and SHA-256, and where it goes in the package; a source may be a bare file, one member of a `tar.gz` or `zip`, or a whole `zip` unpacked into a folder under `files/`. `build.py` downloads it, refuses it if the size or the SHA-256 differs, and writes the zip. The zip's entries are stored, not compressed, with a fixed date and no executable bits, so its bytes do not depend on the machine that built it. pwn-broker makes everything under `files/` executable when it installs.
 
@@ -62,11 +62,21 @@ The runtime's `LICENSE` holds these parts, each under a heading that names it an
 
 `recipes/python-3.13/recipe.toml` names each source with its size and SHA-256, and `tools/runtime-licence.py` writes the file from them. Licence files in the full distribution that `PYTHON.json` names for nothing in the build (Tix and zstd) are left out, and the script says so each time it runs.
 
+## Git source dependencies
+
+A Python package that upstream does not publish to PyPI can use a `[[wheel_source]]` for the tool or one of its dependencies. Each entry pins the distribution name, the version its archive builds, and the archive's HTTPS URL, size and SHA-256. The name must also occur in `build_from_source`, because building it runs upstream's build code and fetches build requirements without hashes. Only pure-Python wheels are accepted. An optional `env` table supports a fixed build setting such as `POETRY_DYNAMIC_VERSIONING_BYPASS`.
+
+When the tool's own metadata would otherwise resolve a Git dependency at a moving branch, `overrides.in` supplies the same pinned archive URLs to `uv`. The committed `requirements.lock` still contains only ordinary `name==version` lines with hashes. When a built wheel's `Requires-Dist` names one of those direct Git dependencies, the builder rewrites just that entry to the exact bundled version and updates `RECORD`; source code is not changed. NetExec uses this for its four custom Git dependencies.
+
+## .NET source builds
+
+A `[dotnet]` recipe builds one executable from a pinned source zip with a fixed SDK and pinned .NET Framework reference-assembly package. It names `sdk`, the source `url`, `size` and `sha256`, the project and output paths inside the archive, the final `to` path, and `framework_url`, `framework_size`, `framework_sha256` and `framework`. The builder checks `dotnet --version`, unpacks both archives with the usual path checks, and runs only `dotnet msbuild` with Release, `FrameworkPathOverride` and deterministic compilation. It does not restore packages. Only the output named by `to` enters the package. Rubeus uses SDK 9.0.320 and the .NET 4.0 reference assemblies; CI installs that SDK in the package jobs.
+
 ## Versions and builds
 
 `version` is upstream's. `build` is mine: it starts at 1 and goes up each time I repackage the same upstream version. A published build is never changed or replaced. A build is released under the tag `<tool>-v<version>-<build>` with the zip `<tool>-<version>-<build>.zip`, and its card is the zip's name with `.toml`.
 
-Two versions are not upstream release numbers. The `targetedkerberoast` version is the date of the pinned commit, because upstream has no releases. The `peass-ng` version is the date of the pinned upstream tag `20261114-5ac9329e`.
+Some versions are dates rather than upstream release numbers: `targetedkerberoast`, `powerview` and `rubeus` use the date of the pinned commit, and `autorecon` does the same because it has no releases. The `peass-ng` version is the date of the pinned upstream tag `20261122-25957cb1`. Rubeus upstream deliberately publishes no binaries; its package is a deterministic build of the pinned source.
 
 ## build.py
 
@@ -91,7 +101,7 @@ CI runs on pushes to `main` and on pull requests. A push run is never cancelled,
 - `lint`: `fetch.sh` and `.github/scripts/kali-packages.sh` under `sh -n`, `dash -n` and `shellcheck`, and the Python files compiled.
 - `test`: the unit tests on Python 3.11, 3.12, 3.13 and 3.14, with warnings treated as errors. They need no network and no pwn-broker.
 - `art` (README panel): `docs/art/make-panel.py` run again, a failure if the SVG files differ from the committed ones, and the panel's unit test, which skips in `test` because that job does not install `fonttools`.
-- `packages`, on Python 3.12, 3.13 and 3.14: a build that already has a release is downloaded and tested from its published bytes, so CI and a user never see different files under one tag. It is also built again, one tool at a time with `--skip-index`, and compared with the published one, so a recipe that changed without its `build` going up fails. If an upstream file can no longer be fetched or matched, that rebuild is a warning and the published zip is still tested. A build with no release must build. Then `build.py check`, and `.github/scripts/install-check.py` installs every package with pwn-broker's own code: a tool the way `tool install` does it, after the runtime it requires, each command started with `--help` or `-h`, and everything removed again.
+- `packages`, on Python 3.12, 3.13 and 3.14: a build that already has a release is downloaded and tested from its published bytes, so CI and a user never see different files under one tag. It is also built again, one tool at a time with `--skip-index`, and compared with the published one, so a recipe that changed without its `build` going up fails. If an upstream file can no longer be fetched or matched, that rebuild is a warning and the published zip is still tested. A build with no release must build. The job installs .NET SDK 9.0.320 for Rubeus. Then `build.py check`, and `.github/scripts/install-check.py` installs every package with pwn-broker's own code: a tool the way `tool install` does it, after the runtime it requires, each command started with `--help` or `-h`, and everything removed again. A Python command that fails only because it reads terminal modes gets one retry with a pseudo-terminal; every other traceback still fails.
 - `kali`: the official Kali image (not pinned, on purpose), with pwn-broker installed in it. The container's network is switched off, the check confirms that nothing resolves or answers, then each recipe's current build is installed from the built folder index with pwn-broker's own code and each command started with `--help` or `-h`. Older builds are not tested there. The evidence folder is uploaded whatever the result.
 - `publish`, on `main` only, after `test`, `packages` and `kali`: so a build that fails on the Kali of the day is not published. It publishes one GitHub release per new build, tagged `<tool>-v<version>-<build>` and holding the zip, `SHA256SUMS.txt` and a card, with notes from `build.py notes`. Then it rebuilds the index from every release's card and replaces `index.toml` on the release tagged `index`, only when it changed.
 

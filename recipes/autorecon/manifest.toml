@@ -1,0 +1,20 @@
+schema = 2
+requires = ["python-3.13"]
+kind = "kali"
+description = "Multi-threaded service enumeration with per-target result folders"
+tags = ["enum", "network", "services", "automation"]
+upstream = "https://github.com/Tib3rius/AutoRecon"
+licence = "GPL-3.0"
+arch = "x86_64"
+examples = [
+  "autorecon {ip}",
+  "autorecon {ip} --only-scans-dir",
+  "autorecon {hostname} -o ./results",
+]
+
+[[command]]
+name = "autorecon"
+type = "python-script"
+script = "files/autorecon/AutoRecon-bf40763dcc58f547680645616b1ee4155baf2e7a/autorecon.py"
+
+[python]

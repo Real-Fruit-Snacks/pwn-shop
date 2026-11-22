@@ -1246,6 +1246,86 @@ def test_listed_dependency_is_built_once_from_its_pinned_source(tmp_path, net):
     assert wheels[0][-1].endswith("docopt-0.6.2.tar.gz")
 
 
+def direct_source_recipe(tmp_path, net, raw=b"source archive"):
+    sha = digest(raw)
+    source = build.Source(
+        "https://example.invalid/docopt.zip", len(raw), sha, "files/docopt.archive"
+    )
+    r = src_recipe(tmp_path, net, [("docopt", "0.6.2", [raw])], "docopt")
+    r.wheel_sources = [build.WheelSource("docopt", "0.6.2", source, {"BUILD_FLAG": "1"})]
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / sha).write_bytes(raw)
+    return r, cache, sha
+
+
+def test_direct_source_archive_is_built_with_its_recipe_environment(tmp_path, net):
+    r, cache, sha = direct_source_recipe(tmp_path, net)
+    built = pure("docopt", "0.6.2")
+    fake = FakeTools(built={"source": built})
+    got = build.collect_wheels(r, staged_dir(tmp_path), run=fake, cache=cache)
+    assert [p.name for p in got] == [built[0]]
+    assert len(fake.calls) == 1 and fake.calls[0][3] == "wheel"
+    assert fake.envs[0]["BUILD_FLAG"] == "1"
+
+
+def test_direct_requirements_are_pinned_and_record_is_updated(tmp_path, net):
+    import base64
+
+    r, _cache, _sha = direct_source_recipe(tmp_path, net)
+    info = "docopt-0.6.2.dist-info"
+    metadata = (
+        b"Metadata-Version: 2.1\nName: docopt\nVersion: 0.6.2\n"
+        b"Requires-Dist: docopt @ git+https://example.invalid/docopt\n"
+        b"Requires-Dist: requests>=2\n"
+    )
+    path = make_wheel(
+        tmp_path, "docopt", "0.6.2", extra={f"{info}/METADATA": metadata}
+    )
+    build._pin_wheel_requirements(path, r.wheel_sources)
+    with zipfile.ZipFile(path) as zf:
+        changed = zf.read(f"{info}/METADATA")
+        record = zf.read(f"{info}/RECORD").decode()
+    assert b"Requires-Dist: docopt==0.6.2\n" in changed
+    assert b"Requires-Dist: requests>=2\n" in changed
+    digest = base64.urlsafe_b64encode(hashlib.sha256(changed).digest()).rstrip(b"=").decode()
+    assert f"{info}/METADATA,sha256={digest},{len(changed)}" in record
+
+
+def test_direct_archive_lock_becomes_an_ordinary_hashed_pin(tmp_path, net):
+    r, _cache, sha = direct_source_recipe(tmp_path, net)
+    text = (
+        f"docopt @ {r.wheel_sources[0].source.url} \\\n    --hash=sha256:{sha}\n"
+        f"other==1.0 {HASH_A}\n"
+    )
+    locked = build._pin_wheel_sources(text, r)
+    assert locked == f"docopt==0.6.2 --hash=sha256:{sha}\nother==1.0 {HASH_A}\n"
+    assert build.read_requirements_lock(
+        r.folder / build.REQUIREMENTS_LOCK, r.name
+    )[0].version == "0.6.2"
+
+
+def test_direct_archive_lock_with_another_url_is_refused(tmp_path, net):
+    r, _cache, sha = direct_source_recipe(tmp_path, net)
+    with pytest.raises(build.BuildError, match="different archive"):
+        build._pin_wheel_sources(
+            f"docopt @ https://example.invalid/other.zip --hash=sha256:{sha}\n", r
+        )
+
+
+def test_lock_uses_overrides_and_source_environment(tmp_path, net):
+    r, _cache, sha = direct_source_recipe(tmp_path, net)
+    (r.folder / build.OVERRIDES_IN).write_text("docopt @ https://example.invalid/docopt.zip\n")
+    direct = f"docopt @ {r.wheel_sources[0].source.url} --hash=sha256:{sha}\n".encode()
+    fake = FakeTools(uv={SERIES: direct})
+    build.lock(r, run=fake)
+    assert "--overrides" in fake.calls[0]
+    assert fake.envs[0]["BUILD_FLAG"] == "1"
+    assert (r.folder / build.REQUIREMENTS_LOCK).read_text() == (
+        f"docopt==0.6.2 --hash=sha256:{sha}\n"
+    )
+
+
 def test_listed_name_that_is_not_in_the_lock_is_refused(tmp_path, net):
     tool = pure("tinytool", "1.0")
     fake = FakeTools(downloads=offered(("tinytool", [tool])))
@@ -1337,6 +1417,45 @@ def test_failed_wheel_download_for_an_unlisted_name_stops_the_build(tmp_path, ne
     assert "No matching distribution" in message and "build_from_source" in message
     assert not any("--no-binary" in c for c in fake.calls)
     assert not any(c[3] == "wheel" for c in fake.calls)
+
+
+def test_dotnet_build_uses_the_pinned_sdk_and_copies_only_the_output(tmp_path):
+    source_bytes = zip_bytes({"Rubeus-test/Rubeus/Rubeus.csproj": b"project"})
+    reference_bytes = zip_bytes({"build/.NETFramework/v4.0/mscorlib.dll": b"reference"})
+    source_sha, reference_sha = digest(source_bytes), digest(reference_bytes)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / source_sha).write_bytes(source_bytes)
+    (cache / reference_sha).write_bytes(reference_bytes)
+    spec = build.DotnetBuild(
+        "9.0.320",
+        build.Source("https://example.invalid/rubeus.zip", len(source_bytes), source_sha, "files/Rubeus.exe"),
+        build.Source("https://example.invalid/net40.zip", len(reference_bytes), reference_sha, "files/ref"),
+        "Rubeus/Rubeus.csproj", "Rubeus/bin/Release/Rubeus.exe", "build/.NETFramework/v4.0",
+    )
+
+    class Dotnet:
+        def __init__(self):
+            self.calls = []
+
+        def __call__(self, cmd, **kwargs):
+            self.calls.append(cmd)
+            if cmd[1] == "--version":
+                return subprocess.CompletedProcess(cmd, 0, "9.0.320\n", "")
+            project = Path(cmd[2])
+            output = project.parent / "bin/Release/Rubeus.exe"
+            output.parent.mkdir(parents=True)
+            output.write_bytes(b"compiled")
+            return subprocess.CompletedProcess(cmd, 0, "built\n", "")
+
+    fake = Dotnet()
+    root = tmp_path / "root"
+    root.mkdir()
+    build._build_dotnet(spec, root, cache, run=fake)
+    assert (root / "files/Rubeus.exe").read_bytes() == b"compiled"
+    assert [p.name for p in root.rglob("*") if p.is_file()] == ["Rubeus.exe"]
+    assert "-p:Deterministic=true" in fake.calls[1]
+    assert Path(fake.calls[1][2]).as_posix().endswith("Rubeus/Rubeus.csproj")
 
 
 # ---- how every command runs

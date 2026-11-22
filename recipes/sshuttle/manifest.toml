@@ -1,0 +1,19 @@
+schema = 2
+requires = ["python-3.13"]
+kind = "kali"
+description = "Transparent SSH-based VPN for routing selected networks"
+tags = ["pivot", "ssh", "tunnel", "network"]
+upstream = "https://github.com/sshuttle/sshuttle"
+licence = "LGPL-2.1-or-later"
+arch = "x86_64"
+examples = [
+  "sshuttle -r user@{ip} 10.10.10.0/24",
+  "sshuttle -r user@{ip} 10.10.10.0/24 -e 'ssh -i id_rsa'",
+]
+
+[[command]]
+name = "sshuttle"
+type = "python-entry"
+entry = "sshuttle"
+
+[python]
