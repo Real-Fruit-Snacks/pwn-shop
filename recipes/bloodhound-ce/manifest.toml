@@ -1,0 +1,19 @@
+schema = 2
+requires = ["python-3.13"]
+kind = "kali"
+description = "BloodHound CE-compatible Active Directory collector written in Python"
+tags = ["ad", "bloodhound", "collector", "ldap"]
+upstream = "https://github.com/dirkjanm/BloodHound.py"
+licence = "MIT"
+arch = "x86_64"
+examples = [
+  "bloodhound-ce-python -u user -p 'password' -d {domain} -ns {ip} -c All --zip",
+  "bloodhound-ce-python -u user --hashes ':NTHASH' -d {domain} -ns {ip} -c All --zip",
+]
+
+[[command]]
+name = "bloodhound-ce-python"
+type = "python-entry"
+entry = "bloodhound-ce-python"
+
+[python]

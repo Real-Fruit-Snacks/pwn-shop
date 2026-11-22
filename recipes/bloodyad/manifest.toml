@@ -1,0 +1,25 @@
+schema = 2
+requires = ["python-3.13"]
+kind = "kali"
+description = "Active Directory privilege and object management over LDAP"
+tags = ["ad", "ldap", "acl", "kerberos"]
+upstream = "https://github.com/CravateRouge/bloodyAD"
+licence = "MIT"
+arch = "x86_64"
+examples = [
+  "bloodyAD --host {ip} -d {domain} -u user -p 'password' get writable --detail",
+  "bloodyAD --host {ip} -d {domain} -u user -p 'password' add groupMember GROUP user",
+  "bloodyAD --host {ip} -d {domain} -u user -p ':NTHASH' get object GROUP --attr nTSecurityDescriptor --resolve-sd",
+]
+
+[[command]]
+name = "bloodyAD"
+type = "python-entry"
+entry = "bloodyAD"
+
+[[command]]
+name = "bloodyad"
+type = "python-entry"
+entry = "bloodyad"
+
+[python]

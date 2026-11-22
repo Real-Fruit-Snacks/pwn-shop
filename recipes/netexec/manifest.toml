@@ -1,0 +1,33 @@
+schema = 2
+requires = ["python-3.13"]
+kind = "kali"
+description = "Network service enumeration, credential validation and remote execution"
+tags = ["ad", "network", "smb", "winrm"]
+upstream = "https://github.com/Pennyw0rth/NetExec"
+licence = "BSD-2-Clause"
+arch = "x86_64"
+examples = [
+  "nxc smb {ip} -u user -p 'password' --shares",
+  "nxc ldap {ip} -d {domain} -u user -p 'password' --bloodhound --collection All",
+  "nxc winrm {ip} -u user -H NTHASH",
+]
+
+[[command]]
+name = "nxc"
+type = "python-entry"
+entry = "nxc"
+
+[[command]]
+name = "netexec"
+type = "python-entry"
+entry = "netexec"
+
+[[command]]
+name = "nxcdb"
+type = "python-entry"
+entry = "nxcdb"
+
+[data]
+home = [".nxc"]
+
+[python]
