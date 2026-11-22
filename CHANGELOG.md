@@ -47,3 +47,4 @@ Changed on 2026-11-21:
 
 - `playbooks` 2026.11.21 build 1: pwn-playbooks' third release, with 83 playbooks in place of 79. The four new ones are for Active Directory: certificate services, delegation, GPO abuse and lateral movement.
 - `playbooks` 2026.11.21.1 build 1: pwn-playbooks' fourth release, with 84 playbooks in place of 83. The new one is for Active Directory: golden and silver Kerberos tickets.
+- `playbooks` 2026.11.21.2 build 1: pwn-playbooks' fifth release, still 84 playbooks; the Kerberos ticket playbook now covers diamond and sapphire tickets as well.
