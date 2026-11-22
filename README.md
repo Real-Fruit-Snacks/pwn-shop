@@ -65,7 +65,7 @@ pwn-broker keeps a Hack The Box machine in order on Kali Linux, and its `tool in
 | `netexec` | 1.5.1 | kali | `nxc`, `netexec`, `nxcdb`, on `python-3.13` | BSD-2-Clause |
 | `peass-ng` | 2026.11.22 | upload | to upload: `linpeas.sh`, `winPEASx64.exe`, `winPEASany.exe`, `winPEAS.bat` | GPL-2.0-or-later with additional terms |
 | `penelope` | 0.21.0 | kali | `penelope`, on `python-3.13` | GPL-3.0-or-later |
-| `playbooks` | 2026.11.22.1 | notes | playbooks to read into the note window with `:Pb <name>` | CC-BY-4.0 |
+| `playbooks` | 2026.11.22.2 | notes | playbooks to read into the note window with `:Pb <name>` | CC-BY-4.0 |
 | `powerview` | 2020.08.17 | upload | to upload: `PowerView.ps1` | BSD-3-Clause |
 | `pspy` | 1.2.1 | upload | to upload: `pspy64`, `pspy32`, `pspy64s`, `pspy32s` | GPL-3.0 |
 | `pypykatz` | 0.6.13 | kali | `pypykatz`, on `python-3.13` | MIT |
