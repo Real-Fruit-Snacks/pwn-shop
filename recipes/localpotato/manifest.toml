@@ -1,0 +1,16 @@
+schema = 1
+kind = "upload"
+description = "Windows privilege escalation through LocalPotato arbitrary file writes"
+tags = ["windows", "privesc", "potato", "filewrite"]
+upstream = "https://github.com/decoder-it/LocalPotato"
+licence = "MIT"
+arch = "x86_64"
+examples = [
+  ".\\LocalPotato.exe -i C:\\temp\\evil.dll -o C:\\Windows\\System32\\evil.dll",
+  ".\\LocalPotato.exe -r 127.0.0.1 -u /webdavshare/potato.local",
+]
+
+[[upload]]
+path = "files/LocalPotato.exe"
+as = "LocalPotato.exe"
+note = "x64; performs a privileged file write rather than directly starting a shell"

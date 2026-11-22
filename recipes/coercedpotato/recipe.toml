@@ -1,0 +1,16 @@
+# Upstream's release has no version number: use its publication date.
+version = "2026.07.30"
+build = 1
+
+# GitHub's asset digests match these SHA-256 pins.
+[[source]]
+url = "https://github.com/Prepouce/CoercedPotato/releases/download/Releases/CoercedPotato_x64.exe"
+size = 1035776
+sha256 = "4532898d6e31acb17a4ff8a17792bb0660b3716f99367b2cc1530793bbe1f12f"
+to = "files/CoercedPotato_x64.exe"
+
+[[source]]
+url = "https://github.com/Prepouce/CoercedPotato/releases/download/Releases/CoercedPotato_x86.exe"
+size = 971776
+sha256 = "46fb12d2983e866125159fb1f4d173e8fa3fcab9dd4ed0fc847b8f8bcac48a5f"
+to = "files/CoercedPotato_x86.exe"
