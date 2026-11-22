@@ -5,8 +5,11 @@ reimplements the checks it makes (see validate) and never imports it.
 """
 
 import argparse
+import base64
+import csv
 import gzip
 import hashlib
+import io
 import os
 import re
 import shutil
@@ -68,6 +71,7 @@ PLATFORMS = (
 COMMAND_TIMEOUT = 900
 REQUIREMENTS_IN = "requirements.in"
 REQUIREMENTS_LOCK = "requirements.lock"
+OVERRIDES_IN = "overrides.in"
 WHEELS_LOCK = "wheels.lock"
 # the package's own lock: pwn-broker reads exactly this shape and nothing else
 LOCK_LIMIT = 1024 * 1024
@@ -196,6 +200,24 @@ class Source:
 
 
 @dataclass
+class WheelSource:
+    name: str
+    version: str
+    source: Source
+    env: dict[str, str]
+
+
+@dataclass
+class DotnetBuild:
+    sdk: str
+    source: Source
+    reference: Source
+    project: str
+    output: str
+    framework: str
+
+
+@dataclass
 class Recipe:
     name: str
     version: str
@@ -207,6 +229,8 @@ class Recipe:
     requires: list[str] = field(default_factory=list)
     # a runtime's own series, or the series of the runtime a Python tool requires
     series: str | None = None
+    wheel_sources: list[WheelSource] = field(default_factory=list)
+    dotnet: DotnetBuild | None = None
 
 
 Fetch = Callable[[str, Path, int], None]
@@ -308,6 +332,63 @@ def _source(row: object, index: int) -> Source:
     return Source(url, _int(row, "size", f"{label}.size"), sha.lower(), to, member, unpack)
 
 
+def _wheel_source(row: object, index: int) -> WheelSource:
+    label = f"wheel_source[{index}]"
+    if not isinstance(row, dict):
+        raise BuildError(f"{label}: must be a table")
+    name = row.get("name")
+    if not isinstance(name, str) or not _COMMAND_NAME.fullmatch(name):
+        raise BuildError(f"{label}.name: must be a Python distribution name")
+    version = row.get("version")
+    if not isinstance(version, str) or not _VERSION.fullmatch(version):
+        raise BuildError(f"{label}.version: {_VERSION_RULE}")
+    if any(key in row for key in ("to", "member", "unpack")):
+        raise BuildError(f"{label}: the archive is built into a wheel, not unpacked into the package")
+    env = row.get("env", {})
+    if not isinstance(env, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) and _ENV_NAME.fullmatch(k)
+        and "\n" not in v and "\0" not in v
+        for k, v in env.items()
+    ):
+        raise BuildError(f"{label}.env: must be a table of valid environment names and strings")
+    source = _source(
+        {
+            "url": row.get("url"), "size": row.get("size"), "sha256": row.get("sha256"),
+            "to": f"files/{name}-{version}.archive",
+        },
+        index,
+    )
+    return WheelSource(_norm_name(name), version, source, dict(env))
+
+
+def _parse_dotnet(table: object, who: str) -> DotnetBuild | None:
+    if table is None:
+        return None
+    if not isinstance(table, dict):
+        raise BuildError(f"{who}: dotnet must be a table")
+    sdk = table.get("sdk")
+    if not isinstance(sdk, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", sdk):
+        raise BuildError(f"{who}: dotnet.sdk must be a full SDK version")
+    source = _source(
+        {
+            "url": table.get("url"), "size": table.get("size"),
+            "sha256": table.get("sha256"), "to": table.get("to"),
+        },
+        0,
+    )
+    reference = _source(
+        {
+            "url": table.get("framework_url"), "size": table.get("framework_size"),
+            "sha256": table.get("framework_sha256"), "to": "files/dotnet-reference.archive",
+        },
+        1,
+    )
+    project = _relative(table.get("project"), "dotnet.project")
+    output = _relative(table.get("output"), "dotnet.output")
+    framework = _relative(table.get("framework"), "dotnet.framework")
+    return DotnetBuild(sdk, source, reference, project, output, framework)
+
+
 def load_recipe(folder: Path) -> Recipe:
     recipe = _read_toml(folder / "recipe.toml")
     manifest = _read_toml(folder / MANIFEST)
@@ -338,12 +419,38 @@ def load_recipe(folder: Path) -> Recipe:
                 f"{who}: {source.to} is the target of more than one source (compared without case)"
             )
         seen.add(source.to.casefold())
+    dotnet = _parse_dotnet(recipe.get("dotnet"), who)
+    if dotnet is not None:
+        if dotnet.source.to.casefold() in seen:
+            raise BuildError(f"{who}: {dotnet.source.to} is the target of more than one source")
+        seen.add(dotnet.source.to.casefold())
+        if manifest.get("kind") in ("runtime", "notes"):
+            raise BuildError(f"{who}: a runtime or notes package cannot have a dotnet build")
     schema = _recipe_schema(manifest, who)
     rest = {k: v for k, v in manifest.items() if k not in ("schema", "name", "version", "build")}
     filled = {"schema": schema, "name": name, "version": version, "build": build, **rest}
     listed = recipe.get("build_from_source", [])
     if not isinstance(listed, list) or not all(isinstance(n, str) and n for n in listed):
         raise BuildError(f"{who}: build_from_source must be a list of distribution names")
+    listed = [_norm_name(n) for n in listed]
+    wheel_rows = recipe.get("wheel_source", [])
+    if not isinstance(wheel_rows, list):
+        raise BuildError(f"{who}: wheel_source must be a list of tables")
+    wheel_sources = [_wheel_source(row, i) for i, row in enumerate(wheel_rows)]
+    seen_wheels = set()
+    build_env: dict[str, str] = {}
+    for wheel in wheel_sources:
+        if wheel.name in seen_wheels:
+            raise BuildError(f"{who}: wheel_source {wheel.name} appears more than once")
+        seen_wheels.add(wheel.name)
+        if wheel.name not in listed:
+            raise BuildError(f"{who}: wheel_source {wheel.name} must also be named in build_from_source")
+        for key, value in wheel.env.items():
+            if key in build_env and build_env[key] != value:
+                raise BuildError(f"{who}: wheel_source environment {key} has conflicting values")
+            build_env[key] = value
+    if wheel_sources and "python" not in manifest:
+        raise BuildError(f"{who}: wheel_source is only for a Python tool")
     requires = []
     if "requires" in manifest:
         requires = _check_requires(manifest["requires"], name, f"{who}: requires")
@@ -383,8 +490,8 @@ def load_recipe(folder: Path) -> Recipe:
             )
         raise BuildError(f"{who}: requires: a tool that is not Python requires nothing")
     return Recipe(
-        name, version, build, sources, filled, folder, [_norm_name(n) for n in listed],
-        requires, series,
+        name, version, build, sources, filled, folder, listed, requires, series,
+        wheel_sources=wheel_sources, dotnet=dotnet,
     )  # fmt: skip
 
 
@@ -691,6 +798,65 @@ def _python_manifest(recipe: Recipe) -> tuple[dict, bool]:
     return manifest, True
 
 
+def _dotnet_call(run: Run, args: list[str], env: dict[str, str]):
+    try:
+        done = run(
+            ["dotnet", *args], capture_output=True, text=True, env=env,
+            timeout=COMMAND_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise BuildError(f"dotnet {args[0]} timed out after {COMMAND_TIMEOUT} seconds") from exc
+    except OSError as exc:
+        raise BuildError(f"cannot run dotnet ({exc}); install SDK {env['PWN_SHOP_DOTNET_SDK']}") from exc
+    if done.returncode != 0:
+        raise BuildError(f"dotnet {args[0]} failed ({_tail(done.stderr or done.stdout)})")
+    return done
+
+
+def _build_dotnet(spec: DotnetBuild, root: Path, cache: Path, *, run: Run) -> None:
+    with tempfile.TemporaryDirectory(prefix="pwn-shop-dotnet-") as tmpdir:
+        tmp = Path(tmpdir)
+        source_archive = fetch_source(spec.source, cache)
+        reference_archive = fetch_source(spec.reference, cache)
+        _unpack_zip(source_archive, tmp, "source", lambda _rel, folder=False: None, spec.source.url)
+        _unpack_zip(
+            reference_archive, tmp, "reference", lambda _rel, folder=False: None, spec.reference.url
+        )
+        roots = list((tmp / "source").iterdir())
+        if len(roots) != 1 or not roots[0].is_dir():
+            raise BuildError("dotnet: the source archive must have exactly one top-level folder")
+        project = roots[0].joinpath(*spec.project.split("/"))
+        framework = (tmp / "reference").joinpath(*spec.framework.split("/"))
+        home = tmp / "home"
+        home.mkdir()
+        env = {
+            "PATH": os.environ.get("PATH", os.defpath),
+            "HOME": str(home),
+            "DOTNET_CLI_HOME": str(home),
+            "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+            "DOTNET_NOLOGO": "1",
+            "DOTNET_SKIP_FIRST_TIME_EXPERIENCE": "1",
+            "PWN_SHOP_DOTNET_SDK": spec.sdk,
+        }
+        found = _dotnet_call(run, ["--version"], env).stdout.strip()
+        if found != spec.sdk:
+            raise BuildError(f"dotnet: SDK {spec.sdk} is required, but dotnet --version says {found}")
+        _dotnet_call(
+            run,
+            [
+                "msbuild", str(project), "-p:Configuration=Release",
+                f"-p:FrameworkPathOverride={framework}", "-p:Deterministic=true",
+            ],
+            env,
+        )
+        output = roots[0].joinpath(*spec.output.split("/"))
+        if not output.is_file():
+            raise BuildError(f"dotnet: the build did not produce {spec.output}")
+        target = root.joinpath(*spec.source.to.split("/"))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(output, target)
+
+
 def stage(
     recipe: Recipe,
     workdir: Path,
@@ -753,8 +919,11 @@ def stage(
                 shutil.copyfile(downloaded, target)
             else:
                 _extract_member(downloaded, _archive_kind(source.url), source.member, target, source.url)
+        if recipe.dotnet is not None:
+            claim(recipe.dotnet.source.to)
+            _build_dotnet(recipe.dotnet, root, cache, run=run)
         if is_python:
-            collect_wheels(recipe, root, run=run, find_links=find_links)
+            collect_wheels(recipe, root, run=run, find_links=find_links, cache=cache)
             write_wheels_lock(root)
     except OSError as exc:
         raise BuildError(f"{recipe.name}: cannot lay out the package ({exc})") from exc
@@ -947,14 +1116,16 @@ def _tool_env(tool: str) -> dict[str, str]:
     return env
 
 
-def _sh(run: Run, cmd: list[str], cwd: Path | None = None):
+def _sh(run: Run, cmd: list[str], cwd: Path | None = None, extra_env: dict[str, str] | None = None):
     """The one place pip and uv are run."""
     uv = cmd[0] == "uv"
     label = " ".join(cmd[:3]) if uv else f"pip {cmd[3]}"
+    env = _tool_env("uv" if uv else "pip")
+    env.update(extra_env or {})
     try:
         done = run(
             cmd, capture_output=True, text=True, cwd=cwd,
-            env=_tool_env("uv" if uv else "pip"), timeout=COMMAND_TIMEOUT,
+            env=env, timeout=COMMAND_TIMEOUT,
         )  # fmt: skip
         if not uv and done.returncode != 0 and "No module named pip" in (done.stderr or ""):
             raise BuildError(
@@ -990,34 +1161,105 @@ def _only_file(folder: Path, label: str, what: str) -> Path:
 # What is pinned: the source archive is fetched with --require-hashes. The build's own
 # requirements (setuptools and the like) are fetched by pip's build isolation without hashes,
 # and the build runs the dependency's setup code here; that is why a recipe must opt in by name.
+def _pin_wheel_requirements(path: Path, sources: list[WheelSource]) -> None:
+    """Make direct Git requirements point at the exact wheels bundled beside this one."""
+    wanted = {wheel.name: wheel.version for wheel in sources}
+    if not wanted:
+        return
+    with zipfile.ZipFile(path) as zf:
+        infos = zf.infolist()
+        contents = {info.filename: zf.read(info) for info in infos}
+    metadata_names = [name for name in contents if name.endswith(".dist-info/METADATA")]
+    if len(metadata_names) != 1:
+        raise BuildError(f"{path.name}: the built wheel has no single METADATA file")
+    metadata_name = metadata_names[0]
+    lines = contents[metadata_name].decode("utf-8").splitlines()
+    changed = False
+    for i, line in enumerate(lines):
+        match = re.match(
+            r"Requires-Dist:\s*([A-Za-z0-9._-]+)(\[[^]]*\])?\s*@\s*\S+(.*)", line
+        )
+        if match is None:
+            continue
+        version = wanted.get(_norm_name(match.group(1)))
+        if version is None:
+            continue
+        lines[i] = (
+            f"Requires-Dist: {match.group(1)}{match.group(2) or ''}=={version}{match.group(3)}"
+        )
+        changed = True
+    if not changed:
+        return
+    contents[metadata_name] = ("\n".join(lines) + "\n").encode("utf-8")
+    record_name = metadata_name[:-len("METADATA")] + "RECORD"
+    if record_name not in contents:
+        raise BuildError(f"{path.name}: the built wheel has no RECORD file")
+    record = contents[record_name].decode("utf-8")
+    rows = list(csv.reader(io.StringIO(record)))
+    digest = base64.urlsafe_b64encode(
+        hashlib.sha256(contents[metadata_name]).digest()
+    ).rstrip(b"=").decode()
+    for row in rows:
+        if row and row[0] == metadata_name:
+            row[1:] = ["sha256=" + digest, str(len(contents[metadata_name]))]
+    out = io.StringIO(newline="")
+    csv.writer(out, lineterminator="\r\n" if "\r\n" in record else "\n").writerows(rows)
+    contents[record_name] = out.getvalue().encode("utf-8")
+    rewritten = path.with_name(path.name + ".rewritten")
+    try:
+        with zipfile.ZipFile(rewritten, "w") as zf:
+            for info in infos:
+                zf.writestr(info, contents[info.filename])
+        os.replace(rewritten, path)
+    finally:
+        _unlink(rewritten)
+
+
 def _wheel_from_source(
-    pin: Pin, python: str, index: int, tmp: Path, run: Run, find_links: Path | None
+    pin: Pin, python: str, index: int, tmp: Path, run: Run, find_links: Path | None,
+    wheel: WheelSource | None = None, cache: Path | None = None,
+    requirements: list[WheelSource] | None = None,
 ) -> Path:
     label = f"{pin.name} {pin.version}"
     req = tmp / f"req-{index}.txt"
-    src = tmp / f"src-{index}"
-    src.mkdir()
-    # no --platform here: a source archive is the same file whatever the target
-    done = _sh(
-        run,
-        _pip("download", find_links, "--no-binary", pin.name, "--no-deps", "--require-hashes",
-             "-r", str(req), "--dest", str(src)),
-    )  # fmt: skip
-    if done.returncode != 0:
-        raise FetchError(f"{label}: the pinned source archive cannot be fetched ({_tail(done.stderr)})")
-    archive = _only_file(src, label, "source archive")
+    if wheel is None:
+        src = tmp / f"src-{index}"
+        src.mkdir()
+        # no --platform here: a source archive is the same file whatever the target
+        done = _sh(
+            run,
+            _pip("download", find_links, "--no-binary", pin.name, "--no-deps", "--require-hashes",
+                 "-r", str(req), "--dest", str(src)),
+        )  # fmt: skip
+        if done.returncode != 0:
+            raise FetchError(f"{label}: the pinned source archive cannot be fetched ({_tail(done.stderr)})")
+        archive = _only_file(src, label, "source archive")
+    else:
+        if not _same_version(pin.version, wheel.version):
+            raise BuildError(f"{label}: wheel_source is for version {wheel.version}")
+        if cache is None:
+            raise BuildError(f"{label}: a wheel_source needs the build cache")
+        archive = fetch_source(wheel.source, cache)
+        named = tmp / f"source-{index}-{Path(urllib.parse.urlsplit(wheel.source.url).path).name}"
+        shutil.copyfile(archive, named)
+        archive = named
     if archive.name.endswith(".whl"):
         raise BuildError(f"{label}: got a wheel where a source archive was expected")
     if sha256_file(archive) not in pin.hashes:
         raise FetchError(f"{label}: {archive.name} has a SHA-256 that requirements.lock does not list")
     out = tmp / f"built-{index}"
     out.mkdir()
-    done = _sh(run, _pip("wheel", find_links, "--no-deps", "--wheel-dir", str(out), str(archive)))
+    done = _sh(
+        run,
+        _pip("wheel", find_links, "--no-deps", "--wheel-dir", str(out), str(archive)),
+        extra_env=wheel.env if wheel else None,
+    )
     if done.returncode != 0:
         raise BuildError(f"{label}: building a wheel from {archive.name} failed ({_tail(done.stderr)})")
-    wheel = _only_file(out, label, "built wheel")
-    _check_wheel(wheel, pin, python, built=True)
-    return wheel
+    built = _only_file(out, label, "built wheel")
+    _pin_wheel_requirements(built, requirements or [])
+    _check_wheel(built, pin, python, built=True)
+    return built
 
 
 def _wheel_for(
@@ -1051,11 +1293,13 @@ def _series(recipe: Recipe) -> str:
 
 
 def collect_wheels(
-    recipe: Recipe, staged: Path, *, run: Run = subprocess.run, find_links: Path | None = None
+    recipe: Recipe, staged: Path, *, run: Run = subprocess.run, find_links: Path | None = None,
+    cache: Path | None = None,
 ) -> list[Path]:
     python = _series(recipe)
     pins = read_requirements_lock(recipe.folder / REQUIREMENTS_LOCK, recipe.name)
     locked = {_norm_name(p.name) for p in pins}
+    wheel_sources = {wheel.name: wheel for wheel in recipe.wheel_sources}
     for name in recipe.build_from_source:
         if name not in locked:
             raise BuildError(
@@ -1070,8 +1314,13 @@ def collect_wheels(
             options = " ".join(f"--hash=sha256:{h}" for h in pin.hashes)
             _write_bytes(tmp / f"req-{i}.txt", f"{pin.name}=={pin.version} {options}\n".encode())
         for i, pin in enumerate(pins):
-            if _norm_name(pin.name) in recipe.build_from_source:
-                wheel = _wheel_from_source(pin, python, i, tmp, run, find_links)
+            name = _norm_name(pin.name)
+            if name in recipe.build_from_source:
+                wheel = _wheel_from_source(
+                    pin, python, i, tmp, run, find_links,
+                    wheel=wheel_sources.get(name), cache=cache,
+                    requirements=list(wheel_sources.values()),
+                )
             else:
                 wheel = _wheel_for(pin, python, i, tmp, run, find_links)
             shutil.copyfile(wheel, wheels / wheel.name)
@@ -1101,6 +1350,37 @@ def write_wheels_lock(staged: Path) -> Path:
     return path
 
 
+def _pin_wheel_sources(text: str, recipe: Recipe) -> str:
+    """Replace direct archive references with the ordinary pins the build and installer read."""
+    wheels = {wheel.name: wheel for wheel in recipe.wheel_sources}
+    seen = set()
+    lines = []
+    for line in _logical_lines(text):
+        match = re.match(r"[A-Za-z0-9][A-Za-z0-9._-]*", line)
+        name = _norm_name(match.group(0)) if match else ""
+        wheel = wheels.get(name)
+        if wheel is None:
+            lines.append(" ".join(line.split()))
+            continue
+        if name in seen:
+            raise BuildError(f"{recipe.name}: {name} appears more than once in the resolved lock")
+        seen.add(name)
+        parts = line.split()
+        if "@" in parts:
+            at = parts.index("@")
+            if at + 1 >= len(parts) or parts[at + 1] != wheel.source.url:
+                raise BuildError(f"{recipe.name}: resolved {name} from a different archive")
+        elif not parts[0].startswith(f"{match.group(0)}==") or not _same_version(
+            parts[0].split("==", 1)[1], wheel.version
+        ):
+            raise BuildError(f"{recipe.name}: resolved {name} to an unexpected version")
+        lines.append(f"{name}=={wheel.version} --hash=sha256:{wheel.source.sha256}")
+    missing = set(wheels) - seen
+    if missing:
+        raise BuildError(f"{recipe.name}: the resolved lock does not include {', '.join(sorted(missing))}")
+    return "\n".join(lines) + "\n"
+
+
 def lock(recipe: Recipe, *, run: Run = subprocess.run) -> Path:
     source = recipe.folder / REQUIREMENTS_IN
     if "python" not in recipe.manifest:
@@ -1116,7 +1396,12 @@ def lock(recipe: Recipe, *, run: Run = subprocess.run) -> Path:
         cmd = ["uv", "pip", "compile", REQUIREMENTS_IN, "--generate-hashes",
                "--python-version", python, "--python-platform", UV_PLATFORM,
                "--no-header", "--no-annotate", "-o", str(out)]  # fmt: skip
-        done = _sh(run, cmd, recipe.folder)
+        if (recipe.folder / OVERRIDES_IN).is_file():
+            cmd += ["--overrides", OVERRIDES_IN]
+        extra_env = {
+            key: value for wheel in recipe.wheel_sources for key, value in wheel.env.items()
+        }
+        done = _sh(run, cmd, recipe.folder, extra_env=extra_env)
         if done.returncode != 0:
             raise BuildError(f"{recipe.name}: uv failed for Python {python} ({_tail(done.stderr)})")
         try:
@@ -1124,6 +1409,9 @@ def lock(recipe: Recipe, *, run: Run = subprocess.run) -> Path:
         except OSError as exc:
             raise BuildError(f"{recipe.name}: uv wrote no lock for Python {python} ({exc})") from exc
         out.write_bytes(text)
+        if recipe.wheel_sources:
+            text = _pin_wheel_sources(text.decode("utf-8"), recipe).encode("utf-8")
+            out.write_bytes(text)
         # the same checks a build makes, before the recipe's lock is replaced
         read_requirements_lock(out, recipe.name)
     _write_bytes(path, text)

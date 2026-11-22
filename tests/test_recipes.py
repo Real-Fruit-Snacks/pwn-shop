@@ -42,7 +42,7 @@ PUBLISHED_MANIFESTS = {
     "kerbrute": "6763e79cc260e80783473c03daafb09cdcd139cac0a6d92e95bad6be79ba1332",
     "pspy": "fc25f8f08fd3a101149754a567e3466fa3c0d4a3400c9022674e5af12b10d30b",
     "ligolo-ng": "5f9f01035f0db052735f8cefe7efcdfa8e797b0e2393af69efb9a8299a9d68b7",
-    "peass-ng": "7f626f5210b23e51e12b4e2a23d32635f4e9fe73dbdc8aaebb8ae73304b28179",
+    "peass-ng": "e5623d5035ef01de19d2321e8c1c52ccbb50b2c11444e75136dbf2705a9b3e58",
 }
 
 
@@ -56,7 +56,10 @@ def test_a_schema_1_recipe_stages_its_published_manifest(name):
 
 
 def test_sources_are_pinned(loaded):
-    for source in loaded.sources:
+    sources = [*loaded.sources, *(wheel.source for wheel in loaded.wheel_sources)]
+    if loaded.dotnet:
+        sources += [loaded.dotnet.source, loaded.dotnet.reference]
+    for source in sources:
         assert source.url.startswith("https://")
         assert re.fullmatch(r"[0-9a-f]{64}", source.sha256)
         assert source.size > 0
@@ -108,7 +111,14 @@ def unsourced_files(recipe) -> set[str]:
     """Files the manifest names that no source of the recipe puts in the package."""
     manifest, _ = build._python_manifest(recipe)
     named, _wheels, _lock = build._check_manifest(manifest)
-    return set(named) - {s.to for s in recipe.sources}
+    sourced = {s.to for s in recipe.sources}
+    if recipe.dotnet:
+        sourced.add(recipe.dotnet.source.to)
+    return {
+        name for name in named
+        if name not in sourced
+        and not any(s.unpack and name.startswith(s.to + "/") for s in recipe.sources)
+    }
 
 
 def lock_problems(lock: Path, build_from_source: list[str]) -> list[str]:
