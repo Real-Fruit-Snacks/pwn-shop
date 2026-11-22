@@ -1,30 +1,30 @@
-# Upstream publishes several releases a day; this is the one from 2026-11-14, tag 20261114-5ac9329e.
-version = "2026.11.14"
+# Upstream publishes several releases a day; this is the one from 2026-11-22, tag 20261122-25957cb1.
+version = "2026.11.22"
 build = 1
 
 # Upstream publishes no checksum file. Each SHA-256 can be checked against the digest GitHub
-# shows for that asset on the release page of tag 20261114-5ac9329e.
+# shows for that asset on the release page of tag 20261122-25957cb1.
 
 [[source]]
-url = "https://github.com/peass-ng/PEASS-ng/releases/download/20261114-5ac9329e/linpeas.sh"
-size = 1826158
-sha256 = "13fe37068bf2bd1d052cd873af13e5e595977bcff2c378d380ca0bfb8cc0024b"
+url = "https://github.com/peass-ng/PEASS-ng/releases/download/20261122-25957cb1/linpeas.sh"
+size = 1835309
+sha256 = "c74e1bc0922b082efd58d06d1f8731ceecb84bf56cc575270d4c52e39b2feb02"
 to = "files/linpeas.sh"
 
 [[source]]
-url = "https://github.com/peass-ng/PEASS-ng/releases/download/20261114-5ac9329e/winPEASx64.exe"
-size = 12036608
-sha256 = "fc1cabe4e48009a5c8bd8b06a003a221a8e14d7ec27494aa3518699838ae5bab"
+url = "https://github.com/peass-ng/PEASS-ng/releases/download/20261122-25957cb1/winPEASx64.exe"
+size = 12044288
+sha256 = "6fd215c352d974fcfe939b03eb3b49f910237891f2eaaa48080a9674b2f48598"
 to = "files/winPEASx64.exe"
 
 [[source]]
-url = "https://github.com/peass-ng/PEASS-ng/releases/download/20261114-5ac9329e/winPEASany.exe"
-size = 12037120
-sha256 = "9558721bd0b8c227f60d664a8be69ba4b1119dfe300662bad0cdbac22cd08805"
+url = "https://github.com/peass-ng/PEASS-ng/releases/download/20261122-25957cb1/winPEASany.exe"
+size = 12044800
+sha256 = "33a5d2d7e251d534b4e3fc5ff33cae3e5b87f37d7df2f2a4dad0f2c46c5f0a9a"
 to = "files/winPEASany.exe"
 
 [[source]]
-url = "https://github.com/peass-ng/PEASS-ng/releases/download/20261114-5ac9329e/winPEAS.bat"
+url = "https://github.com/peass-ng/PEASS-ng/releases/download/20261122-25957cb1/winPEAS.bat"
 size = 43707
 sha256 = "cd45a0db52a7a887e34622c0af501cfcd67b65267517fe9964bd2d5af2e9d1a2"
 to = "files/winPEAS.bat"

@@ -1,0 +1,10 @@
+version = "2.18.0"
+build = 1
+
+# Upstream publishes the SHA-256 beside the release asset; GitHub's asset digest matches it.
+[[source]]
+url = "https://github.com/SpecterOps/SharpHound/releases/download/v2.18.0/SharpHound_v2.18.0_windows_x86.zip"
+size = 2550337
+sha256 = "e2338709ee9d4b11c17ae965dfec121a97927c4510b0a32f7a48e5b0a082c169"
+member = "SharpHound.exe"
+to = "files/SharpHound.exe"

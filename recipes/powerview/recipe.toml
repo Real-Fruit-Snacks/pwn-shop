@@ -1,0 +1,9 @@
+# Upstream has no PowerView releases: the version is the date of the pinned PowerSploit commit.
+version = "2020.08.17"
+build = 1
+
+[[source]]
+url = "https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/d943001a7defb5e0d1657085a77a0e78609be58f/Recon/PowerView.ps1"
+size = 770279
+sha256 = "507e8666c239397561c58609f7ea569c9c49ddbb900cd260e7e42b02d03cfd87"
+to = "files/PowerView.ps1"

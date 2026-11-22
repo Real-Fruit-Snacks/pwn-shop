@@ -1,0 +1,16 @@
+# Upstream deliberately publishes no binaries: the version is the date of the pinned commit.
+version = "2025.11.14"
+build = 1
+
+[dotnet]
+sdk = "9.0.320"
+url = "https://github.com/GhostPack/Rubeus/archive/74215f68ea70bd6a66c008da91bf5fe21d20b154.zip"
+size = 373814
+sha256 = "eeef1c1abdf1cd7e263e7af996e2826b962d7335f563c9ca22e4c6eb9a2841c4"
+project = "Rubeus/Rubeus.csproj"
+output = "Rubeus/bin/Release/Rubeus.exe"
+to = "files/Rubeus.exe"
+framework_url = "https://api.nuget.org/v3-flatcontainer/microsoft.netframework.referenceassemblies.net40/1.0.3/microsoft.netframework.referenceassemblies.net40.1.0.3.nupkg"
+framework_size = 30664629
+framework_sha256 = "54d6e20a1b61caf79395d6d71d091265e81f5a5705ac4ae52af45ca143c3c694"
+framework = "build/.NETFramework/v4.0"
