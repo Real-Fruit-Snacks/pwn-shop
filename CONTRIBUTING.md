@@ -8,7 +8,7 @@ Use the bug form. Name the tool and build (`kerbrute 1.0.3-1`), your pwn-broker 
 
 ## Setting up and testing
 
-You need Python 3.11 or later. `build.py` uses the standard library and `tomli-w`; building a Python tool also runs `pip`, and `lock` runs `uv`.
+You need Python 3.11 or later. `build.py` uses the standard library and `tomli-w`; building a Python tool also runs `pip`, and `lock` runs `uv`. Building every recipe also needs .NET SDK 9.0.320 on PATH for Rubeus.
 
 ```sh
 python3 -m venv .venv
@@ -107,7 +107,11 @@ A build is withdrawn by deleting its release and its git tag. Then either raise 
 
 ## Dependencies
 
-A Python dependency that publishes no wheel can be built from its pinned source archive if the recipe lists it in `build_from_source` (a list of distribution names in `recipe.toml`). The archive is hash-checked, but its build requirements are fetched without hashes and its build code runs on the build machine, so this is opt-in for each recipe and none of the current ones uses it. Prefer a tool whose dependencies are all wheels.
+A Python dependency that publishes no wheel can be built from its pinned source archive if the recipe lists it in `build_from_source` (a list of distribution names in `recipe.toml`). The archive is hash-checked, but its build requirements are fetched without hashes and its build code runs on the build machine, so this is opt-in for each recipe. `jwt-tool` builds `cprint` and `ratelimit` this way. Prefer a tool whose dependencies are all wheels.
+
+A tool or dependency that exists only as a Git source archive can have a `[[wheel_source]]` with its name, build version, URL, size and SHA-256; it must also be in `build_from_source`. `overrides.in` forces those same archives when the tool's metadata names moving Git branches. Direct Git requirements in the built wheel are rewritten to the exact bundled versions and their `RECORD` entries updated. NetExec uses this for itself and four custom dependencies. See [the guide](docs/guide.md#git-source-dependencies).
+
+Rubeus uses a `[dotnet]` source build because upstream deliberately publishes no binaries. It pins the source, SDK 9.0.320 and .NET 4.0 reference assemblies. The builder runs a fixed deterministic Release build, not an arbitrary recipe command; only `Rubeus.exe` enters the package. See [the guide](docs/guide.md#net-source-builds).
 
 ## Commits
 
