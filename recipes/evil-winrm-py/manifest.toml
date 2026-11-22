@@ -1,0 +1,25 @@
+schema = 2
+requires = ["python-3.13"]
+kind = "kali"
+description = "Python WinRM shell with password and NT-hash authentication"
+tags = ["windows", "winrm", "shell", "remote"]
+upstream = "https://github.com/adityatelange/evil-winrm-py"
+licence = "MIT"
+arch = "x86_64"
+examples = [
+  "evil-winrm-py -i {ip} -u user -p 'password'",
+  "evil-winrm-py -i {ip} -u user -H NTHASH",
+  "evil-winrm-py -i {ip} -u user -p 'password' --ssl",
+]
+
+[[command]]
+name = "evil-winrm-py"
+type = "python-entry"
+entry = "evil-winrm-py"
+
+[[command]]
+name = "ewp"
+type = "python-entry"
+entry = "ewp"
+
+[python]

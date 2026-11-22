@@ -1,0 +1,22 @@
+schema = 2
+requires = ["python-3.13"]
+kind = "kali"
+description = "Interactive shell handler for authorized lab and CTF use"
+tags = ["shell", "listener", "pty", "ctf"]
+upstream = "https://github.com/brightio/penelope"
+licence = "GPL-3.0-or-later"
+arch = "x86_64"
+examples = [
+  "penelope -p 4444",
+  "penelope -p 4444 -i {lhost}",
+]
+
+[[command]]
+name = "penelope"
+type = "python-entry"
+entry = "penelope"
+
+[data]
+home = [".penelope"]
+
+[python]

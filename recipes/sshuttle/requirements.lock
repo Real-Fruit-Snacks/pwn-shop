@@ -1,0 +1,3 @@
+sshuttle==2.0.0 \
+    --hash=sha256:506a8cad2f047ca42f0d784654cb3459e2193bfad79d0a03734e0e07473f2bbb \
+    --hash=sha256:7347ff01093d471c4e9a299b9c7abd4a18eac4fddfd4cf868bedc623cab71091
