@@ -1,0 +1,21 @@
+schema = 1
+kind = "upload"
+description = "Windows service-to-SYSTEM privilege escalation through coerced authentication"
+tags = ["windows", "privesc", "potato", "impersonate"]
+upstream = "https://github.com/Prepouce/CoercedPotato"
+licence = "MIT"
+arch = "x86_64"
+examples = [
+  ".\\CoercedPotato_x64.exe -c cmd.exe",
+  ".\\CoercedPotato_x64.exe -c \"C:\\Users\\Public\\rev.exe\"",
+]
+
+[[upload]]
+path = "files/CoercedPotato_x64.exe"
+as = "CoercedPotato_x64.exe"
+note = "x64; -c is the program to execute as SYSTEM"
+
+[[upload]]
+path = "files/CoercedPotato_x86.exe"
+as = "CoercedPotato_x86.exe"
+note = "x86; use only on 32-bit Windows"

