@@ -66,4 +66,5 @@ Changed on 2026-11-22:
 - A new upload package, `mimikatz` 2.2.0-20220919: `mimikatz.exe` for 64-bit Windows and `mimikatz32.exe` for 32-bit, from upstream's release zip, under CC BY 4.0.
 - `playbooks` 2026.11.22.4 build 1: pwn-playbooks' tenth release, still 84 playbooks; the golden and silver ticket playbook now gets mimikatz from pwn-shop.
 - `playbooks` 2026.11.22.5 build 1: pwn-playbooks' eleventh release, 88 playbooks; it adds PostgreSQL, mail, message queue and IKE playbooks, and labels the steps OffSec bars on the OSCP exam.
+- `playbooks` 2026.11.23 build 1: pwn-playbooks' twelfth release, still 88 playbooks; it corrects the mail playbook's IMAP listing and hMailServer path, and the PostgreSQL playbook's file-read prerequisites.
 - Documented the limits of `autorecon`'s system-tool dependencies, `evil-winrm-py` compatibility and Kerberos support, and Penelope's always-on MCP socket. PrintSpoofer, SharpGPOAbuse and AccessChk remain unredistributed for licensing reasons.
