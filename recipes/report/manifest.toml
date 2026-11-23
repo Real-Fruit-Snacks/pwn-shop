@@ -1,0 +1,19 @@
+schema = 2
+requires = ["python-3.13"]
+kind = "kali"
+description = "Private, evidence-linked reports from pwn-broker archives"
+tags = ["report", "notes"]
+upstream = "https://github.com/Real-Fruit-Snacks/pwn-report"
+licence = "MIT"
+arch = "x86_64"
+examples = [
+  "pwn-report build ~/pwn-broker/wrapped/<box>.exported.tar.gz",
+  "pwn-report --version",
+]
+
+[[command]]
+name = "pwn-report"
+type = "python-entry"
+entry = "pwn-report"
+
+[python]
