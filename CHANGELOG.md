@@ -62,4 +62,5 @@ Changed on 2026-11-22:
 - `playbooks` 2026.11.22.2 build 1: pwn-playbooks' eighth release, still 84 playbooks; every tool in pwn-shop now has a `tool install` line in the playbooks that use it.
 - Two new upload packages: `privesccheck` 2026.10.28-1, itm4n's PrivescCheck.ps1, and `plink` 0.85, PuTTY's plink.exe for 64-bit and 32-bit Windows, pinned to the SHA-256 values in PuTTY's own sha256sums.
 - `runascs` 1.5 build 2 adds `Invoke-RunasCs.ps1`, the PowerShell version, from the commit the v1.5 tag names.
+- `playbooks` 2026.11.22.3 build 1: pwn-playbooks' ninth release, still 84 playbooks; it says what Kali needs, uses the `plink`, `privesccheck` and `runascs` packages, and names a source for each tool pwn-shop may not carry.
 - Documented the limits of `autorecon`'s system-tool dependencies, `evil-winrm-py` compatibility and Kerberos support, and Penelope's always-on MCP socket. PrintSpoofer, SharpGPOAbuse and AccessChk remain unredistributed for licensing reasons.
