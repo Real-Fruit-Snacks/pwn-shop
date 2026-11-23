@@ -1,0 +1,17 @@
+version = "0.85"
+build = 1
+
+# Each SHA-256 is the one upstream publishes in sha256sums for 0.85, which the downloaded
+# files matched. These are the standalone executables, not the installer's copies.
+
+[[source]]
+url = "https://the.earth.li/~sgtatham/putty/0.85/w64/plink.exe"
+size = 1036448
+sha256 = "969f36879d5716aa1a9811f43a6a6510e8f08372dbeb9695b810b9c776f39c75"
+to = "files/w64/plink.exe"
+
+[[source]]
+url = "https://the.earth.li/~sgtatham/putty/0.85/w32/plink.exe"
+size = 867488
+sha256 = "c7be84cc42565ad4de7e77e99f0a61f3a8dec17c77d5ff1afad79d005af54c93"
+to = "files/w32/plink.exe"

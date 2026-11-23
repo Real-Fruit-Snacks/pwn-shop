@@ -1,5 +1,5 @@
 version = "1.5"
-build = 1
+build = 2
 
 # Upstream publishes no checksums. The SHA-256 is that of the file as first downloaded.
 
@@ -16,3 +16,11 @@ size = 39889
 sha256 = "88f826096be1ed1be32dd45dc2381189df7c5f349c7b808edb872e68be4a9350"
 member = "RunasCs_net2.exe"
 to = "files/RunasCs_net2.exe"
+
+# Invoke-RunasCs.ps1 is not in the release zip: it is the file at the commit the v1.5 tag names.
+
+[[source]]
+url = "https://raw.githubusercontent.com/antonioCoco/RunasCs/a1e47b55952fadd46bf097be74a6efbcbe846c2b/Invoke-RunasCs.ps1"
+size = 88284
+sha256 = "69058ca0c4eada431047c0376db8a4728feffbacebbb9578e59f4c9113a342ca"
+to = "files/Invoke-RunasCs.ps1"
