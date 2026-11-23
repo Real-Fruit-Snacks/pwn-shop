@@ -62,6 +62,7 @@ pwn-broker keeps a Hack The Box machine in order on Kali Linux, and its `tool in
 | `lazagne` | 2.4.7 | upload | to upload: `LaZagne.exe` | LGPL-3.0 |
 | `ligolo-ng` | 0.9.2 | both | `ligolo-proxy` (needs root); to upload: `agent`, `agent.exe` | GPL-3.0 |
 | `localpotato` | 1.1 | upload | to upload: `LocalPotato.exe` | MIT |
+| `mimikatz` | 2.2.0-20220919 | upload | to upload: `mimikatz.exe`, `mimikatz32.exe` | CC-BY-4.0 |
 | `netexec` | 1.5.1 | kali | `nxc`, `netexec`, `nxcdb`, on `python-3.13` | BSD-2-Clause |
 | `peass-ng` | 2026.11.22 | upload | to upload: `linpeas.sh`, `winPEASx64.exe`, `winPEASany.exe`, `winPEAS.bat` | GPL-2.0-or-later with additional terms |
 | `penelope` | 0.21.0 | kali | `penelope`, on `python-3.13` | GPL-3.0-or-later |
@@ -117,6 +118,7 @@ The [guide](docs/guide.md) has the package format, the runtime, `build.py` and C
 - The index and the packages are not signed. The SHA-256 values in the index are the only check: they catch a corrupted or swapped zip, not who published the index.
 - `kerbrute` and `pspy` publish no checksums upstream. Their pins are the SHA-256 of each file as first downloaded.
 - Kali's own `ligolo-ng` package also installs a command named `ligolo-proxy`. While this package is installed a bare `ligolo-proxy` runs this one, but `sudo` does not use PATH, so `sudo ligolo-proxy` runs Kali's. Use `sudo /opt/pwn-broker/bin/ligolo-proxy`, the path `tool install` prints.
+- `mimikatz` 2.2.0-20220919, from 2022, is upstream's latest release, and every antivirus product detects it. Upstream has no LICENSE file: its README gives CC BY 4.0, so `recipes/mimikatz/LICENSE` quotes that line before the licence's legal code.
 - PEASS-ng's licence has terms beyond the GPL. Read `recipes/peass-ng/LICENSE` before redistributing the package.
 - The first Python tool on a machine costs the runtime: a 34 MB download (mebibytes, the unit pwn-broker prints) and about 100 MB unpacked. Its OpenSSL and other libraries are as new as its build: they are fixed when I publish a new build of the runtime, not when Kali updates.
 - `autorecon` bundles its Python code and dependencies, but its scans call nmap and other Kali system tools. Install those base tools separately; the package check starts the CLI but does not run a scan.

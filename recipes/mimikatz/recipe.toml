@@ -1,0 +1,20 @@
+version = "2.2.0-20220919"
+build = 1
+
+# Upstream publishes no checksums. The SHA-256 is that of the zip as first downloaded. Upstream
+# has no LICENSE file: the README in this zip gives CC BY 4.0, which LICENSE quotes before the
+# licence's legal code.
+
+[[source]]
+url = "https://github.com/gentilkiwi/mimikatz/releases/download/2.2.0-20220919/mimikatz_trunk.zip"
+size = 1206166
+sha256 = "7accd179e8a6b2fc907e7e8d087c52a7f48084852724b03d25bebcada1acbca5"
+member = "x64/mimikatz.exe"
+to = "files/x64/mimikatz.exe"
+
+[[source]]
+url = "https://github.com/gentilkiwi/mimikatz/releases/download/2.2.0-20220919/mimikatz_trunk.zip"
+size = 1206166
+sha256 = "7accd179e8a6b2fc907e7e8d087c52a7f48084852724b03d25bebcada1acbca5"
+member = "Win32/mimikatz.exe"
+to = "files/Win32/mimikatz.exe"
