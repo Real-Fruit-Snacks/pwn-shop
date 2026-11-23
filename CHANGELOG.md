@@ -65,4 +65,5 @@ Changed on 2026-11-22:
 - `playbooks` 2026.11.22.3 build 1: pwn-playbooks' ninth release, still 84 playbooks; it says what Kali needs, uses the `plink`, `privesccheck` and `runascs` packages, and names a source for each tool pwn-shop may not carry.
 - A new upload package, `mimikatz` 2.2.0-20220919: `mimikatz.exe` for 64-bit Windows and `mimikatz32.exe` for 32-bit, from upstream's release zip, under CC BY 4.0.
 - `playbooks` 2026.11.22.4 build 1: pwn-playbooks' tenth release, still 84 playbooks; the golden and silver ticket playbook now gets mimikatz from pwn-shop.
+- `playbooks` 2026.11.22.5 build 1: pwn-playbooks' eleventh release, 88 playbooks; it adds PostgreSQL, mail, message queue and IKE playbooks, and labels the steps OffSec bars on the OSCP exam.
 - Documented the limits of `autorecon`'s system-tool dependencies, `evil-winrm-py` compatibility and Kerberos support, and Penelope's always-on MCP socket. PrintSpoofer, SharpGPOAbuse and AccessChk remain unredistributed for licensing reasons.
