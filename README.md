@@ -73,6 +73,7 @@ pwn-broker keeps a Hack The Box machine in order on Kali Linux, and its `tool in
 | `pspy` | 1.2.1 | upload | to upload: `pspy64`, `pspy32`, `pspy64s`, `pspy32s` | GPL-3.0 |
 | `pypykatz` | 0.6.13 | kali | `pypykatz`, on `python-3.13` | MIT |
 | `python-3.13` | 3.13.18 | runtime | nothing on PATH; the Python that the Python tools run on | PSF-2.0 and others (see its `LICENSE`) |
+| `report` | 0.1.0 | kali | `pwn-report`, on `python-3.13` | MIT |
 | `roguepotato` | 1.0 | upload | to upload: `RoguePotato.exe`, `RogueOxidResolver.exe` | GPL-3.0 |
 | `rubeus` | 2025.11.14 | upload | to upload: `Rubeus.exe` | BSD-3-Clause |
 | `runascs` | 1.5 | upload | to upload: `RunasCs.exe`, `RunasCs_net2.exe`, `Invoke-RunasCs.ps1` | GPL-3.0 |
@@ -82,7 +83,7 @@ pwn-broker keeps a Hack The Box machine in order on Kali Linux, and its `tool in
 | `sshuttle` | 2.0.0 | kali | `sshuttle`, on `python-3.13` | LGPL-2.1-or-later |
 | `targetedkerberoast` | 2024.12.16 | kali | `targetedKerberoast`, on `python-3.13` | GPL-3.0 |
 
-Kind `kali` puts a command on the machine, `upload` puts files in a folder to carry to the target, and `both` does both. A `runtime` is never installed on its own: it comes and goes with the tools that require it. A `notes` package puts nothing on PATH and nothing to upload: it is files to read in pwn-broker's note window, and needs pwn-broker 0.1.7 or later. `playbooks` packages each release of [pwn-playbooks](https://github.com/Real-Fruit-Snacks/pwn-playbooks).
+Kind `kali` puts a command on the machine, `upload` puts files in a folder to carry to the target, and `both` does both. A `runtime` is never installed on its own: it comes and goes with the tools that require it. A `notes` package puts nothing on PATH and nothing to upload: it is files to read in pwn-broker's note window, and needs pwn-broker 0.1.7 or later. `playbooks` packages each release of [pwn-playbooks](https://github.com/Real-Fruit-Snacks/pwn-playbooks), and `report` each release of [pwn-report](https://github.com/Real-Fruit-Snacks/pwn-report), which turns a box's finished or exported archive into a private report folder.
 
 `version` is upstream's; `build` is mine, starts at 1, and goes up each time I repackage the same upstream version. A package is named for both: `kerbrute-1.0.3-1.zip`, released under the tag `kerbrute-v1.0.3-1`.
 
@@ -108,6 +109,7 @@ The [guide](docs/guide.md) has the package format, the runtime, `build.py` and C
 - `chisel`, `godpotato` and `runascs` built in Kali 2026.2 and installed there from the built folder by a normal user: `chisel` started, the six upload files were in place, and `finish` removed all three
 - `cdk`, `git-dumper`, `lazagne`, `rusthound-ce` and `snaffler` built in Kali 2026.2 and installed there from the built folder by a normal user: `rusthound-ce` and `git-dumper` started, the four upload files matched their pinned hashes, and `finish` removed all five
 - `playbooks` installed from the published index in Kali 2026.2 by a normal user with pwn-broker 0.1.7: `:Pb` read a playbook into the note, and `finish` removed it
+- `report` installed from a folder index of its build in Kali under WSL 2 by a normal user with pwn-broker 0.1.11: `pwn-report` built a report from the box's exported archive, and `finish` removed it with its runtime
 - The 33 recipes of 2026-11-22 built and checked in Kali under WSL 2, then installed and help-tested through pwn-broker, including a complete run in a network namespace with no network; the unit suite also passed there and on Windows 11
 
 [docs/tested.md](docs/tested.md) is the full record: counts, runs, commits and dates, and what has not been run.

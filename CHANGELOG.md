@@ -68,3 +68,7 @@ Changed on 2026-11-22:
 - `playbooks` 2026.11.22.5 build 1: pwn-playbooks' eleventh release, 88 playbooks; it adds PostgreSQL, mail, message queue and IKE playbooks, and labels the steps OffSec bars on the OSCP exam.
 - `playbooks` 2026.11.23 build 1: pwn-playbooks' twelfth release, still 88 playbooks; it corrects the mail playbook's IMAP listing and hMailServer path, and the PostgreSQL playbook's file-read prerequisites.
 - Documented the limits of `autorecon`'s system-tool dependencies, `evil-winrm-py` compatibility and Kerberos support, and Penelope's always-on MCP socket. PrintSpoofer, SharpGPOAbuse and AccessChk remain unredistributed for licensing reasons.
+
+Changed on 2026-11-23:
+
+- A new Python package, `report` 0.1.0: the `pwn-report` command, which turns a pwn-broker finished or exported archive into a private, evidence-linked report folder, built from pwn-report v0.1.0's sdist, pinned to the SHA-256 in that release's `SHA256SUMS.txt`, on `python-3.13`. It has no dependencies.
