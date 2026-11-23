@@ -1,4 +1,4 @@
-/* The pwn handbook: pwn-broker, pwn-shop and pwn-playbooks share this sheet word for word, and each page
+/* The pwn handbook: pwn-broker, pwn-shop, pwn-playbooks and pwn-report share this sheet word for word, and each page
    adds its own part after "this page". The set is one quick reference handbook: tabbed checklist cards,
    worked top to bottom, laid on a dark glareshield. Depth comes only from cards overlapping, never shadows.
    Type is Overpass (from the US highway signage face) for titles and items, Overpass Mono for commands.
@@ -15,7 +15,7 @@
     --ground: #0E1012; --card: #1C1F23; --card-2: #24282D; --display: #08090A;
     --rule: #33383F; --rule-strong: #6B717A; --ink: #ECEBE6; --mute: #A0A6AE;
     --amber: #F2B705; --on-amber: #121314; --red: #F0565B;
-    --broker: #ECEBE6; --shop: #3FA86B; --books: #4D93DB;
+    --broker: #ECEBE6; --shop: #3FA86B; --books: #4D93DB; --report: #A47FE0;
     --font: "Overpass", "Segoe UI", system-ui, sans-serif;
     --mono: "Overpass Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
     --wrap: 1240px; --gutter: clamp(.75rem, 3vw, 2.5rem); --pad: clamp(1.25rem, 3.4vw, 3rem);
@@ -27,7 +27,7 @@
     --ground: #34373C; --card: #F7F7F3; --card-2: #E4E4DD; --display: #101214;
     --rule: #D3D3CC; --rule-strong: #85888C; --ink: #15171A; --mute: #555B62;
     --amber: #F2B705; --on-amber: #121314; --red: #C8102E;
-    --broker: #15171A; --shop: #2E7D4F; --books: #2F6FB2;
+    --broker: #15171A; --shop: #2E7D4F; --books: #2F6FB2; --report: #7E5AC2;
     color-scheme: light;
 }
 @media (prefers-color-scheme: light) {
@@ -35,11 +35,11 @@
         --ground: #34373C; --card: #F7F7F3; --card-2: #E4E4DD; --display: #101214;
         --rule: #D3D3CC; --rule-strong: #85888C; --ink: #15171A; --mute: #555B62;
         --amber: #F2B705; --on-amber: #121314; --red: #C8102E;
-        --broker: #15171A; --shop: #2E7D4F; --books: #2F6FB2;
+        --broker: #15171A; --shop: #2E7D4F; --books: #2F6FB2; --report: #7E5AC2;
         color-scheme: light;
     }
 }
-.is-broker { --tab: var(--broker); } .is-shop { --tab: var(--shop); } .is-books { --tab: var(--books); }
+.is-broker { --tab: var(--broker); } .is-shop { --tab: var(--shop); } .is-books { --tab: var(--books); } .is-report { --tab: var(--report); }
 
 /* ---------- base ---------- */
 * { box-sizing: border-box; }
@@ -61,7 +61,7 @@ p { margin: 0 0 1rem; text-wrap: pretty; }
 .skip:focus { top: .75rem; }
 .wrap { max-width: calc(var(--wrap) + 2 * var(--gutter)); margin: 0 auto; padding: 0 var(--gutter); }
 
-/* ---------- the handbook's spine: the set's name, the theme switch, and the three tabs ---------- */
+/* ---------- the handbook's spine: the set's name, the theme switch, and the four tabs ---------- */
 .spine { display: flex; align-items: center; gap: 1rem; min-height: 64px; color: #ECEBE6; }
 .spine .set { display: inline-flex; align-items: center; gap: .6rem; margin-right: auto; text-decoration: none; font: 900 1rem/1 var(--font); letter-spacing: .02em; min-height: 44px; }
 .spine .set svg { width: 26px; height: 26px; border-radius: 6px; }
@@ -76,11 +76,11 @@ p { margin: 0 0 1rem; text-wrap: pretty; }
 @media (prefers-color-scheme: light) { :root:not([data-theme="nightshift"]) .theme .t-night { opacity: .72; } :root:not([data-theme="nightshift"]) .theme .t-day { opacity: 1; } }
 
 .tabs { display: flex; gap: 6px; align-items: flex-end; padding-left: 0; margin: 0; list-style: none; }
-.tabs a { display: flex; flex-direction: column; justify-content: center; min-width: 9.5rem; min-height: 50px; padding: .55rem 1.1rem .5rem; border-radius: 10px 10px 0 0;
+.tabs a { display: flex; flex-direction: column; justify-content: center; min-width: 8.5rem; min-height: 50px; padding: .55rem 1.1rem .5rem; border-radius: 10px 10px 0 0;
     text-decoration: none; background: var(--card-2); color: var(--mute); font: 900 1rem/1 var(--font); letter-spacing: .04em; text-transform: uppercase;
     border-top: 5px solid var(--tabc); transition: color 150ms var(--ease), transform 250ms var(--ease); transform: translateY(6px); }
 .tabs a small { font: 600 .68rem/1.3 var(--mono); letter-spacing: .04em; text-transform: none; margin-top: .25rem; }
-.tabs .t-broker { --tabc: var(--broker); } .tabs .t-shop { --tabc: var(--shop); } .tabs .t-books { --tabc: var(--books); }
+.tabs .t-broker { --tabc: var(--broker); } .tabs .t-shop { --tabc: var(--shop); } .tabs .t-books { --tabc: var(--books); } .tabs .t-report { --tabc: var(--report); }
 @media (hover: hover) { .tabs a:not([aria-current]):hover { color: var(--ink); transform: translateY(2px); } }
 .tabs a[aria-current="page"] { background: var(--card); color: var(--ink); transform: none; min-height: 58px; }
 
@@ -204,7 +204,7 @@ p { margin: 0 0 1rem; text-wrap: pretty; }
     .hero { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 640px) {
-    .tabs a { min-width: 0; flex: 1; padding: .5rem .6rem; font-size: .82rem; }
+    .tabs a { min-width: 0; flex: 1 1 auto; padding: .5rem .35rem; font-size: .76rem; letter-spacing: .02em; }
     .tabs a small { display: none; }
     .spine .gh { display: none; }
     .ck > li { grid-template-columns: 1.4rem auto minmax(.8rem, 1fr) auto; column-gap: .5rem; }

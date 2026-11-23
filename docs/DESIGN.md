@@ -1,6 +1,6 @@
 ---
 name: The pwn handbook
-description: One quick reference handbook for pwn-broker, pwn-shop and pwn-playbooks
+description: One quick reference handbook for pwn-broker, pwn-shop, pwn-playbooks and pwn-report
 colors:
   ground: "#0E1012"
   card: "#1C1F23"
@@ -16,6 +16,7 @@ colors:
   broker: "#ECEBE6"
   shop: "#3FA86B"
   books: "#4D93DB"
+  report: "#A47FE0"
   ground-day: "#34373C"
   card-day: "#F7F7F3"
   card-2-day: "#E4E4DD"
@@ -28,6 +29,7 @@ colors:
   broker-day: "#15171A"
   shop-day: "#2E7D4F"
   books-day: "#2F6FB2"
+  report-day: "#7E5AC2"
   screen-text: "#E8E6E1"
   screen-dim: "#9AA0A8"
   screen-ok: "#6FD39A"
@@ -75,15 +77,15 @@ components:
   chip: { backgroundColor: "{colors.card-2}", textColor: "{colors.ink}", typography: "{typography.label}", rounded: "{rounded.chip}", padding: ".32rem .45rem" }
 ---
 
-# Design: the pwn handbook (docs/ in pwn-broker, pwn-shop and pwn-playbooks)
+# Design: the pwn handbook (docs/ in pwn-broker, pwn-shop, pwn-playbooks and pwn-report)
 
 ## Concept
 
-The three project pages are one quick reference handbook, the kind kept in a cockpit: tabbed checklist cards, each worked top to bottom and closed out, laid on a dark glareshield. Every page is a card behind its own tab. Its first card is a checklist of challenge, dotted leader and response, beside a dark display that plays a real session; as the session reaches the line that proves an item, the item ticks. pwn-broker and pwn-playbooks carry the same system: `styles.css` and `script.js` are the same in all three repos, word for word, up to the comment "this page", and each page adds its own part after it.
+The four project pages are one quick reference handbook, the kind kept in a cockpit: tabbed checklist cards, each worked top to bottom and closed out, laid on a dark glareshield. Every page is a card behind its own tab. Its first card is a checklist of challenge, dotted leader and response, beside a dark display that plays a real session; as the session reaches the line that proves an item, the item ticks. All four carry the same system: `styles.css` and `script.js` are the same in all four repos, word for word, up to the comment "this page", and each page adds its own part after it.
 
 ## Audience and primary action
 
-HTB and OSCP players on Kali. They need to see what each project does, believe it from real output, and copy item 1: the install line (pwn-broker), `tool install <name>` (pwn-shop) or `tool install playbooks` (pwn-playbooks).
+HTB and OSCP players on Kali. They need to see what each project does, believe it from real output, and copy item 1: the install line (pwn-broker), `tool install <name>` (pwn-shop), `tool install playbooks` (pwn-playbooks) or the four install lines (pwn-report).
 
 ## Type
 
@@ -106,27 +108,27 @@ Night is the cockpit at night; Day lights the card, and the glareshield stays da
 | ink / mute | `#ECEBE6` / `#A0A6AE` | `#15171A` / `#555B62` | Text, the 3px rule over each list; notes and open responses |
 | Amber | `#F2B705` on `#121314` | the same | The live item, the copy control, focus and the display's cursor. Nothing else |
 | Red | `#F0565B` | `#C8102E` | Known issues and checks not run. Nothing else |
-| Broker / Shop / Playbooks | `#ECEBE6` / `#3FA86B` / `#4D93DB` | `#15171A` / `#2E7D4F` / `#2F6FB2` | Each project's tab hue: its tab's top edge, its title bars, link hovers |
+| Broker / Shop / Playbooks / Report | `#ECEBE6` / `#3FA86B` / `#4D93DB` / `#A47FE0` | `#15171A` / `#2E7D4F` / `#2F6FB2` / `#7E5AC2` | Each project's tab hue: its tab's top edge, its title bars, link hovers |
 
-Broker's hue is ink, so the parent project reads as the handbook's own. Inside the display, text is `#E8E6E1`, dim lines `#9AA0A8`, prompts white and `ok` lines `#6FD39A` in both themes, with `#2A2E34` under the window's bar and a `#3A3F46` scrollbar; the vim buffers on pwn-broker and pwn-playbooks use the note window's own colours, IPs `#FFC247`, placeholders `#FF6A3D`, fold markers `#8A8F99` and a `#2A2F36` selection. The foot's text is `#C3C7CC` on the ground in both themes, and print is black on white. Every state carries a word as well as a colour: "Passed", "Not run", "On PATH".
+Broker's hue is ink, so the parent project reads as the handbook's own. Report's violet is as far from the shop green, the playbooks blue, amber and red as the set allows, with the same contrast on the card as the other hues: 5.3:1 at night and 4.7:1 by day. Inside the display, text is `#E8E6E1`, dim lines `#9AA0A8`, prompts white and `ok` lines `#6FD39A` in both themes, with `#2A2E34` under the window's bar and a `#3A3F46` scrollbar; the vim buffers on pwn-broker and pwn-playbooks use the note window's own colours, IPs `#FFC247`, placeholders `#FF6A3D`, fold markers `#8A8F99` and a `#2A2F36` selection. The foot's text is `#C3C7CC` on the ground in both themes, and print is black on white. Every state carries a word as well as a colour: "Passed", "Not run", "On PATH".
 
 **The one amber line.** At most one item on a card is amber. While a live item exists, the copy control on that card turns to a grey outline, so amber never appears twice.
 
 ## Layout
 
-A 1240px wrap with a gutter of `clamp(.75rem, 3vw, 2.5rem)`. Above the cards, the spine holds the RFS mark, GitHub and the theme switch, then the three tabs: the current one raised, flush with its card and joined to it. The first card's hero is two columns (6fr to 7fr): title, one-liner, text and checklist on the left, the display on the right. Reference cards follow, each a titled sheet: a spec list (leaders with no box), command blocks, a two-column "Tested on" checklist, and "Known issues" as a plain list with red marks. pwn-shop adds the package table; pwn-playbooks adds the finder, the folder index and the placeholder glossary. Open ground of `clamp(1.75rem, 1rem + 2.6vw, 3.25rem)` sets each card apart from the next, 12px more after the first so its second sheet shows, and all cards share one left edge.
+A 1240px wrap with a gutter of `clamp(.75rem, 3vw, 2.5rem)`. Above the cards, the spine holds the RFS mark, GitHub and the theme switch, then the four tabs: the current one raised, flush with its card and joined to it. The first card's hero is two columns (6fr to 7fr): title, one-liner, text and checklist on the left, the display on the right. Reference cards follow, each a titled sheet: a spec list (leaders with no box), command blocks, a two-column "Tested on" checklist, and "Known issues" as a plain list with red marks. pwn-shop adds the package table; pwn-playbooks adds the finder, the folder index and the placeholder glossary; pwn-report adds the report folder as a spec list beside its `report.md`, cut short, in a dark display (5fr to 7fr). Open ground of `clamp(1.75rem, 1rem + 2.6vw, 3.25rem)` sets each card apart from the next, 12px more after the first so its second sheet shows, and all cards share one left edge.
 
-Below 980px the hero is one column, so the checklist comes before the display. Below 640px the tabs share the width and drop their sub-lines, a command stacks above its copy control, and spec lists drop their leaders. Below 720px pwn-shop's table becomes one block per package.
+Below 980px the hero is one column, so the checklist comes before the display. Below 640px the tabs share the width by their names' length and drop their sub-lines, so four fit across 320px, a command stacks above its copy control, and spec lists drop their leaders. Below 720px pwn-shop's table becomes one block per package.
 
 ## Signature
 
-The checklist line. A 1.15rem box with a 2.5px border, the challenge in capitals, a 3px dotted leader, the response in mono, right-aligned. An item is open (empty box, muted response), live (the whole line amber), done (box filled in ink with a tick drawn from two strokes) or not run (red box with a drawn cross, red response). A list ends with a closeout line between two rules: "Box closed out", "Playbook filled".
+The checklist line. A 1.15rem box with a 2.5px border, the challenge in capitals, a 3px dotted leader, the response in mono, right-aligned. An item is open (empty box, muted response), live (the whole line amber), done (box filled in ink with a tick drawn from two strokes) or not run (red box with a drawn cross, red response). A list ends with a closeout line between two rules: "Box closed out", "Playbook filled", "Report filed".
 
 **Depth by overlap only.** No drop shadows. The first card has a second sheet showing 12px beneath its corner, and its tab overlaps its top edge; the reference cards below it are single sheets on open ground, so a section ends where its sheet does. Tabs rest 6px down and rise to meet their card.
 
 ## Wow moment
 
-The display plays the real session and the checklist beside it works itself. Items start open, the first one live; each ticks when the session prints the line that proves it, the next turns amber, and the closeout line ends it. On pwn-shop, four `tool install` lines (kerbrute, pspy, certipy with its runtime, playbooks) and a `finish` that removes them all. pwn-broker plays a box from its first target to `finish`. pwn-playbooks plays the note window instead: `:Pb smb`, three values typed over `<Replace>`, `dd`, `V} "qy`, then `@q`. Item 1, the reader's own step, is never ticked. Replay runs it again.
+The display plays the real session and the checklist beside it works itself. Items start open, the first one live; each ticks when the session prints the line that proves it, the next turns amber, and the closeout line ends it. On pwn-shop, four `tool install` lines (kerbrute, pspy, certipy with its runtime, playbooks) and a `finish` that removes them all. pwn-broker plays a box from its first target to `finish`. pwn-playbooks plays the note window instead: `:Pb smb`, three values typed over `<Replace>`, `dd`, `V} "qy`, then `@q`. pwn-report plays one report: `pwn-report build` on a finished archive and its `ok` line, the same command refused with its `fail` line, then `grep held report.md` and the places held back. Item 1, the reader's own step, is never ticked. Replay runs it again.
 
 - **No JS:** every item done and every display at its finished frame, as the HTML ships.
 - **Reduced motion:** no playback and no Replay button; the theme switches without its reveal.
@@ -142,8 +144,8 @@ Plain and exact, in the first person where the README is: real commands, real ou
 
 ## Files
 
-- `index.html`, `styles.css`, `script.js`, `fonts/`, and the icons and manifest. The shared part of `styles.css` and `script.js` must stay the same in all three repos; change it in one and copy it to the other two.
-- `art/make-panel.py` draws the README panel as `assets/panel-{dark,light}.svg`, with text turned to paths from `fonts/`. In pwn-playbooks, `art/make-page.py` writes the page's generated lists from the tree.
+- `index.html`, `styles.css`, `script.js`, `fonts/`, and the icons and manifest. The shared part of `styles.css` and `script.js` must stay the same in all four repos; change it in one and copy it to the other three.
+- `art/make-panel.py` draws the README panel as `assets/panel-{dark,light}.svg`, with text turned to paths from `fonts/`. In pwn-playbooks, `art/make-page.py` writes the page's generated lists from the tree. In pwn-report, `make-panel.py` takes every line from a real build of the suite's test archive, `--check` fails when the panels are stale, and a test checks that the page's session and `report.md` lines are that build's.
 - `assets/cover-*`, `assets/social-*.png` and `assets/cover.toml` are the RFS brand cover from rfs-brand's `make-cover.py`.
 
 ## Alternatives considered
