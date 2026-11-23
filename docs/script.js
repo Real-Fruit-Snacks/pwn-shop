@@ -1,4 +1,4 @@
-// The pwn handbook: pwn-broker, pwn-shop and pwn-playbooks share this script word for word, and a page
+// The pwn handbook: pwn-broker, pwn-shop, pwn-playbooks and pwn-report share this script word for word, and a page
 // adds its own part after "this page". It runs the theme switch, the copy controls, and the checklist:
 // items marked data-step start open while a demo plays, the next one is live (amber), and each turns done
 // when the demo reaches the line or step that proves it. Without JS, or with reduced motion, every item is
