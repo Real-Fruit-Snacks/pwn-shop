@@ -66,20 +66,22 @@ pwn-broker keeps a Hack The Box machine in order on Kali Linux, and its `tool in
 | `peass-ng` | 2026.11.22 | upload | to upload: `linpeas.sh`, `winPEASx64.exe`, `winPEASany.exe`, `winPEAS.bat` | GPL-2.0-or-later with additional terms |
 | `penelope` | 0.21.0 | kali | `penelope`, on `python-3.13` | GPL-3.0-or-later |
 | `playbooks` | 2026.11.22.2 | notes | playbooks to read into the note window with `:Pb <name>` | CC-BY-4.0 |
+| `plink` | 0.85 | upload | to upload: `plink.exe`, `plink32.exe` | MIT |
 | `powerview` | 2020.08.17 | upload | to upload: `PowerView.ps1` | BSD-3-Clause |
+| `privesccheck` | 2026.10.28-1 | upload | to upload: `PrivescCheck.ps1` | BSD-3-Clause |
 | `pspy` | 1.2.1 | upload | to upload: `pspy64`, `pspy32`, `pspy64s`, `pspy32s` | GPL-3.0 |
 | `pypykatz` | 0.6.13 | kali | `pypykatz`, on `python-3.13` | MIT |
 | `python-3.13` | 3.13.18 | runtime | nothing on PATH; the Python that the Python tools run on | PSF-2.0 and others (see its `LICENSE`) |
 | `roguepotato` | 1.0 | upload | to upload: `RoguePotato.exe`, `RogueOxidResolver.exe` | GPL-3.0 |
 | `rubeus` | 2025.11.14 | upload | to upload: `Rubeus.exe` | BSD-3-Clause |
-| `runascs` | 1.5 | upload | to upload: `RunasCs.exe`, `RunasCs_net2.exe` | GPL-3.0 |
+| `runascs` | 1.5 | upload | to upload: `RunasCs.exe`, `RunasCs_net2.exe`, `Invoke-RunasCs.ps1` | GPL-3.0 |
 | `rusthound-ce` | 2.5.52 | kali | `rusthound-ce` | MIT |
 | `sharphound` | 2.18.0 | upload | to upload: `SharpHound.exe` | GPL-3.0 |
 | `snaffler` | 1.0.244 | upload | to upload: `Snaffler.exe` | GPL-3.0 |
 | `sshuttle` | 2.0.0 | kali | `sshuttle`, on `python-3.13` | LGPL-2.1-or-later |
 | `targetedkerberoast` | 2024.12.16 | kali | `targetedKerberoast`, on `python-3.13` | GPL-3.0 |
 
-Kind `kali` puts a command on the machine, `upload` puts files in a folder to carry to the target, and `both` does both. A `runtime` is never installed on its own: it comes and goes with the tools that require it. A `notes` package puts nothing on PATH and nothing to upload: it is files to read in pwn-broker's note window, and needs pwn-broker 0.1.7 or later.
+Kind `kali` puts a command on the machine, `upload` puts files in a folder to carry to the target, and `both` does both. A `runtime` is never installed on its own: it comes and goes with the tools that require it. A `notes` package puts nothing on PATH and nothing to upload: it is files to read in pwn-broker's note window, and needs pwn-broker 0.1.7 or later. `playbooks` packages each release of [pwn-playbooks](https://github.com/Real-Fruit-Snacks/pwn-playbooks).
 
 `version` is upstream's; `build` is mine, starts at 1, and goes up each time I repackage the same upstream version. A package is named for both: `kerbrute-1.0.3-1.zip`, released under the tag `kerbrute-v1.0.3-1`.
 
@@ -105,7 +107,7 @@ The [guide](docs/guide.md) has the package format, the runtime, `build.py` and C
 - `chisel`, `godpotato` and `runascs` built in Kali 2026.2 and installed there from the built folder by a normal user: `chisel` started, the six upload files were in place, and `finish` removed all three
 - `cdk`, `git-dumper`, `lazagne`, `rusthound-ce` and `snaffler` built in Kali 2026.2 and installed there from the built folder by a normal user: `rusthound-ce` and `git-dumper` started, the four upload files matched their pinned hashes, and `finish` removed all five
 - `playbooks` installed from the published index in Kali 2026.2 by a normal user with pwn-broker 0.1.7: `:Pb` read a playbook into the note, and `finish` removed it
-- All 33 current recipes built and checked in Kali under WSL 2, then installed and help-tested through pwn-broker, including a complete run in a network namespace with no network; the unit suite also passed there and on Windows 11
+- The 33 recipes of 2026-11-22 built and checked in Kali under WSL 2, then installed and help-tested through pwn-broker, including a complete run in a network namespace with no network; the unit suite also passed there and on Windows 11
 
 [docs/tested.md](docs/tested.md) is the full record: counts, runs, commits and dates, and what has not been run.
 
@@ -120,7 +122,7 @@ The [guide](docs/guide.md) has the package format, the runtime, `build.py` and C
 - `autorecon` bundles its Python code and dependencies, but its scans call nmap and other Kali system tools. Install those base tools separately; the package check starts the CLI but does not run a scan.
 - `evil-winrm-py` is not a drop-in replacement for Ruby Evil-WinRM: it uses `--ssl` rather than `-S` and has no `-s` or `-e` directory options. Its Kerberos extra is not bundled because `gssapi` has no compatible Python 3.13 Linux wheel and needs a native build. Kali's Ruby `evil-winrm` remains separate.
 - `penelope` 0.21.0 fixes the session-archive path traversal, and `--oscp-safe` disables Meterpreter, Traitor and ngrok, but this release still starts its local MCP socket unconditionally. It is therefore a general lab/CTF package, not an OSCP-approved profile; use Kali's nc, ncat or socat for the basic OSCP shell workflow.
-- PrintSpoofer, SharpEfsPotato, SweetPotato, Hot Potato and SharpGPOAbuse have no upstream redistribution licence, and Microsoft's Sysinternals terms prohibit publishing AccessChk for others to copy. They are not redistributed here. `godpotato`, `juicypotato`, `roguepotato`, `localpotato` and `coercedpotato` are packaged; obtain AccessChk directly from Microsoft.
+- PrintSpoofer, SharpEfsPotato, SweetPotato, Hot Potato, SharpGPOAbuse, SeRestoreAbuse, SeManageVolumeExploit and calebstewart's CVE-2021-1675 script have no upstream redistribution licence, and Microsoft's Sysinternals terms prohibit publishing AccessChk for others to copy. They are not redistributed here. `godpotato`, `juicypotato`, `roguepotato`, `localpotato` and `coercedpotato` are packaged; obtain AccessChk directly from Microsoft.
 
 The rest of the list is in [docs/tested.md](docs/tested.md#known-limits).
 

