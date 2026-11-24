@@ -1925,7 +1925,7 @@ def test_validate_refuses_a_bad_env_name(tmp_path, name):
         build.validate(pkg(tmp_path, command_with(env={name: "v"})))
 
 
-@pytest.mark.parametrize("name", ["data", "box", "run", "pid"])
+@pytest.mark.parametrize("name", ["data", "box", "run", "pid", "start"])
 def test_validate_refuses_a_reserved_env_name(tmp_path, name):
     with pytest.raises(build.BuildError, match="reserved"):
         build.validate(pkg(tmp_path, command_with(env={name: "v"})))
@@ -1967,7 +1967,7 @@ RESERVED = (
     "sudo sudoedit su doas pkexec run0 passwd login newgrp visudo "
     "ssh scp sftp ssh-agent ssh-add ssh-keygen gpg "
     "python python3 pip pip3 "
-    "chown cp rm kill ip ping tar vim openvpn x-terminal-emulator pwn-broker record asciinema "
+    "chown cp rm kill ip ping tar vim openvpn x-terminal-emulator pwn-broker record asciinema nmap "
     "sed cut mkdir cat ls mv ln vi grep awk find head tail chmod id uname test "
     "whoami hostname sleep touch tee which ps tput dircolors xargs timeout nohup "
     "less more pager man nano editor "
