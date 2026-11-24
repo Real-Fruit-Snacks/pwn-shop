@@ -9,6 +9,7 @@ import base64
 import csv
 import gzip
 import hashlib
+import json
 import io
 import os
 import re
@@ -1454,7 +1455,7 @@ def source_pins(recipe: Recipe) -> list[str]:
         entry = f"{_norm_name(wheel.name)}=={wheel.version} sha256:{wheel.source.sha256}"
         if wheel.env:
             # what the build is run with changes what it makes
-            entry += " env " + " ".join(f"{k}={v}" for k, v in sorted(wheel.env.items()))
+            entry += " env " + " ".join(f"{k}={json.dumps(v)}" for k, v in sorted(wheel.env.items()))
         # the same archive in the lock and as a [[wheel_source]] is one source
         found.add(entry)
     return sorted(found)

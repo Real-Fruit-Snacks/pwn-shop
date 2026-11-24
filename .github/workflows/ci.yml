@@ -184,9 +184,10 @@ jobs:
         # install check, which starts every packaged tool: either could change dist/. (The build
         # above already ran a build_from_source recipe's unhashed build requirements.)
         # publish and the kali job refuse a dist/ whose files do not give this one SHA-256. It is
-        # kept twice: as this step's output, which nothing can change once the step has ended,
-        # and as an artifact of its own, uploaded with dist/. Only this leg sets the output, and
-        # a leg that sets none leaves another's as it is.
+        # kept twice: as this step's output, which the steps after it cannot set again, and as an
+        # artifact of its own, uploaded with dist/. Both must agree, so replacing one is not
+        # enough; code on this runner with root could still reach both. Only this leg sets the
+        # output, and a leg that sets none leaves another's as it is.
         if: matrix.python == '3.13'
         id: sums
         run: |

@@ -345,6 +345,14 @@ def test_a_wheel_source_s_build_environment_is_one_of_its_sources(tmp_path, pinn
         build.compare_cards(built, published, pinned_source_recipe, tmp_path / "1.zip", tmp_path / "2.zip")
 
 
+def test_two_build_environments_never_read_as_one(tmp_path, pinned_source_recipe):
+    pinned_source_recipe.wheel_sources[0].env = {"CFLAGS": "-O2 LDFLAGS=-s"}
+    one = build.card(pinned_source_recipe, pkg(tmp_path / "1.zip"))["sources"]
+    pinned_source_recipe.wheel_sources[0].env = {"CFLAGS": "-O2", "LDFLAGS": "-s"}
+    two = build.card(pinned_source_recipe, pkg(tmp_path / "2.zip"))["sources"]
+    assert one != two
+
+
 def test_a_wheel_source_that_is_also_the_lock_s_line_is_named_once(tmp_path, pinned_source_recipe):
     from conftest import digest
 
