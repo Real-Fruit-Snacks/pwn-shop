@@ -10,6 +10,7 @@ import csv
 import gzip
 import hashlib
 import io
+import json
 import os
 import re
 import shutil
@@ -79,7 +80,8 @@ _LOCK_LINE = re.compile(
     r"[A-Za-z0-9][A-Za-z0-9._-]*==[A-Za-z0-9][A-Za-z0-9.!+_-]*( --hash=sha256:[0-9a-f]{64})+"
 )
 _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-RESERVED_ENV = ("data", "box", "run", "pid")
+# pwn-broker's toolinstall._OWN_VARIABLES
+RESERVED_ENV = ("data", "box", "run", "pid", "start")
 # Names a launcher must never stand in for on PATH: pwn-broker's toolpkg.RESERVED_COMMANDS, in
 # its groups. It is not a list of everything Kali has; a tool may take the name of Kali's own
 # copy of it.
@@ -92,7 +94,7 @@ RESERVED_COMMANDS = tuple(
     # Python and pip; their versioned names are refused by _VERSIONED_PYTHON
     "python python3 pip pip3 "
     # what pwn-broker runs by name
-    "chown cp rm kill ip ping tar vim openvpn x-terminal-emulator pwn-broker record asciinema "
+    "chown cp rm kill ip ping tar vim openvpn x-terminal-emulator pwn-broker record asciinema nmap "
     # what a shell's start-up files, its prompt and everyday lines run
     "sed cut mkdir cat ls mv ln vi grep awk find head tail chmod id uname test "
     "whoami hostname sleep touch tee which ps tput dircolors xargs timeout nohup "
@@ -1439,10 +1441,32 @@ def write_zip(staged: Path, out: Path) -> Path:
     return out
 
 
+def source_pins(recipe: Recipe) -> list[str]:
+    """What a recipe's builds from source are made from: each such distribution's lock line, its
+    hashes included, and each [[wheel_source]] archive. The wheels' bytes differ between builds,
+    so compare leaves them out; these are what say the build is the recipe's."""
+    pins = read_requirements_lock(recipe.folder / REQUIREMENTS_LOCK, recipe.name)
+    found = {
+        f"{_norm_name(p.name)}=={p.version} " + " ".join(f"sha256:{h}" for h in sorted(p.hashes))
+        for p in pins
+        if _norm_name(p.name) in recipe.build_from_source
+    }
+    for wheel in recipe.wheel_sources:
+        entry = f"{_norm_name(wheel.name)}=={wheel.version} sha256:{wheel.source.sha256}"
+        if wheel.env:
+            # what the build is run with changes what it makes
+            entry += " env " + " ".join(f"{k}={json.dumps(v)}" for k, v in sorted(wheel.env.items()))
+        # the same archive in the lock and as a [[wheel_source]] is one source
+        found.add(entry)
+    return sorted(found)
+
+
 def card(recipe: Recipe, zip_path: Path) -> dict:
     m = recipe.manifest
     # requires is left out when empty, so the cards of schema 1 builds stay as published
     required = {"requires": list(recipe.requires)} if recipe.requires else {}
+    # sources only for a build from source, so every other card stays as published
+    sources = {"sources": source_pins(recipe)} if recipe.build_from_source else {}
     return {
         "name": recipe.name,
         "version": recipe.version,
@@ -1456,6 +1480,7 @@ def card(recipe: Recipe, zip_path: Path) -> dict:
         "needs_root": bool(m.get("needs_root", False)),
         "commands": [c["name"] for c in m.get("command", []) if isinstance(c, dict) and "name" in c],
         **required,
+        **sources,
         "file": zip_path.name,
         "size": zip_path.stat().st_size,
         "sha256": sha256_file(zip_path),
@@ -1617,6 +1642,9 @@ def _read_card(path: Path) -> dict:
     requires = data.get("requires", [])
     if not isinstance(requires, list) or not all(isinstance(r, str) for r in requires):
         raise BuildError(f"{path.name}: requires must be a list of strings")
+    sources = data.get("sources", [])
+    if not isinstance(sources, list) or not all(isinstance(s, str) for s in sources):
+        raise BuildError(f"{path.name}: sources must be a list of strings")
     return data
 
 
@@ -1667,7 +1695,8 @@ def _zip_member(zip_path: Path, name: str, limit: int) -> bytes | None:
 
 
 def _zip_digests(zip_path: Path, left_out: list[str]) -> dict[str, tuple[int, str]]:
-    """Name -> (size, SHA-256) of every file in a zip, except the wheels of left_out."""
+    """Name -> (size, SHA-256) of every file in a zip; a wheel of left_out by its distribution and
+    version alone."""
     found: dict[str, tuple[int, str]] = {}
     try:
         with zipfile.ZipFile(zip_path) as zf:
@@ -1682,6 +1711,14 @@ def _zip_digests(zip_path: Path, left_out: list[str]) -> dict[str, tuple[int, st
                 if name in found:
                     raise BuildError(f"{zip_path.name}: {name} appears more than once")
                 if _left_out_wheel(name, left_out):
+                    # built from source, its bytes differ by nature, and its file name's spelling
+                    # and tags with the build tools, which are not pinned: its distribution and
+                    # version are what count
+                    wheel = _WHEEL.fullmatch(name.rpartition("/")[2])
+                    key = f"wheels/{_norm_name(wheel['name'])}=={wheel['version']}"
+                    if key in found:
+                        raise BuildError(f"{zip_path.name}: {key} appears more than once")
+                    found[key] = (0, "built from source")
                     continue
                 digest = hashlib.sha256()
                 with zf.open(info) as src:
@@ -1703,7 +1740,8 @@ def _lock_lines(data: bytes, left_out: list[str]) -> list[str]:
     kept = []
     for line in data.decode("utf-8", errors="replace").splitlines():
         if line and _norm_name(line.split("==", 1)[0]) in left_out:
-            continue
+            # its hash differs by nature; its name and version must not
+            line = line.split()[0]
         kept.append(line)
     return kept
 
@@ -1711,9 +1749,10 @@ def _lock_lines(data: bytes, left_out: list[str]) -> list[str]:
 def zip_changes(built_zip: Path, published_zip: Path, recipe: Recipe) -> list[str]:
     """The members that differ between two zips of one build.
 
-    Every member counts (name, size, SHA-256) except the wheels of the distributions in
-    build_from_source, whose bytes differ between builds by nature, and those distributions'
-    lines in wheels.lock.
+    Every member counts (name, size, SHA-256), except that the wheels of the distributions in
+    build_from_source, whose bytes and file names differ between builds by nature, count by their
+    distribution and version, and those distributions' lines in wheels.lock by name and version,
+    without their hashes.
     """
     left_out = recipe.build_from_source
     new = _zip_digests(built_zip, left_out)
@@ -1741,7 +1780,11 @@ def compare_cards(
     # differs between builds, so only then are the two zips compared member by member.
     listed = bool(recipe.build_from_source)
     ignore = ("size", "sha256") if listed else ()
-    changed = card_changes(_read_card(built), _read_card(published), ignore=ignore)
+    built_card, published_card = _read_card(built), _read_card(published)
+    if listed and "sources" not in published_card:
+        # published before cards named their sources: there is nothing to compare them with
+        ignore += ("sources",)
+    changed = card_changes(built_card, published_card, ignore=ignore)
     if listed:
         if built_zip is None or published_zip is None:
             raise BuildError(f"{recipe.name}: comparing a package with build_from_source needs both zips")
@@ -2043,6 +2086,7 @@ def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
 
 
 def _check_entries(infos: list[zipfile.ZipInfo]) -> dict[str, zipfile.ZipInfo]:
+    """pwn-broker's toolpkg._check_entries, rule for rule, so a zip built here is one it unpacks."""
     if len(infos) > MAX_MEMBERS:
         raise BuildError(f"package has {len(infos)} entries; the limit is {MAX_MEMBERS}")
     if sum(i.file_size for i in infos) > MAX_UNPACKED_BYTES:
@@ -2052,6 +2096,10 @@ def _check_entries(infos: list[zipfile.ZipInfo]) -> dict[str, zipfile.ZipInfo]:
         name = info.filename
         if info.compress_type != zipfile.ZIP_STORED:
             raise BuildError(f"package entry {name!r} is compressed")
+        if info.compress_size != info.file_size:
+            raise BuildError(f"package entry {name!r} does not hold the bytes it declares")
+        if fault := _too_long(name):
+            raise BuildError(f"package entry {name[:100]!r} has a name {fault}")
         bare = name[:-1] if name.endswith("/") else name
         parts = bare.split("/")
         if (
@@ -2063,6 +2111,8 @@ def _check_entries(infos: list[zipfile.ZipInfo]) -> dict[str, zipfile.ZipInfo]:
             or parts[0].endswith(":")
         ):
             raise BuildError(f"package entry {name!r} would write outside the tool's folder")
+        if any(c in "\\:" or unicodedata.category(c) == "Cc" for c in name):
+            raise BuildError(f"package entry {name!r} has a backslash, colon or control character in its name")
         if bare in seen:
             raise BuildError(f"package entry {name!r} appears twice")
         if stat.S_IFMT(info.external_attr >> 16) not in (0, stat.S_IFREG, stat.S_IFDIR):
@@ -2077,11 +2127,18 @@ def _check_entries(infos: list[zipfile.ZipInfo]) -> dict[str, zipfile.ZipInfo]:
         if not allowed:
             raise BuildError(f"package entry {name!r} is not part of the package layout")
         seen[bare] = info
+    folders: set[str] = set()
+    made = len(seen)
     for bare in seen:
         parent = bare.rpartition("/")[0]
-        while parent:
+        while parent and parent not in folders:
             if parent in seen and not seen[parent].is_dir():
                 raise BuildError(f"package entry {bare!r} sits inside the file {parent!r}")
+            folders.add(parent)
+            if parent not in seen:
+                made += 1
+                if made > MAX_MEMBERS:
+                    raise BuildError(f"package would make more than {MAX_MEMBERS} files and folders")
             parent = parent.rpartition("/")[0]
     return seen
 

@@ -89,7 +89,7 @@ Some versions are dates rather than upstream release numbers: `targetedkerberoas
 | `python build.py lock [tool ...]` | Resolve a Python tool's `requirements.in` into `requirements.lock` for its runtime's Python (needs `uv`) |
 | `python build.py index <cards> --base-url <pattern>` | Write an index from a folder of cards |
 | `python build.py plan` | List each recipe's name, release tag and zip name |
-| `python build.py compare <built card> <published card> <built zip> <published zip>` | Fail if a rebuilt package differs from the published one for the same build. The whole card is compared, so any changed byte shows; only if the recipe has `build_from_source` are the zips compared member by member instead, leaving out those distributions' wheels and `wheels.lock` lines |
+| `python build.py compare <built card> <published card> <built zip> <published zip>` | Fail if a rebuilt package differs from the published one for the same build. The whole card is compared, so any changed byte shows; only if the recipe has `build_from_source` are the zips compared member by member instead, leaving out the bytes of those distributions' wheels and the hashes on their `wheels.lock` lines, but not their names and versions |
 | `python build.py notes <card>` | Print a release's notes |
 
 `build`, `check` and `lock` take `--recipes`, `--out` and `--cache`; downloads are kept in `.cache/`, each under its SHA-256. `build` refuses to write an index in which a tool requires a runtime that is not in the folder: build the runtime into the same folder, or pass `--skip-index` to get the zip and its card with no index, as CI does when it rebuilds one published package to compare it. A download that fails or does not match its pin exits with status 3, any other failure with 1.

@@ -686,6 +686,41 @@ def test_validate_refuses_unsafe_entry_names(tmp_path, name):
         build.validate(pkg(tmp_path, files={name: b"x"}))
 
 
+# what pwn-broker's toolpkg refuses when it unpacks a package, so a zip built here never gets to it
+@pytest.mark.parametrize(
+    "name",
+    [
+        "files/pb/a:b.md",
+        "files/a\x01b",
+        "files/a\nb",
+        "files/a\x7fb",
+        "files/" + "/".join(["d"] * 70) + "/x",
+        "files/" + "n" * 256,
+        "files/" + "/".join(["p" * 200] * 21),
+    ],
+)
+def test_validate_refuses_a_name_pwn_broker_refuses(tmp_path, name):
+    with pytest.raises(build.BuildError):
+        build.validate(pkg(tmp_path, files={name: b"x"}))
+
+
+def test_validate_refuses_an_entry_that_does_not_hold_the_bytes_it_declares(tmp_path):
+    path = pkg(tmp_path, files={"files/extra": b"12345"})
+    data = bytearray(path.read_bytes())
+    # the central directory's record of files/extra: its compressed size, 20 bytes in
+    record = data.rindex(b"PK\x01\x02", 0, data.rindex(b"files/extra"))
+    data[record + 20 : record + 24] = (6).to_bytes(4, "little")
+    path.write_bytes(bytes(data))
+    with pytest.raises(build.BuildError, match="does not hold the bytes it declares"):
+        build.validate(path)
+
+
+def test_validate_counts_the_folders_a_package_would_make(tmp_path, monkeypatch):
+    monkeypatch.setattr(build, "MAX_MEMBERS", 5)
+    with pytest.raises(build.BuildError, match="files and folders"):
+        build.validate(pkg(tmp_path, files={"files/a/b/c/d": b"x"}))
+
+
 @pytest.mark.parametrize("name", ["README", "extra/x", "manifest.toml.bak"])
 def test_validate_refuses_entries_outside_the_layout(tmp_path, name):
     with pytest.raises(build.BuildError, match="layout"):
@@ -1890,7 +1925,7 @@ def test_validate_refuses_a_bad_env_name(tmp_path, name):
         build.validate(pkg(tmp_path, command_with(env={name: "v"})))
 
 
-@pytest.mark.parametrize("name", ["data", "box", "run", "pid"])
+@pytest.mark.parametrize("name", ["data", "box", "run", "pid", "start"])
 def test_validate_refuses_a_reserved_env_name(tmp_path, name):
     with pytest.raises(build.BuildError, match="reserved"):
         build.validate(pkg(tmp_path, command_with(env={name: "v"})))
@@ -1932,7 +1967,7 @@ RESERVED = (
     "sudo sudoedit su doas pkexec run0 passwd login newgrp visudo "
     "ssh scp sftp ssh-agent ssh-add ssh-keygen gpg "
     "python python3 pip pip3 "
-    "chown cp rm kill ip ping tar vim openvpn x-terminal-emulator pwn-broker record asciinema "
+    "chown cp rm kill ip ping tar vim openvpn x-terminal-emulator pwn-broker record asciinema nmap "
     "sed cut mkdir cat ls mv ln vi grep awk find head tail chmod id uname test "
     "whoami hostname sleep touch tee which ps tput dircolors xargs timeout nohup "
     "less more pager man nano editor "
