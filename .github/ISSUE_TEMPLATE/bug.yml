@@ -1,49 +1,34 @@
-name: Bug
-description: A package, build.py or fetch.sh doesn't do what the README says
-labels: [bug]
+name: Bug report
+description: Report a reproducible defect or platform issue
+labels: ["bug"]
 body:
-  - type: input
-    id: tool
-    attributes:
-      label: Tool and build
-      description: The package and build number, or "none" if it is not about one tool
-      placeholder: kerbrute 1.0.3-1
-    validations:
-      required: true
-  - type: input
-    id: versions
-    attributes:
-      label: Versions
-      description: Kali or Linux version, Python (`python3 --version`), pwn-broker (`pwn-broker --version`)
-      placeholder: Kali 2025.4, Python 3.13.5, pwn-broker 0.1.0
-    validations:
-      required: true
-  - type: dropdown
-    id: where
-    attributes:
-      label: Where it went wrong
-      options: [fetch.sh, tool install in pwn-broker, Running the installed tool, build.py, CI, Not sure]
-    validations:
-      required: true
   - type: textarea
-    id: typed
+    id: summary
     attributes:
-      label: What I ran
-      description: The commands, in order, as typed
-      render: text
-    validations:
-      required: true
-  - type: textarea
-    id: printed
-    attributes:
-      label: What it printed
-      description: Remove real credentials, flags and addresses first. Placeholders are fine.
-      render: text
+      label: What happened
+      description: Plain description of the input, command or action, and actual output.
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: What you expected
+      label: Expected behavior
+      description: What you expected to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Run `tool --version`
+        2. Run `tool ...`
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: OS and version
+      placeholder: "Windows 11 24H2 / Rust 1.84 / tool v1.0.0"
     validations:
       required: true

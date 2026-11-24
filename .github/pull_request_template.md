@@ -1,13 +1,10 @@
-## What changes
+## Summary
 
-## Why
+- Plain summary of what changed and why.
 
-## Tested on
+## Verification
 
-- Built on:
-- Installed on:
-
-- [ ] `python -m pytest -q -W error` passes
-- [ ] A new or changed recipe: `python build.py build <tool>` and `python build.py check <tool>` pass, and `build` is raised if the tool was already published
-- [ ] A change to `fetch.sh` still passes `sh -n`, `dash -n` and `shellcheck`
-- [ ] `README.md` table and `CHANGELOG.md` updated
+- [ ] Tested locally on target OS/runtime (note OS & version below)
+- [ ] CLI honors `NO_COLOR`, non-TTY stdout, and exit codes `0` / `1` / `2` (if applicable)
+- [ ] Web UI uses `rfs.css` + `rfs-components.css`, below-header scrollbars, and zero native `alert()`/`confirm()`/`prompt()` (if applicable)
+- [ ] Updated README / `cover.toml` if commands or screenshots changed

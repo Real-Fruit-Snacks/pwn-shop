@@ -1,19 +1,22 @@
-# Cover + social preview. Regenerate with Real-Fruit-Snacks/rfs-brand, from the folder holding both clones:
-#   python3 rfs-brand/tools/make-cover.py pwn-shop/docs/assets/cover.toml
-# Layout v2 (BRAND.md section 7): name, rule, the README one-liner, and one panel.
 name        = "pwn-shop"
-description = "Tool packages for pwn-broker, built from upstream releases"   # README line 1
+description = "Tool packages for pwn-broker, built from upstream releases"
 
-# One package from build to install. Every line is one build.py or pwn-broker
-# prints, or the command typed: the build of the kerbrute recipe, then the
-# install at a pwn-broker prompt (shown as a plain line, since the cover types
-# only its first command).
 [panel]
-kind  = "terminal"
-lines = [
-  "$ python build.py build kerbrute",
-  "ok built dist/kerbrute-1.0.3-1.zip",
-  "ok wrote dist/index.toml",
-  "forest/dc01 > tool install kerbrute",
-  "ok kerbrute 1.0.3 installed",
-]
+kind   = "flow"
+status = ["ok upstream release pinned by SHA-256"]
+
+[panel.input]
+label = "Upstream Release"
+note  = "verified"
+chips = ["release", "SHA-256"]
+tone  = "steel-ink"
+
+[panel.tool]
+label = "pwn-shop"
+note  = "Python"
+
+[panel.output]
+label = "Tool Package"
+note  = "pwn-broker"
+chips = ["kerbrute-1.0.3-1.zip"]
+tone  = "mint"
