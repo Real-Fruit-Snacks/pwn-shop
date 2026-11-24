@@ -105,6 +105,8 @@ jobs:
       fail-fast: false
       matrix:
         python: ['3.12', '3.13', '3.14']
+    outputs:
+      dist: ${{ steps.sums.outputs.dist }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -182,15 +184,18 @@ jobs:
         # install check, which starts every packaged tool: either could change dist/. (The build
         # above already ran a build_from_source recipe's unhashed build requirements.)
         # publish and the kali job refuse a dist/ whose files do not give this one SHA-256. It is
-        # kept as an artifact of its own, not a job output: this is a matrix job, and the legs
-        # would share one output.
+        # kept twice: as this step's output, which nothing can change once the step has ended,
+        # and as an artifact of its own, uploaded with dist/. Only this leg sets the output, and
+        # a leg that sets none leaves another's as it is.
         if: matrix.python == '3.13'
+        id: sums
         run: |
           set -euo pipefail
           export LC_ALL=C
           mkdir -p "$RUNNER_TEMP/dist-sha256"
           sums="$(cd dist && find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
           echo "$sums" > "$RUNNER_TEMP/dist-sha256/dist.sha256"
+          echo "dist=$sums" >> "$GITHUB_OUTPUT"
       - name: Keep the packages' SHA-256
         if: matrix.python == '3.13'
         uses: actions/upload-artifact@v4
@@ -253,14 +258,17 @@ jobs:
           name: dist-sha256
           path: ${{ runner.temp }}/dist-sha256
       - name: Check the packages are the ones built
-        # the SHA-256 the packages job recorded before pwn-broker's install and the install check
+        # the SHA-256 the packages job recorded before pwn-broker's install and the install check,
+        # as its output and as its artifact: both must be there and both must agree
+        env:
+          OUTPUT: ${{ needs.packages.outputs.dist }}
         run: |
           set -euo pipefail
           export LC_ALL=C
           WANT="$(cat "$RUNNER_TEMP/dist-sha256/dist.sha256")"
           got="$(cd dist && find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
-          if [ -z "$WANT" ] || [ "$got" != "$WANT" ]; then
-            echo "fail  dist/ is not what the packages job built (want ${WANT:-nothing}, got $got)" >&2
+          if [ -z "$WANT" ] || [ "$WANT" != "$OUTPUT" ] || [ "$got" != "$WANT" ]; then
+            echo "fail  dist/ is not what the packages job built (output ${OUTPUT:-nothing}, artifact ${WANT:-nothing}, got $got)" >&2
             exit 1
           fi
           echo "ok    dist/ is what the packages job built"
@@ -339,14 +347,17 @@ jobs:
           name: dist-sha256
           path: ${{ runner.temp }}/dist-sha256
       - name: Check the packages are the ones built
-        # the SHA-256 the packages job recorded before pwn-broker's install and the install check
+        # the SHA-256 the packages job recorded before pwn-broker's install and the install check,
+        # as its output and as its artifact: both must be there and both must agree
+        env:
+          OUTPUT: ${{ needs.packages.outputs.dist }}
         run: |
           set -euo pipefail
           export LC_ALL=C
           WANT="$(cat "$RUNNER_TEMP/dist-sha256/dist.sha256")"
           got="$(cd dist && find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
-          if [ -z "$WANT" ] || [ "$got" != "$WANT" ]; then
-            echo "fail  dist/ is not what the packages job built (want ${WANT:-nothing}, got $got)" >&2
+          if [ -z "$WANT" ] || [ "$WANT" != "$OUTPUT" ] || [ "$got" != "$WANT" ]; then
+            echo "fail  dist/ is not what the packages job built (output ${OUTPUT:-nothing}, artifact ${WANT:-nothing}, got $got)" >&2
             exit 1
           fi
           echo "ok    dist/ is what the packages job built"

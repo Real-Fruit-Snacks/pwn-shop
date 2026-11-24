@@ -1694,7 +1694,8 @@ def _zip_member(zip_path: Path, name: str, limit: int) -> bytes | None:
 
 
 def _zip_digests(zip_path: Path, left_out: list[str]) -> dict[str, tuple[int, str]]:
-    """Name -> (size, SHA-256) of every file in a zip; a wheel of left_out by its name alone."""
+    """Name -> (size, SHA-256) of every file in a zip; a wheel of left_out by its distribution and
+    version alone."""
     found: dict[str, tuple[int, str]] = {}
     try:
         with zipfile.ZipFile(zip_path) as zf:
@@ -1748,8 +1749,9 @@ def zip_changes(built_zip: Path, published_zip: Path, recipe: Recipe) -> list[st
     """The members that differ between two zips of one build.
 
     Every member counts (name, size, SHA-256), except that the wheels of the distributions in
-    build_from_source, whose bytes differ between builds by nature, count by their names, and
-    those distributions' lines in wheels.lock by name and version, without their hashes.
+    build_from_source, whose bytes and file names differ between builds by nature, count by their
+    distribution and version, and those distributions' lines in wheels.lock by name and version,
+    without their hashes.
     """
     left_out = recipe.build_from_source
     new = _zip_digests(built_zip, left_out)
