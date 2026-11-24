@@ -1445,12 +1445,18 @@ def source_pins(recipe: Recipe) -> list[str]:
     hashes included, and each [[wheel_source]] archive. The wheels' bytes differ between builds,
     so compare leaves them out; these are what say the build is the recipe's."""
     pins = read_requirements_lock(recipe.folder / REQUIREMENTS_LOCK, recipe.name)
-    found = [
+    found = {
         f"{_norm_name(p.name)}=={p.version} " + " ".join(f"sha256:{h}" for h in sorted(p.hashes))
         for p in pins
         if _norm_name(p.name) in recipe.build_from_source
-    ]
-    found += [f"{_norm_name(w.name)}=={w.version} sha256:{w.source.sha256}" for w in recipe.wheel_sources]
+    }
+    for wheel in recipe.wheel_sources:
+        entry = f"{_norm_name(wheel.name)}=={wheel.version} sha256:{wheel.source.sha256}"
+        if wheel.env:
+            # what the build is run with changes what it makes
+            entry += " env " + " ".join(f"{k}={v}" for k, v in sorted(wheel.env.items()))
+        # the same archive in the lock and as a [[wheel_source]] is one source
+        found.add(entry)
     return sorted(found)
 
 
@@ -1707,7 +1713,10 @@ def _zip_digests(zip_path: Path, left_out: list[str]) -> dict[str, tuple[int, st
                     # and tags with the build tools, which are not pinned: its distribution and
                     # version are what count
                     wheel = _WHEEL.fullmatch(name.rpartition("/")[2])
-                    found[f"wheels/{_norm_name(wheel['name'])}=={wheel['version']}"] = (0, "built from source")
+                    key = f"wheels/{_norm_name(wheel['name'])}=={wheel['version']}"
+                    if key in found:
+                        raise BuildError(f"{zip_path.name}: {key} appears more than once")
+                    found[key] = (0, "built from source")
                     continue
                 digest = hashlib.sha256()
                 with zf.open(info) as src:

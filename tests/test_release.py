@@ -317,10 +317,57 @@ def pinned_source_recipe(tmp_path, net):
 
 
 def test_the_card_of_a_build_from_source_names_its_sources(tmp_path, pinned_source_recipe):
+    from conftest import digest
+
     zip_path = pkg(tmp_path / "1.zip")
     sources = build.card(pinned_source_recipe, zip_path)["sources"]
-    assert any(s.startswith("beta==2.0 sha256:") for s in sources)
+    # the lock's line for it, and the [[wheel_source]] archive
+    assert f"beta==2.0 sha256:{digest(b'beta source')}" in sources
     assert "beta==2.0 sha256:" + "d" * 64 in sources
+
+
+def test_a_lock_hash_moved_under_the_same_version_fails(tmp_path, pinned_source_recipe):
+    from conftest import lock_text
+
+    published = own_card(tmp_path, pinned_source_recipe, pkg(tmp_path / "2.zip"))
+    lock = pinned_source_recipe.folder / "requirements.lock"
+    lock.write_bytes(lock_text([("beta", "2.0", [b"another beta source"])]).encode())
+    built = own_card(tmp_path, pinned_source_recipe, pkg(tmp_path / "1.zip"))
+    with pytest.raises(build.BuildError, match="sources"):
+        build.compare_cards(built, published, pinned_source_recipe, tmp_path / "1.zip", tmp_path / "2.zip")
+
+
+def test_a_wheel_source_s_build_environment_is_one_of_its_sources(tmp_path, pinned_source_recipe):
+    published = own_card(tmp_path, pinned_source_recipe, pkg(tmp_path / "2.zip"))
+    pinned_source_recipe.wheel_sources[0].env = {"BUILD_FLAG": "1"}
+    built = own_card(tmp_path, pinned_source_recipe, pkg(tmp_path / "1.zip"))
+    with pytest.raises(build.BuildError, match="sources"):
+        build.compare_cards(built, published, pinned_source_recipe, tmp_path / "1.zip", tmp_path / "2.zip")
+
+
+def test_a_wheel_source_that_is_also_the_lock_s_line_is_named_once(tmp_path, pinned_source_recipe):
+    from conftest import digest
+
+    pinned_source_recipe.wheel_sources[0].source.sha256 = digest(b"beta source")
+    sources = build.card(pinned_source_recipe, pkg(tmp_path / "1.zip"))["sources"]
+    assert sources == [f"beta==2.0 sha256:{digest(b'beta source')}"]
+
+
+def test_a_card_whose_sources_are_not_strings_is_refused(tmp_path, pinned_source_recipe):
+    import tomllib
+
+    card = own_card(tmp_path, pinned_source_recipe, pkg(tmp_path / "1.zip"))
+    data = tomllib.loads(card.read_text(encoding="utf-8"))
+    data["sources"] = [1, 2]
+    write_card(card, data)
+    with pytest.raises(build.BuildError, match="sources must be a list of strings"):
+        build.compare_cards(card, card, pinned_source_recipe, tmp_path / "1.zip", tmp_path / "1.zip")
+
+
+def test_two_wheels_of_one_source_built_distribution_are_refused(tmp_path, source_recipe):
+    new = pkg(tmp_path / "1.zip", members={**MEMBERS, "wheels/Beta-2.0-py2.py3-none-any.whl": "beta again"})
+    with pytest.raises(build.BuildError, match="more than once"):
+        compare_source(tmp_path, source_recipe, new, pkg(tmp_path / "2.zip"))
 
 
 def test_a_card_without_build_from_source_has_no_sources(tmp_path, wheel_recipe):
