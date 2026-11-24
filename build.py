@@ -1440,10 +1440,26 @@ def write_zip(staged: Path, out: Path) -> Path:
     return out
 
 
+def source_pins(recipe: Recipe) -> list[str]:
+    """What a recipe's builds from source are made from: each such distribution's lock line, its
+    hashes included, and each [[wheel_source]] archive. The wheels' bytes differ between builds,
+    so compare leaves them out; these are what say the build is the recipe's."""
+    pins = read_requirements_lock(recipe.folder / REQUIREMENTS_LOCK, recipe.name)
+    found = [
+        f"{_norm_name(p.name)}=={p.version} " + " ".join(f"sha256:{h}" for h in sorted(p.hashes))
+        for p in pins
+        if _norm_name(p.name) in recipe.build_from_source
+    ]
+    found += [f"{_norm_name(w.name)}=={w.version} sha256:{w.source.sha256}" for w in recipe.wheel_sources]
+    return sorted(found)
+
+
 def card(recipe: Recipe, zip_path: Path) -> dict:
     m = recipe.manifest
     # requires is left out when empty, so the cards of schema 1 builds stay as published
     required = {"requires": list(recipe.requires)} if recipe.requires else {}
+    # sources only for a build from source, so every other card stays as published
+    sources = {"sources": source_pins(recipe)} if recipe.build_from_source else {}
     return {
         "name": recipe.name,
         "version": recipe.version,
@@ -1457,6 +1473,7 @@ def card(recipe: Recipe, zip_path: Path) -> dict:
         "needs_root": bool(m.get("needs_root", False)),
         "commands": [c["name"] for c in m.get("command", []) if isinstance(c, dict) and "name" in c],
         **required,
+        **sources,
         "file": zip_path.name,
         "size": zip_path.stat().st_size,
         "sha256": sha256_file(zip_path),
@@ -1618,6 +1635,9 @@ def _read_card(path: Path) -> dict:
     requires = data.get("requires", [])
     if not isinstance(requires, list) or not all(isinstance(r, str) for r in requires):
         raise BuildError(f"{path.name}: requires must be a list of strings")
+    sources = data.get("sources", [])
+    if not isinstance(sources, list) or not all(isinstance(s, str) for s in sources):
+        raise BuildError(f"{path.name}: sources must be a list of strings")
     return data
 
 
@@ -1748,7 +1768,11 @@ def compare_cards(
     # differs between builds, so only then are the two zips compared member by member.
     listed = bool(recipe.build_from_source)
     ignore = ("size", "sha256") if listed else ()
-    changed = card_changes(_read_card(built), _read_card(published), ignore=ignore)
+    built_card, published_card = _read_card(built), _read_card(published)
+    if listed and "sources" not in published_card:
+        # published before cards named their sources: there is nothing to compare them with
+        ignore += ("sources",)
+    changed = card_changes(built_card, published_card, ignore=ignore)
     if listed:
         if built_zip is None or published_zip is None:
             raise BuildError(f"{recipe.name}: comparing a package with build_from_source needs both zips")

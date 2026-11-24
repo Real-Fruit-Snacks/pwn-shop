@@ -301,6 +301,51 @@ def test_equal_packages_pass_with_build_from_source(tmp_path, source_recipe):
     compare_source(tmp_path, source_recipe, pkg(tmp_path / "1.zip"), pkg(tmp_path / "2.zip"))
 
 
+# what a build from source is made from is on its card: a new commit at the same version, or a new
+# archive under the same pin, is a change to the recipe
+
+
+@pytest.fixture
+def pinned_source_recipe(tmp_path, net):
+    from conftest import make_python_recipe
+
+    folder = make_python_recipe(tmp_path / "srcpin", net, [("beta", "2.0", [b"beta source"])], build_from_source=("beta",))
+    recipe = build.load_recipe(folder)
+    source = build.Source("https://example.invalid/beta-2.0.tar.gz", 11, "d" * 64, "wheels")
+    recipe.wheel_sources = [build.WheelSource("beta", "2.0", source, {})]
+    return recipe
+
+
+def test_the_card_of_a_build_from_source_names_its_sources(tmp_path, pinned_source_recipe):
+    zip_path = pkg(tmp_path / "1.zip")
+    sources = build.card(pinned_source_recipe, zip_path)["sources"]
+    assert any(s.startswith("beta==2.0 sha256:") for s in sources)
+    assert "beta==2.0 sha256:" + "d" * 64 in sources
+
+
+def test_a_card_without_build_from_source_has_no_sources(tmp_path, wheel_recipe):
+    assert "sources" not in build.card(wheel_recipe, pkg(tmp_path / "1.zip"))
+
+
+def test_a_source_moved_under_the_same_version_fails(tmp_path, pinned_source_recipe):
+    published = own_card(tmp_path, pinned_source_recipe, pkg(tmp_path / "2.zip"))
+    pinned_source_recipe.wheel_sources[0].source.sha256 = "e" * 64
+    built = own_card(tmp_path, pinned_source_recipe, pkg(tmp_path / "1.zip"))
+    with pytest.raises(build.BuildError, match="sources"):
+        build.compare_cards(built, published, pinned_source_recipe, tmp_path / "1.zip", tmp_path / "2.zip")
+
+
+def test_a_published_card_from_before_sources_were_recorded_still_compares(tmp_path, pinned_source_recipe):
+    import tomllib
+
+    published = own_card(tmp_path, pinned_source_recipe, pkg(tmp_path / "2.zip"))
+    data = tomllib.loads(published.read_text(encoding="utf-8"))
+    del data["sources"]
+    write_card(published, data)
+    built = own_card(tmp_path, pinned_source_recipe, pkg(tmp_path / "1.zip"))
+    build.compare_cards(built, published, pinned_source_recipe, tmp_path / "1.zip", tmp_path / "2.zip")
+
+
 def test_a_listed_wheel_built_again_to_other_bytes_passes(tmp_path, source_recipe):
     new = pkg(
         tmp_path / "1.zip",

@@ -180,8 +180,9 @@ jobs:
       - name: Check
         run: python build.py check
       - name: Record the packages' SHA-256
-        # Before anything unpinned runs: pwn-broker's install below takes its dependencies from
-        # PyPI, and the install check starts every packaged tool, and either could change dist/.
+        # Before pwn-broker's install below, which takes its dependencies from PyPI, and the
+        # install check, which starts every packaged tool: either could change dist/. (The build
+        # above already ran a build_from_source recipe's unhashed build requirements.)
         # publish refuses a dist/ whose files do not give this one SHA-256.
         if: matrix.python == '3.13'
         id: sums
@@ -192,8 +193,9 @@ jobs:
           echo "dist=$sums" >> "$GITHUB_OUTPUT"
       - name: Keep the packages for publish
         # One leg's files are published, after the kali job has installed them, and they are
-        # kept here, before anything unpinned runs. A Python tool's wheels are for its runtime's
-        # series whichever Python runs the build, and the zip is built the same way on each.
+        # kept here, before pwn-broker's install and the install check. A Python tool's wheels
+        # are for its runtime's series whichever Python runs the build, and the zip is built the
+        # same way on each.
         if: matrix.python == '3.13'
         uses: actions/upload-artifact@v4
         with:
@@ -239,7 +241,7 @@ jobs:
           name: dist
           path: dist
       - name: Check the packages are the ones built
-        # the SHA-256 the packages job recorded before anything unpinned ran
+        # the SHA-256 the packages job recorded before pwn-broker's install and the install check
         env:
           WANT: ${{ needs.packages.outputs.dist }}
         run: |
@@ -322,7 +324,7 @@ jobs:
           name: dist
           path: dist
       - name: Check the packages are the ones built
-        # the SHA-256 the packages job recorded before anything unpinned ran
+        # the SHA-256 the packages job recorded before pwn-broker's install and the install check
         env:
           WANT: ${{ needs.packages.outputs.dist }}
         run: |
