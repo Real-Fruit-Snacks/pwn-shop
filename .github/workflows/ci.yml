@@ -105,6 +105,8 @@ jobs:
       fail-fast: false
       matrix:
         python: ['3.12', '3.13', '3.14']
+    outputs:
+      dist: ${{ steps.sums.outputs.dist }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -177,6 +179,27 @@ jobs:
         run: sha256sum dist/*.zip
       - name: Check
         run: python build.py check
+      - name: Record the packages' SHA-256
+        # Before anything unpinned runs: pwn-broker's install below takes its dependencies from
+        # PyPI, and the install check starts every packaged tool, and either could change dist/.
+        # publish refuses a dist/ whose files do not give this one SHA-256.
+        if: matrix.python == '3.13'
+        id: sums
+        run: |
+          set -eu
+          export LC_ALL=C
+          echo "dist=$(cd dist && find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Keep the packages for publish
+        # One leg's files are published, after the kali job has installed them, and they are
+        # kept here, before anything unpinned runs. A Python tool's wheels are for its runtime's
+        # series whichever Python runs the build, and the zip is built the same way on each.
+        if: matrix.python == '3.13'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
       - name: Check out pwn-broker
         # pwn-broker is public, so no key is needed. vars.PWN_BROKER_REF names a branch of
         # pwn-broker while a change needs both repositories; without it, main is checked out.
@@ -192,17 +215,6 @@ jobs:
           "$RUNNER_TEMP/broker/bin/python" -m pip install --quiet ./pwn-broker
       - name: Install each package and start its commands
         run: '"$RUNNER_TEMP/broker/bin/python" .github/scripts/install-check.py dist'
-      - name: Keep the packages for publish
-        # One leg's files are published, after the kali job has installed them. A Python
-        # tool's wheels are for its runtime's series whichever Python runs the build, and the
-        # zip is built the same way on each.
-        if: matrix.python == '3.13'
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
-          if-no-files-found: error
-          retention-days: 7
 
   kali:
     # Each recipe's current build, as the packages job left it, installed inside the official
@@ -295,6 +307,19 @@ jobs:
         with:
           name: dist
           path: dist
+      - name: Check the packages are the ones built
+        # the SHA-256 the packages job recorded before anything unpinned ran
+        env:
+          WANT: ${{ needs.packages.outputs.dist }}
+        run: |
+          set -eu
+          export LC_ALL=C
+          got="$(cd dist && find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
+          if [ -z "$WANT" ] || [ "$got" != "$WANT" ]; then
+            echo "fail  dist/ is not what the packages job built (want ${WANT:-nothing}, got $got)" >&2
+            exit 1
+          fi
+          echo "ok    dist/ is what the packages job built"
       - name: Check each zip against its card
         run: |
           for zip in dist/*.zip; do

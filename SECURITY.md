@@ -39,7 +39,7 @@ This is a one-person project. I read reports within a week. If it's real, the fi
 
 ## CI
 
-The workflow checks out `pwn-broker`, which is public, with no key, and the repository holds no secrets. A pull request from a fork runs with a read-only token. `publish` runs only on a push to `main`, and only the owner has write access.
+The workflow checks out `pwn-broker`, which is public, with no key, and the repository holds no secrets. A pull request from a fork runs with a read-only token. `publish` runs only on a push to `main`, and only the owner has write access. The packages job records one SHA-256 of everything it built and keeps those files before anything unpinned runs (pwn-broker's own install, which takes its dependencies from PyPI, and the install check, which starts every packaged tool), and `publish` refuses files that do not give that SHA-256.
 
 ## What counts
 
