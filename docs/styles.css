@@ -83,6 +83,7 @@ body {
 }
 :root[data-theme="light"] {
     --display: #0D0E12;
+    --on-live: #FFFFFF;
 }
 .is-broker { --tab: var(--broker); }
 .is-shop   { --tab: var(--shop); }
