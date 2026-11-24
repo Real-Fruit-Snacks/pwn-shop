@@ -79,7 +79,8 @@ _LOCK_LINE = re.compile(
     r"[A-Za-z0-9][A-Za-z0-9._-]*==[A-Za-z0-9][A-Za-z0-9.!+_-]*( --hash=sha256:[0-9a-f]{64})+"
 )
 _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-RESERVED_ENV = ("data", "box", "run", "pid")
+# pwn-broker's toolinstall._OWN_VARIABLES
+RESERVED_ENV = ("data", "box", "run", "pid", "start")
 # Names a launcher must never stand in for on PATH: pwn-broker's toolpkg.RESERVED_COMMANDS, in
 # its groups. It is not a list of everything Kali has; a tool may take the name of Kali's own
 # copy of it.
@@ -92,7 +93,7 @@ RESERVED_COMMANDS = tuple(
     # Python and pip; their versioned names are refused by _VERSIONED_PYTHON
     "python python3 pip pip3 "
     # what pwn-broker runs by name
-    "chown cp rm kill ip ping tar vim openvpn x-terminal-emulator pwn-broker record asciinema "
+    "chown cp rm kill ip ping tar vim openvpn x-terminal-emulator pwn-broker record asciinema nmap "
     # what a shell's start-up files, its prompt and everyday lines run
     "sed cut mkdir cat ls mv ln vi grep awk find head tail chmod id uname test "
     "whoami hostname sleep touch tee which ps tput dircolors xargs timeout nohup "
@@ -1667,7 +1668,7 @@ def _zip_member(zip_path: Path, name: str, limit: int) -> bytes | None:
 
 
 def _zip_digests(zip_path: Path, left_out: list[str]) -> dict[str, tuple[int, str]]:
-    """Name -> (size, SHA-256) of every file in a zip, except the wheels of left_out."""
+    """Name -> (size, SHA-256) of every file in a zip; a wheel of left_out by its name alone."""
     found: dict[str, tuple[int, str]] = {}
     try:
         with zipfile.ZipFile(zip_path) as zf:
@@ -1682,6 +1683,8 @@ def _zip_digests(zip_path: Path, left_out: list[str]) -> dict[str, tuple[int, st
                 if name in found:
                     raise BuildError(f"{zip_path.name}: {name} appears more than once")
                 if _left_out_wheel(name, left_out):
+                    # built from source, its bytes differ by nature; its name holds its version
+                    found[name] = (0, "built from source")
                     continue
                 digest = hashlib.sha256()
                 with zf.open(info) as src:
@@ -1703,7 +1706,8 @@ def _lock_lines(data: bytes, left_out: list[str]) -> list[str]:
     kept = []
     for line in data.decode("utf-8", errors="replace").splitlines():
         if line and _norm_name(line.split("==", 1)[0]) in left_out:
-            continue
+            # its hash differs by nature; its name and version must not
+            line = line.split()[0]
         kept.append(line)
     return kept
 
@@ -1711,9 +1715,9 @@ def _lock_lines(data: bytes, left_out: list[str]) -> list[str]:
 def zip_changes(built_zip: Path, published_zip: Path, recipe: Recipe) -> list[str]:
     """The members that differ between two zips of one build.
 
-    Every member counts (name, size, SHA-256) except the wheels of the distributions in
-    build_from_source, whose bytes differ between builds by nature, and those distributions'
-    lines in wheels.lock.
+    Every member counts (name, size, SHA-256), except that the wheels of the distributions in
+    build_from_source, whose bytes differ between builds by nature, count by their names, and
+    those distributions' lines in wheels.lock by name and version, without their hashes.
     """
     left_out = recipe.build_from_source
     new = _zip_digests(built_zip, left_out)

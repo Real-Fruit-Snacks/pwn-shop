@@ -293,22 +293,41 @@ def test_without_build_from_source_the_zips_are_not_opened(tmp_path, wheel_recip
     build.compare_cards(one, one, wheel_recipe, tmp_path / "nope1.zip", tmp_path / "nope2.zip")
 
 
-# with build_from_source = ["beta"]: every member is compared except beta's wheels and its
-# line in wheels.lock
+# with build_from_source = ["beta"]: every member is compared except the bytes of beta's wheel and
+# the hash on its line in wheels.lock; the wheel's name and the line's version still count
 
 
 def test_equal_packages_pass_with_build_from_source(tmp_path, source_recipe):
     compare_source(tmp_path, source_recipe, pkg(tmp_path / "1.zip"), pkg(tmp_path / "2.zip"))
 
 
-def test_a_differing_listed_wheel_and_its_lock_line_pass(tmp_path, source_recipe):
+def test_a_listed_wheel_built_again_to_other_bytes_passes(tmp_path, source_recipe):
+    new = pkg(
+        tmp_path / "1.zip",
+        lock=LOCK.replace("b" * 64, "c" * 64),
+        members={**MEMBERS, "wheels/beta-2.0-py3-none-any.whl": "other bytes"},
+    )
+    compare_source(tmp_path, source_recipe, new, pkg(tmp_path / "2.zip"))
+
+
+def test_a_listed_wheel_of_another_version_fails(tmp_path, source_recipe):
+    # a new version of the tool or of a dependency built from source is a change to the recipe:
+    # without a new build it would never be published, and the recipe would not say what is
+    members = {k: v for k, v in MEMBERS.items() if k != "wheels/beta-2.0-py3-none-any.whl"}
     new = pkg(
         tmp_path / "1.zip",
         lock=LOCK.replace("beta==2.0", "beta==2.1").replace("b" * 64, "c" * 64),
-        members={**MEMBERS, "wheels/beta-2.0-py3-none-any.whl": "other bytes",
-                 "wheels/beta-2.1-py3-none-any.whl": "newer"},
+        members={**members, "wheels/beta-2.1-py3-none-any.whl": "newer"},
     )
-    compare_source(tmp_path, source_recipe, new, pkg(tmp_path / "2.zip"))
+    with pytest.raises(build.BuildError) as err:
+        compare_source(tmp_path, source_recipe, new, pkg(tmp_path / "2.zip"))
+    assert "wheels/beta-2.1-py3-none-any.whl" in str(err.value) and "wheels.lock" in str(err.value)
+
+
+def test_a_listed_lock_line_of_another_version_fails_alone(tmp_path, source_recipe):
+    new = pkg(tmp_path / "1.zip", lock=LOCK.replace("beta==2.0", "beta==2.1"))
+    with pytest.raises(build.BuildError, match="wheels.lock"):
+        compare_source(tmp_path, source_recipe, new, pkg(tmp_path / "2.zip"))
 
 
 def test_a_differing_script_fails_with_build_from_source(tmp_path, source_recipe):
