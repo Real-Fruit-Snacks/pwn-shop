@@ -48,7 +48,7 @@
 
 /* ---------- base reset & Cyclorama Dawn handbook tokens ---------- */
 *, *::before, *::after { box-sizing: border-box; }
-html { background: var(--rfs-bg); -webkit-text-size-adjust: 100%; }
+html { height: 100%; overflow: hidden; background: var(--rfs-bg); -webkit-text-size-adjust: 100%; }
 body {
     margin: 0; padding: 0;
     background: var(--rfs-bg); color: var(--rfs-text);
@@ -134,8 +134,7 @@ p { margin: 0 0 1rem; text-wrap: pretty; }
 .page-scroll {
     position: relative;
     background:
-        radial-gradient(62% 46% at 14% 0%, color-mix(in oklab, var(--rfs-steel) 22%, transparent), transparent 68%),
-        radial-gradient(56% 42% at 88% 4%, color-mix(in oklab, var(--rfs-beacon) 15%, transparent), transparent 68%),
+        linear-gradient(125deg in oklab, color-mix(in oklab, var(--rfs-steel) 16%, transparent) 0%, transparent 48%, color-mix(in oklab, var(--rfs-beacon) 12%, transparent) 100%),
         var(--ground);
 }
 @media (prefers-reduced-motion: no-preference) { .page-scroll { scroll-behavior: smooth; } }
@@ -344,10 +343,17 @@ p { margin: 0 0 1rem; text-wrap: pretty; }
 .copy {
     flex: none;
     font: 600 .74rem/1 var(--rfs-font-mono); letter-spacing: .06em; text-transform: uppercase;
-    color: #FFFFFF; background: var(--rfs-horizon-gradient); border: 0;
+    color: #FFFFFF; background: var(--rfs-horizon-gradient); background-origin: border-box; background-clip: border-box; border: 0;
     min-width: 5.5rem; min-height: 44px; padding: 0 .95rem;
     cursor: pointer; white-space: nowrap;
     transition: filter 150ms var(--ease);
+}
+.rfs-code-card .rfs-code-head .copy {
+    min-width: 4.5rem; min-height: 2.1rem; padding: 0 .8rem;
+    border-radius: var(--rfs-radius-xs);
+}
+.rfs-code-card > pre.rfs-code-block {
+    padding: .85rem 1.05rem; font-size: .84rem; line-height: 1.65;
 }
 @media (hover: hover) { .copy:hover { filter: brightness(1.08); } }
 .copy:active { filter: brightness(.94); }
@@ -460,7 +466,7 @@ p { margin: 0 0 1rem; text-wrap: pretty; }
     .rfs-shell { height: auto; overflow: visible; }
     .rfs-scroll-region { overflow: visible; }
     .top, .tabbar, .replay, .copy, .rfs-skip { display: none !important; }
-    body, html { background: #fff; color: #000; }
+    body, html { height: auto !important; overflow: visible !important; background: #fff; color: #000; }
     .js-run .screen .ln { visibility: visible; }
 }
 

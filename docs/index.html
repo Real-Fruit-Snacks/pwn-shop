@@ -154,8 +154,14 @@
 <section class="card ref" id="offline" aria-labelledby="offline-h">
     <h2 id="offline-h">No network on the Kali machine</h2>
     <p class="intro">Fill a folder while you have one. <code>fetch.sh</code> downloads the index and every zip it names, checks each one, and ends with the line to put in <code>/opt/pwn-broker/config.toml</code>, such as <code>tools_index = "/home/kali/pwn-packages"</code>. It is POSIX <code>sh</code>, needs <code>curl</code> and <code>sha256sum</code> and no GitHub account, and changes nothing on the machine but that folder. Run it again after a new build is published; the <a href="https://github.com/Real-Fruit-Snacks/pwn-shop/blob/main/docs/guide.md#getting-the-packages">guide</a> has the rest.</p>
-    <div class="cmd cmd-block"><pre><code>git clone https://github.com/Real-Fruit-Snacks/pwn-shop
-sh pwn-shop/fetch.sh ~/pwn-packages</code></pre><button class="copy" type="button" data-copy="git clone https://github.com/Real-Fruit-Snacks/pwn-shop&#10;sh pwn-shop/fetch.sh ~/pwn-packages">Copy</button></div>
+    <div class="rfs-code-card">
+        <div class="rfs-code-head">
+            <span class="rfs-badge b-steel"><span class="k">[sh]</span> offline mirror</span>
+            <button class="copy" type="button" data-copy="git clone https://github.com/Real-Fruit-Snacks/pwn-shop&#10;sh pwn-shop/fetch.sh ~/pwn-packages">Copy</button>
+        </div>
+        <pre class="rfs-code-block"><code><span class="rfs-tok-kw">git</span> <span class="rfs-tok-fn">clone</span> <span class="rfs-tok-str">https://github.com/Real-Fruit-Snacks/pwn-shop</span>
+<span class="rfs-tok-kw">sh</span> <span class="rfs-tok-fn">pwn-shop/fetch.sh</span> <span class="rfs-tok-str">~/pwn-packages</span></code></pre>
+    </div>
 </section>
 
 <section class="card ref" id="what" aria-labelledby="what-h">
