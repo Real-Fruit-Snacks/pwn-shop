@@ -109,7 +109,7 @@ The [guide](docs/guide.md) has the package format, the runtime, `build.py` and C
 - `chisel`, `godpotato` and `runascs` built in Kali 2026.2 and installed there from the built folder by a normal user: `chisel` started, the six upload files were in place, and `finish` removed all three
 - `cdk`, `git-dumper`, `lazagne`, `rusthound-ce` and `snaffler` built in Kali 2026.2 and installed there from the built folder by a normal user: `rusthound-ce` and `git-dumper` started, the four upload files matched their pinned hashes, and `finish` removed all five
 - `playbooks` installed from the published index in Kali 2026.2 by a normal user with pwn-broker 0.1.7: `:Pb` read a playbook into the note, and `finish` removed it
-- `report` installed from a folder index of its build in Kali under WSL 2 by a normal user with pwn-broker 0.1.11: `pwn-report` built a report from the box's exported archive, and `finish` removed it with its runtime
+- `report` installed from a folder index of its build in Kali under WSL 2 by a normal user with pwn-broker 0.1.11: `pwn-report` built a report from the box's exported archive, and `finish` removed it with its runtime; then from the published index with pwn-broker 0.1.12, whose `finish` built the report beside the archive itself
 - The 33 recipes of 2026-11-22 built and checked in Kali under WSL 2, then installed and help-tested through pwn-broker, including a complete run in a network namespace with no network; the unit suite also passed there and on Windows 11
 
 [docs/tested.md](docs/tested.md) is the full record: counts, runs, commits and dates, and what has not been run.
