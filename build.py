@@ -2043,6 +2043,7 @@ def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
 
 
 def _check_entries(infos: list[zipfile.ZipInfo]) -> dict[str, zipfile.ZipInfo]:
+    """pwn-broker's toolpkg._check_entries, rule for rule, so a zip built here is one it unpacks."""
     if len(infos) > MAX_MEMBERS:
         raise BuildError(f"package has {len(infos)} entries; the limit is {MAX_MEMBERS}")
     if sum(i.file_size for i in infos) > MAX_UNPACKED_BYTES:
@@ -2052,6 +2053,10 @@ def _check_entries(infos: list[zipfile.ZipInfo]) -> dict[str, zipfile.ZipInfo]:
         name = info.filename
         if info.compress_type != zipfile.ZIP_STORED:
             raise BuildError(f"package entry {name!r} is compressed")
+        if info.compress_size != info.file_size:
+            raise BuildError(f"package entry {name!r} does not hold the bytes it declares")
+        if fault := _too_long(name):
+            raise BuildError(f"package entry {name[:100]!r} has a name {fault}")
         bare = name[:-1] if name.endswith("/") else name
         parts = bare.split("/")
         if (
@@ -2063,6 +2068,8 @@ def _check_entries(infos: list[zipfile.ZipInfo]) -> dict[str, zipfile.ZipInfo]:
             or parts[0].endswith(":")
         ):
             raise BuildError(f"package entry {name!r} would write outside the tool's folder")
+        if any(c in "\\:" or unicodedata.category(c) == "Cc" for c in name):
+            raise BuildError(f"package entry {name!r} has a backslash, colon or control character in its name")
         if bare in seen:
             raise BuildError(f"package entry {name!r} appears twice")
         if stat.S_IFMT(info.external_attr >> 16) not in (0, stat.S_IFREG, stat.S_IFDIR):
@@ -2077,11 +2084,18 @@ def _check_entries(infos: list[zipfile.ZipInfo]) -> dict[str, zipfile.ZipInfo]:
         if not allowed:
             raise BuildError(f"package entry {name!r} is not part of the package layout")
         seen[bare] = info
+    folders: set[str] = set()
+    made = len(seen)
     for bare in seen:
         parent = bare.rpartition("/")[0]
-        while parent:
+        while parent and parent not in folders:
             if parent in seen and not seen[parent].is_dir():
                 raise BuildError(f"package entry {bare!r} sits inside the file {parent!r}")
+            folders.add(parent)
+            if parent not in seen:
+                made += 1
+                if made > MAX_MEMBERS:
+                    raise BuildError(f"package would make more than {MAX_MEMBERS} files and folders")
             parent = parent.rpartition("/")[0]
     return seen
 

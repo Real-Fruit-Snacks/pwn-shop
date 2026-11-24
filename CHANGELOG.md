@@ -71,4 +71,5 @@ Changed on 2026-11-22:
 
 Changed on 2026-11-23:
 
+- `check` and every build now refuse a package entry the way pwn-broker's own unpacking does, rule for rule: a name longer than 4,096 bytes, with a part longer than 255 bytes or more than 64 parts, or holding a colon or a control character; a stored entry whose compressed size differs from its size; and more than 10,000 files and folders once the folders its names imply are counted. Every package CI installs already met them, as pwn-broker refuses such an entry at install.
 - A new Python package, `report` 0.1.0: the `pwn-report` command, which turns a pwn-broker finished or exported archive into a private, evidence-linked report folder, built from pwn-report v0.1.0's sdist, pinned to the SHA-256 in that release's `SHA256SUMS.txt`, on `python-3.13`. It has no dependencies.
