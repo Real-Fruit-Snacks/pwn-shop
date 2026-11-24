@@ -310,6 +310,14 @@ def test_a_listed_wheel_built_again_to_other_bytes_passes(tmp_path, source_recip
     compare_source(tmp_path, source_recipe, new, pkg(tmp_path / "2.zip"))
 
 
+def test_a_listed_wheel_built_with_other_tags_or_spelling_passes(tmp_path, source_recipe):
+    # the build tools are not pinned for a distribution built from source: a newer one may spell
+    # the name or tag the wheel differently, and only the distribution and its version count
+    members = {k: v for k, v in MEMBERS.items() if k != "wheels/beta-2.0-py3-none-any.whl"}
+    new = pkg(tmp_path / "1.zip", members={**members, "wheels/Beta-2.0-py2.py3-none-any.whl": "beta"})
+    compare_source(tmp_path, source_recipe, new, pkg(tmp_path / "2.zip"))
+
+
 def test_a_listed_wheel_of_another_version_fails(tmp_path, source_recipe):
     # a new version of the tool or of a dependency built from source is a change to the recipe:
     # without a new build it would never be published, and the recipe would not say what is
@@ -321,7 +329,7 @@ def test_a_listed_wheel_of_another_version_fails(tmp_path, source_recipe):
     )
     with pytest.raises(build.BuildError) as err:
         compare_source(tmp_path, source_recipe, new, pkg(tmp_path / "2.zip"))
-    assert "wheels/beta-2.1-py3-none-any.whl" in str(err.value) and "wheels.lock" in str(err.value)
+    assert "beta==2.1" in str(err.value) and "wheels.lock" in str(err.value)
 
 
 def test_a_listed_lock_line_of_another_version_fails_alone(tmp_path, source_recipe):

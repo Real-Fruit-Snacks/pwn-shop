@@ -1683,8 +1683,11 @@ def _zip_digests(zip_path: Path, left_out: list[str]) -> dict[str, tuple[int, st
                 if name in found:
                     raise BuildError(f"{zip_path.name}: {name} appears more than once")
                 if _left_out_wheel(name, left_out):
-                    # built from source, its bytes differ by nature; its name holds its version
-                    found[name] = (0, "built from source")
+                    # built from source, its bytes differ by nature, and its file name's spelling
+                    # and tags with the build tools, which are not pinned: its distribution and
+                    # version are what count
+                    wheel = _WHEEL.fullmatch(name.rpartition("/")[2])
+                    found[f"wheels/{_norm_name(wheel['name'])}=={wheel['version']}"] = (0, "built from source")
                     continue
                 digest = hashlib.sha256()
                 with zf.open(info) as src:
