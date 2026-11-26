@@ -1,6 +1,6 @@
 # What has been tested
 
-Everything the packages, `build.py` and `fetch.sh` have been run on, with the counts, runs, commits and dates, and what has not been run. [PACKAGES.md](PACKAGES.md#tested-on) has the short list. This record is updated by hand after each CI run; it is as of 2026-11-22.
+Everything the packages, `build.py` and `fetch.sh` have been run on, with the counts, runs, commits and dates, and what has not been run. [PACKAGES.md](PACKAGES.md#tested-on) has the short list. This record is updated by hand after each CI run; it is as of 2026-11-26.
 
 ## Unit tests
 
@@ -10,6 +10,7 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 - With `notes` packages and whole-zip sources, in CI on Ubuntu 24.04 in run 44803871439 at commit 59b1a25 on 2026-11-20: 1084 passed and 3 skipped on each of Python 3.11, 3.12, 3.13 and 3.14.
 - With the expanded tool catalog on 2026-11-22, before its pull request: 1195 passed and 3 skipped in Kali Linux under WSL 2 with Python 3.14.7, and 1174 passed and 24 skipped on Windows 11 with Python 3.13. Both runs used warnings as errors. The Windows skips are the POSIX filesystem, `fetch.sh` and pseudo-terminal tests.
 - With the four potato packages added on 2026-11-22: 1227 passed and 3 skipped in Kali under WSL 2, and 1206 passed and 24 skipped on Windows 11, again with warnings as errors.
+- With `ad-sweep` 0.1.0 build 1 on 2026-11-26: 1288 passed and 22 skipped on Windows 11 with Python 3.12.16, warnings treated as errors.
 
 ## Packages in CI
 
@@ -74,6 +75,8 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 - `report` 0.1.0 build 1, on 2026-11-23: `build.py lock report` with uv 0.13.9 pinned its one distribution, pwn-report's sdist, to the SHA-256 in pwn-report v0.1.0's `SHA256SUMS.txt`, and on Windows 11 `build.py build report python-3.13` built the wheel from that sdist and `build.py check` passed. By hand in Kali Rolling under WSL 2, as a normal user, with pwn-broker 0.1.11, no display, and a folder index of those two zips (`tools_index` in a scratch `config.toml`, removed after): in a new box, `tool install report` printed `ok    python-3.13 3.13.18 installed (runtime, 34 MB)` and `ok    report 0.1.0 installed`, `pwn-report --version` printed `pwn-report 0.1.0`, `export` wrote the box's archive, and `pwn-report build` on it printed `ok    report /tmp/report-out`, a report whose `SHA256SUMS` held. `finish` then removed `report` and the runtime.
 - `report` 0.1.0 build 1 again, by hand on 2026-11-23 in the same Kali, as a normal user, with pwn-broker 0.1.12 installed from its release, no `tools_index` set and the cached index removed first: a new box asked whether new boxes get the report tool, and yes installed the runtime and `report` 0.1.0 from the published index. `finish` built the report beside the finished archive and removed both; the box, reopened and finished again, got a second report beside the first, and a second new box got the tool without asking.
 
+- `ad-sweep` 0.1.0 build 1, on 2026-11-26: `build.py build ad-sweep` and `build.py check ad-sweep` passed on Windows 11, with the package's executable matching the published upstream asset's 807456 bytes and SHA-256 `a136b0f572682e9cb0964c3e1e6b3ef386c01e5a11651586cff95281a9f9f8e2`. In Kali Rolling under WSL 2, an isolated pwn-broker 0.1.13 environment ran `install-check.py dist --tool ad-sweep`, which installed the package, answered `ad-sweep --help`, and removed it without leftovers. The downloaded upstream release asset separately printed `ad-sweep v0.1.0` and listed `target-info`, `shares`, `users` and `groups`. No domain was contacted.
+
 ## Builds on Windows
 
 - Build 1 of `certipy` and `targetedkerberoast` built on Windows 11 with Python 3.13 is byte-identical to the CI builds.
@@ -116,6 +119,7 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 
 ## Not tested
 
+- `ad-sweep` has had its release executable and installed command started, but NetExec command-line compatibility and live-domain enumeration have not been tested. NetExec remains a separately installed prerequisite, and `--fail-limit` is not an account-lockout-prevention guarantee.
 - Any package run by hand on a Kali desktop or against a real target.
 - The Windows files of `chisel`, `godpotato`, `runascs`, `snaffler` and `lazagne`, which have not been run on any Windows machine, and `cdk`, which has not been run in a container. They are upstream's own release files, pinned by hash.
 - `rusthound-ce` against a domain controller and `git-dumper` against a web server: each was only started.

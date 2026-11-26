@@ -90,3 +90,4 @@ Changed on 2026-11-26:
 - `undertow` becomes `shell-tunnel` 1.4.0 as the tool is renamed to the RFS naming rule upstream; the recipe, commands and uploads take the new name from shell-tunnel v1.4.0's release archives, and the `undertow` package is withdrawn.
 - `playbooks` moves to 2026.11.26: the shells playbook gains the shell-tunnel section (handler, dial-home, bind mode and the ssh/SFTP/forwarding workflow).
 - `shell-tunnel` moves to 1.4.2: the connect commands print without a `$` prefix, with numbered titles and a blank line between the two steps for clean copy-paste.
+- A new package, `ad-sweep` 0.1.0: four isolated Active Directory enumeration modules with NetExec, from ad-sweep v0.1.0's Linux x86-64 glibc executable, pinned to the SHA-256 in that release's `SHA256SUMS.txt`. NetExec remains a separate prerequisite: `tool install ad-sweep` does not install it, so run `tool install netexec` separately.

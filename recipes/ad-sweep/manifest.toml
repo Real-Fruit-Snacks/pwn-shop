@@ -1,0 +1,17 @@
+schema = 1
+kind = "kali"
+description = "Runs isolated Active Directory enumeration with NetExec"
+tags = ["ad", "enumeration", "netexec", "smb"]
+upstream = "https://github.com/Real-Fruit-Snacks/ad-sweep"
+licence = "MIT"
+arch = "x86_64"
+examples = [
+  "ad-sweep {ip} --module target-info",
+  "ad-sweep {ip} -u user -p 'password' --module shares,users",
+  "ad-sweep {ip} -C credentials.txt --fail-limit 1",
+]
+
+[[command]]
+name = "ad-sweep"
+type = "binary"
+path = "files/ad-sweep"

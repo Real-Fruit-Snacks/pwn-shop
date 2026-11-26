@@ -1,0 +1,9 @@
+version = "0.1.0"
+build = 1
+
+# Upstream publishes SHA256SUMS.txt with the release; the pin below matches it.
+[[source]]
+url = "https://github.com/Real-Fruit-Snacks/ad-sweep/releases/download/v0.1.0/ad-sweep-x86_64-unknown-linux-gnu"
+size = 807456
+sha256 = "a136b0f572682e9cb0964c3e1e6b3ef386c01e5a11651586cff95281a9f9f8e2"
+to = "files/ad-sweep"

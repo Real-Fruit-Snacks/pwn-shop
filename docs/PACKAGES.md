@@ -40,6 +40,7 @@ pwn-broker keeps a Hack The Box machine in order on Kali Linux, and its `tool in
 
 | Package | Version | Kind | You get | Licence |
 |---|---|---|---|---|
+| `ad-sweep` | 0.1.0 | kali | `ad-sweep`; also install `netexec` separately | MIT |
 | `autorecon` | 2026.11.03 | kali | `autorecon`, on `python-3.13` | GPL-3.0 |
 | `bloodhound-ce` | 1.9.1 | kali | `bloodhound-ce-python`, on `python-3.13` | MIT |
 | `bloodyad` | 2.5.7 | kali | `bloodyAD`, `bloodyad`, on `python-3.13` | MIT |
@@ -107,6 +108,7 @@ The [guide](guide.md) has the package format, the runtime, `build.py` and CI. [C
 - `cdk`, `git-dumper`, `lazagne`, `rusthound-ce` and `snaffler` built in Kali 2026.2 and installed there from the built folder by a normal user: `rusthound-ce` and `git-dumper` started, the four upload files matched their pinned hashes, and `finish` removed all five
 - `playbooks` installed from the published index in Kali 2026.2 by a normal user with pwn-broker 0.1.7: `:Pb` read a playbook into the note, and `finish` removed it
 - `report` installed from a folder index of its build in Kali under WSL 2 by a normal user with pwn-broker 0.1.11: `pwn-report` built a report from the box's exported archive, and `finish` removed it with its runtime; then from the published index with pwn-broker 0.1.12, whose `finish` built the report beside the archive itself
+- `ad-sweep` 0.1.0 build 1 built and checked on Windows 11, then installed and help-tested through pwn-broker 0.1.13 in Kali under WSL 2; the release asset's version and four-module listing were checked, and no domain was contacted
 - The 33 recipes of 2026-11-22 built and checked in Kali under WSL 2, then installed and help-tested through pwn-broker, including a complete run in a network namespace with no network; the unit suite also passed there and on Windows 11
 
 [docs/tested.md](tested.md) is the full record: counts, runs, commits and dates, and what has not been run.
@@ -120,6 +122,7 @@ The [guide](guide.md) has the package format, the runtime, `build.py` and CI. [C
 - `mimikatz` 2.2.0-20220919, from 2022, is upstream's latest release, and every antivirus product detects it. Upstream has no LICENSE file: its README gives CC BY 4.0, so `recipes/mimikatz/LICENSE` quotes that line before the licence's legal code.
 - PEASS-ng's licence has terms beyond the GPL. Read `recipes/peass-ng/LICENSE` before redistributing the package.
 - The first Python tool on a machine costs the runtime: a 34 MB download (mebibytes, the unit pwn-broker prints) and about 100 MB unpacked. Its OpenSSL and other libraries are as new as its build: they are fixed when I publish a new build of the runtime, not when Kali updates.
+- `ad-sweep` needs NetExec as a separate prerequisite; run `tool install netexec` separately. Its package check starts `ad-sweep --help`, which proves installation and startup, not NetExec command-line compatibility or a domain scan.
 - `autorecon` bundles its Python code and dependencies, but its scans call nmap and other Kali system tools. Install those base tools separately; the package check starts the CLI but does not run a scan.
 - `evil-winrm-py` is not a drop-in replacement for Ruby Evil-WinRM: it uses `--ssl` rather than `-S` and has no `-s` or `-e` directory options. Its Kerberos extra is not bundled because `gssapi` has no compatible Python 3.13 Linux wheel and needs a native build. Kali's Ruby `evil-winrm` remains separate.
 - `penelope` 0.21.0 fixes the session-archive path traversal, and `--oscp-safe` disables Meterpreter, Traitor and ngrok, but this release still starts its local MCP socket unconditionally. It is therefore a general lab/CTF package, not an OSCP-approved profile; use Kali's nc, ncat or socat for the basic OSCP shell workflow.
