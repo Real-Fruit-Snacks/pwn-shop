@@ -91,3 +91,4 @@ Changed on 2026-11-26:
 - `playbooks` moves to 2026.11.26: the shells playbook gains the shell-tunnel section (handler, dial-home, bind mode and the ssh/SFTP/forwarding workflow).
 - `shell-tunnel` moves to 1.4.2: the connect commands print without a `$` prefix, with numbered titles and a blank line between the two steps for clean copy-paste.
 - A new package, `ad-sweep` 0.1.0: four isolated Active Directory enumeration modules with NetExec, from ad-sweep v0.1.0's Linux x86-64 glibc executable, pinned to the SHA-256 in that release's `SHA256SUMS.txt`. NetExec remains a separate prerequisite: `tool install ad-sweep` does not install it, so run `tool install netexec` separately.
+- A new package, `cred-spray` 1.0.0 build 1: bounded, protocol-aware credential spraying for authorized testing, built from cred-spray v1.0.0's SHA-256-pinned sdist on the `python-3.13` runtime, with 51 locked distributions. External service backends remain separate prerequisites.

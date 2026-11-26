@@ -48,6 +48,7 @@ pwn-broker keeps a Hack The Box machine in order on Kali Linux, and its `tool in
 | `certipy` | 5.1.0 | kali | `certipy`, on `python-3.13` | MIT |
 | `chisel` | 1.12.0 | both | `chisel`; to upload: `chisel`, `chisel.exe` | MIT |
 | `coercedpotato` | 2026.07.30 | upload | to upload: `CoercedPotato_x64.exe`, `CoercedPotato_x86.exe` | MIT |
+| `cred-spray` | 1.0.0 | kali | `cred-spray`, on `python-3.13`; external backends separately | MIT |
 | `evil-winrm-py` | 1.7.0 | kali | `evil-winrm-py`, `ewp`, on `python-3.13` | MIT |
 | `git-dumper` | 1.0.9 | kali | `git-dumper`, on `python-3.13` | MIT |
 | `godpotato` | 1.20 | upload | to upload: `GodPotato-NET4.exe`, `GodPotato-NET35.exe` | Apache-2.0 |
@@ -123,6 +124,7 @@ The [guide](guide.md) has the package format, the runtime, `build.py` and CI. [C
 - PEASS-ng's licence has terms beyond the GPL. Read `recipes/peass-ng/LICENSE` before redistributing the package.
 - The first Python tool on a machine costs the runtime: a 34 MB download (mebibytes, the unit pwn-broker prints) and about 100 MB unpacked. Its OpenSSL and other libraries are as new as its build: they are fixed when I publish a new build of the runtime, not when Kali updates.
 - `ad-sweep` needs NetExec as a separate prerequisite; run `tool install netexec` separately. Its package check starts `ad-sweep --help`, which proves installation and startup, not NetExec command-line compatibility or a domain scan.
+- `cred-spray` bundles its Python code and dependencies, but protocol modules may invoke Nmap, NetExec, FreeRDP, ipmitool and evil-winrm as external backends; install those separately. NetExec is required for `--nxc`, WMI and automatic domain discovery. The package check only starts `cred-spray --help`; it does not scan or authenticate.
 - `autorecon` bundles its Python code and dependencies, but its scans call nmap and other Kali system tools. Install those base tools separately; the package check starts the CLI but does not run a scan.
 - `evil-winrm-py` is not a drop-in replacement for Ruby Evil-WinRM: it uses `--ssl` rather than `-S` and has no `-s` or `-e` directory options. Its Kerberos extra is not bundled because `gssapi` has no compatible Python 3.13 Linux wheel and needs a native build. Kali's Ruby `evil-winrm` remains separate.
 - `penelope` 0.21.0 fixes the session-archive path traversal, and `--oscp-safe` disables Meterpreter, Traitor and ngrok, but this release still starts its local MCP socket unconditionally. It is therefore a general lab/CTF package, not an OSCP-approved profile; use Kali's nc, ncat or socat for the basic OSCP shell workflow.

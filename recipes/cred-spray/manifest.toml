@@ -1,0 +1,20 @@
+schema = 2
+requires = ["python-3.13"]
+kind = "kali"
+description = "Bounded, protocol-aware credential spraying for authorized testing"
+tags = ["ad", "credentials", "smb", "ssh", "ldap"]
+upstream = "https://github.com/Real-Fruit-Snacks/cred-spray"
+licence = "MIT"
+arch = "x86_64"
+examples = [
+  "cred-spray -t {ip}:22:ssh -u user -p password --dry-run",
+  "cred-spray -t {ip}:445:smb -U users.txt -P passwords.txt --max-attempts 20",
+  "cred-spray --list-modules",
+]
+
+[[command]]
+name = "cred-spray"
+type = "python-entry"
+entry = "cred-spray"
+
+[python]
