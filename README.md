@@ -55,7 +55,7 @@ pwn-broker keeps a Hack The Box machine in order on Kali Linux, and its `tool in
 | `evil-winrm-py` | 1.7.0 | kali | `evil-winrm-py`, `ewp`, on `python-3.13` | MIT |
 | `git-dumper` | 1.0.9 | kali | `git-dumper`, on `python-3.13` | MIT |
 | `godpotato` | 1.20 | upload | to upload: `GodPotato-NET4.exe`, `GodPotato-NET35.exe` | Apache-2.0 |
-| `hash-bait` | 1.0.0 | kali | `hash-bait` | MIT |
+| `hash-bait` | 1.0.1 | kali | `hash-bait` | MIT |
 | `impacket` | 0.13.1 | kali | the `impacket-*` commands and `ldapdomaindump`, on `python-3.13` | Apache-2.0 with additional notices |
 | `juicypotato` | 0.1 | upload | to upload: `JuicyPotato.exe` | GPL-3.0 |
 | `jwt-tool` | 2.3.0 | kali | `jwt_tool`, on `python-3.13` | GPL-3.0 |
