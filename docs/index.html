@@ -73,7 +73,7 @@
 
 <main class="wrap stack">
 <section class="card first" aria-labelledby="top-h">
-    <p class="runhead"><b>pwn-shop · 37 packages</b><span>x86_64 · glibc · pwn-broker 0.1.7</span><span>MIT</span></p>
+    <p class="runhead"><b>pwn-shop · 40 packages</b><span>x86_64 · glibc · pwn-broker 0.1.7</span><span>MIT</span></p>
     <div class="hero">
         <div>
             <h1 class="title" id="top-h">pwn-shop</h1>
@@ -195,6 +195,7 @@
     <table class="equip">
         <thead><tr><th scope="col">Package</th><th scope="col">Version</th><th scope="col">Kind</th><th scope="col">You get</th><th scope="col">Licence</th></tr></thead>
         <tbody>
+            <tr><td><code>ad-sweep</code></td><td>0.1.0</td><td><span>kali</span></td><td><code>ad-sweep</code>; also install <code>netexec</code> separately</td><td>MIT</td></tr>
             <tr><td><code>autorecon</code></td><td>2026.11.03</td><td><span>kali</span></td><td><code>autorecon</code>, on <code>python-3.13</code></td><td>GPL-3.0</td></tr>
             <tr><td><code>bloodhound-ce</code></td><td>1.9.1</td><td><span>kali</span></td><td><code>bloodhound-ce-python</code>, on <code>python-3.13</code></td><td>MIT</td></tr>
             <tr><td><code>bloodyad</code></td><td>2.5.7</td><td><span>kali</span></td><td><code>bloodyAD</code>, <code>bloodyad</code>, on <code>python-3.13</code></td><td>MIT</td></tr>
@@ -205,6 +206,7 @@
             <tr><td><code>evil-winrm-py</code></td><td>1.7.0</td><td><span>kali</span></td><td><code>evil-winrm-py</code>, <code>ewp</code>, on <code>python-3.13</code></td><td>MIT</td></tr>
             <tr><td><code>git-dumper</code></td><td>1.0.9</td><td><span>kali</span></td><td><code>git-dumper</code>, on <code>python-3.13</code></td><td>MIT</td></tr>
             <tr><td><code>godpotato</code></td><td>1.20</td><td><span>upload</span></td><td>to upload: <code>GodPotato-NET4.exe</code>, <code>GodPotato-NET35.exe</code></td><td>Apache-2.0</td></tr>
+            <tr><td><code>hash-bait</code></td><td>1.0.1</td><td><span>kali</span></td><td><code>hash-bait</code></td><td>MIT</td></tr>
             <tr><td><code>impacket</code></td><td>0.13.1</td><td><span>kali</span></td><td>the <code>impacket-*</code> commands and <code>ldapdomaindump</code>, on <code>python-3.13</code></td><td>Apache-2.0 with additional notices</td></tr>
             <tr><td><code>juicypotato</code></td><td>0.1</td><td><span>upload</span></td><td>to upload: <code>JuicyPotato.exe</code></td><td>GPL-3.0</td></tr>
             <tr><td><code>jwt-tool</code></td><td>2.3.0</td><td><span>kali</span></td><td><code>jwt_tool</code>, on <code>python-3.13</code></td><td>GPL-3.0</td></tr>
@@ -270,6 +272,7 @@
         <li>Kali's own <code>ligolo-ng</code> package also installs a command named <code>ligolo-proxy</code>, and <code>sudo</code> does not use PATH. Use <code>sudo /opt/pwn-broker/bin/ligolo-proxy</code>, the path <code>tool install</code> prints.</li>
         <li>PEASS-ng's licence has terms beyond the GPL. Read <code>recipes/peass-ng/LICENSE</code> before redistributing the package.</li>
         <li>The first Python tool on a machine costs the runtime: a 34 MB download and about 100 MB unpacked. Its OpenSSL and other libraries are fixed when a new build of the runtime is published, not when Kali updates.</li>
+        <li><code>ad-sweep</code> needs NetExec as a separate prerequisite; run <code>tool install netexec</code> separately. Its package check starts the CLI, not a NetExec compatibility test or a domain scan.</li>
         <li><code>autorecon</code> brings its Python code and dependencies, but its scans call nmap and other Kali system tools, which it does not bring.</li>
         <li><code>evil-winrm-py</code> is not a drop-in for Ruby Evil-WinRM: it takes <code>--ssl</code> for <code>-S</code>, has no <code>-s</code> or <code>-e</code>, and its Kerberos extra is not bundled. Kali's Ruby <code>evil-winrm</code> remains separate.</li>
         <li><code>penelope</code> 0.21.0 starts a local MCP socket even with <code>--oscp-safe</code>. It is packaged for lab and CTF use, not as an OSCP-safe shell handler; use Kali's <code>nc</code>, <code>ncat</code> or <code>socat</code> for that.</li>
