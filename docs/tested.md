@@ -1,6 +1,6 @@
 # What has been tested
 
-Everything the packages, `build.py` and `fetch.sh` have been run on, with the counts, runs, commits and dates, and what has not been run. The [README](../README.md#tested-on) has the short list. This record is updated by hand after each CI run; it is as of 2026-11-22.
+Everything the packages, `build.py` and `fetch.sh` have been run on, with the counts, runs, commits and dates, and what has not been run. [PACKAGES.md](PACKAGES.md#tested-on) has the short list. This record is updated by hand after each CI run; it is as of 2026-11-22.
 
 ## Unit tests
 
