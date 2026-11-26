@@ -274,6 +274,7 @@
         <li>PEASS-ng's licence has terms beyond the GPL. Read <code>recipes/peass-ng/LICENSE</code> before redistributing the package.</li>
         <li>The first Python tool on a machine costs the runtime: a 34 MB download and about 100 MB unpacked. Its OpenSSL and other libraries are fixed when a new build of the runtime is published, not when Kali updates.</li>
         <li><code>ad-sweep</code> needs NetExec as a separate prerequisite; run <code>tool install netexec</code> separately. Its package check starts the CLI, not a NetExec compatibility test or a domain scan.</li>
+        <li><code>cred-spray</code> uses separate Nmap, NetExec, FreeRDP, ipmitool and evil-winrm backends where selected. Its package check starts the CLI; it does not scan, authenticate, or test those backends.</li>
         <li><code>autorecon</code> brings its Python code and dependencies, but its scans call nmap and other Kali system tools, which it does not bring.</li>
         <li><code>evil-winrm-py</code> is not a drop-in for Ruby Evil-WinRM: it takes <code>--ssl</code> for <code>-S</code>, has no <code>-s</code> or <code>-e</code>, and its Kerberos extra is not bundled. Kali's Ruby <code>evil-winrm</code> remains separate.</li>
         <li><code>penelope</code> 0.21.0 starts a local MCP socket even with <code>--oscp-safe</code>. It is packaged for lab and CTF use, not as an OSCP-safe shell handler; use Kali's <code>nc</code>, <code>ncat</code> or <code>socat</code> for that.</li>

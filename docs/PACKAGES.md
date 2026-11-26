@@ -110,6 +110,7 @@ The [guide](guide.md) has the package format, the runtime, `build.py` and CI. [C
 - `playbooks` installed from the published index in Kali 2026.2 by a normal user with pwn-broker 0.1.7: `:Pb` read a playbook into the note, and `finish` removed it
 - `report` installed from a folder index of its build in Kali under WSL 2 by a normal user with pwn-broker 0.1.11: `pwn-report` built a report from the box's exported archive, and `finish` removed it with its runtime; then from the published index with pwn-broker 0.1.12, whose `finish` built the report beside the archive itself
 - `ad-sweep` 0.1.0 build 1 built and checked on Windows 11, then installed and help-tested through pwn-broker 0.1.13 in Kali under WSL 2; the release asset's version and four-module listing were checked, and no domain was contacted
+- `cred-spray` 1.0.0 build 1 built and checked on Windows 11, then installed and help-tested through pwn-broker on Python 3.12–3.14 and in offline Kali in run 45909175019 before publication; no credential spray or target service was tested
 - The 33 recipes of 2026-11-22 built and checked in Kali under WSL 2, then installed and help-tested through pwn-broker, including a complete run in a network namespace with no network; the unit suite also passed there and on Windows 11
 
 [docs/tested.md](tested.md) is the full record: counts, runs, commits and dates, and what has not been run.
