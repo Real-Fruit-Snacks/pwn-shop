@@ -1,10 +1,10 @@
-version = "1.0.0"
+version = "1.0.1"
 build = 1
 
 # Upstream publishes SHA256SUMS.txt with the release; the pin below matches it.
 [[source]]
-url = "https://github.com/Real-Fruit-Snacks/hash-bait/releases/download/v1.0.0/hash-bait-x86_64-unknown-linux-musl.tar.gz"
-size = 1225085
-sha256 = "a13de60086d3c5a8bbf64391671a52bb28f54eab6faca5836f24f90b2911b050"
+url = "https://github.com/Real-Fruit-Snacks/hash-bait/releases/download/v1.0.1/hash-bait-x86_64-unknown-linux-musl.tar.gz"
+size = 1225518
+sha256 = "f252756d39d40f54977bf4a1ff95c9a778983c8fc0d24bf3606acdfb66e64929"
 member = "hash-bait"
 to = "files/hash-bait"

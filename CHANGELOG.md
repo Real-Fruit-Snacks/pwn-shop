@@ -82,3 +82,4 @@ Changed on 2026-11-25:
 
 - A new package, `hash-bait` 1.0.0: the `hash-bait` command, which drops poisoned shortcuts on SMB shares to coerce NTLM hashes, from hash-bait v1.0.0's Linux x86-64 musl archive, pinned to the SHA-256 in that release's `SHA256SUMS.txt`.
 - `playbooks` moves to 2026.11.25: forty-four new playbooks across web, foothold, privesc and AD, and the responder playbook's share baiting now uses `hash-bait`.
+- `hash-bait` moves to 1.0.1: colour output also honours `TERM=dumb`, terminals without truecolour get the brand's 16-colour row, and `--version` prints the `v` prefix.
