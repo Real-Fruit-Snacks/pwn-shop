@@ -88,3 +88,4 @@ Changed on 2026-11-26:
 
 - A new package, `undertow` 1.3.0 (kind `both`): the `undertow` static SSH server for bind and reverse shells with PTY, SFTP and port forwarding, plus its Linux and Windows binaries to upload, from Undertow v1.3.0's release archives, pinned to the SHA-256 values in that release's `SHA256SUMS.txt`.
 - `undertow` becomes `shell-tunnel` 1.4.0 as the tool is renamed to the RFS naming rule upstream; the recipe, commands and uploads take the new name from shell-tunnel v1.4.0's release archives, and the `undertow` package is withdrawn.
+- `playbooks` moves to 2026.11.26: the shells playbook gains the shell-tunnel section (handler, dial-home, bind mode and the ssh/SFTP/forwarding workflow).
