@@ -207,16 +207,36 @@ def test_python_manifest_helper_marks_wheel_packages(tmp_path, net):
 # ---- the contents of two zips with wheels
 
 
+FIXED = (1980, 1, 1, 0, 0, 0)
+BETA_FILES = {
+    "beta/__init__.py": "print('beta')\n",
+    "{info}/METADATA": "Metadata-Version: 2.1\nName: beta\nVersion: 2.0\n",
+    "{info}/entry_points.txt": "[console_scripts]\nbeta = beta:main\n",
+}
+
+
+def wheel_of(files=None, *, info="beta-2.0.dist-info", tool="setuptools (80.0.0)", when=FIXED):
+    """A wheel as a build tool writes it: WHEEL names the tool, and RECORD lists every file."""
+    import io
+    import zipfile
+
+    files = {name.format(info=info): text for name, text in (files or BETA_FILES).items()}
+    files[f"{info}/WHEEL"] = f"Wheel-Version: 1.0\nGenerator: {tool}\nRoot-Is-Purelib: true\n"
+    files[f"{info}/RECORD"] = "".join(f"{name},sha256={len(text)},{tool}\n" for name, text in files.items())
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, text in files.items():
+            zf.writestr(zipfile.ZipInfo(name, when), text)
+    return data.getvalue()
+
+
 LOCK = "alpha==1.0 --hash=sha256:" + "a" * 64 + "\nbeta==2.0 --hash=sha256:" + "b" * 64 + "\n"
 MEMBERS = {
     "LICENSE": "licence",
     "files/tool.py": "print('hi')",
     "wheels/alpha-1.0-py3-none-any.whl": "alpha",
-    "wheels/beta-2.0-py3-none-any.whl": "beta",
+    "wheels/beta-2.0-py3-none-any.whl": wheel_of(),
 }
-
-
-FIXED = (1980, 1, 1, 0, 0, 0)
 
 
 def pkg(path, *, manifest="name = 'x'\nexamples = ['one']\n", lock=LOCK, members=None):
@@ -293,8 +313,9 @@ def test_without_build_from_source_the_zips_are_not_opened(tmp_path, wheel_recip
     build.compare_cards(one, one, wheel_recipe, tmp_path / "nope1.zip", tmp_path / "nope2.zip")
 
 
-# with build_from_source = ["beta"]: every member is compared except the bytes of beta's wheel and
-# the hash on its line in wheels.lock; the wheel's name and the line's version still count
+# with build_from_source = ["beta"]: every member is compared. beta's wheel is compared by what is in
+# it apart from WHEEL and RECORD, not by its own bytes or the hash on its line in wheels.lock; the
+# wheel's distribution and version and the line's version still count
 
 
 def test_equal_packages_pass_with_build_from_source(tmp_path, source_recipe):
@@ -373,7 +394,7 @@ def test_a_card_whose_sources_are_not_strings_is_refused(tmp_path, pinned_source
 
 
 def test_two_wheels_of_one_source_built_distribution_are_refused(tmp_path, source_recipe):
-    new = pkg(tmp_path / "1.zip", members={**MEMBERS, "wheels/Beta-2.0-py2.py3-none-any.whl": "beta again"})
+    new = pkg(tmp_path / "1.zip", members={**MEMBERS, "wheels/Beta-2.0-py2.py3-none-any.whl": wheel_of()})
     with pytest.raises(build.BuildError, match="more than once"):
         compare_source(tmp_path, source_recipe, new, pkg(tmp_path / "2.zip"))
 
@@ -402,19 +423,79 @@ def test_a_published_card_from_before_sources_were_recorded_still_compares(tmp_p
 
 
 def test_a_listed_wheel_built_again_to_other_bytes_passes(tmp_path, source_recipe):
+    # another version of the build tool and another day: WHEEL, RECORD and the wheel's own bytes
+    # differ, and what it installs does not
+    again = wheel_of(tool="setuptools (81.2.0)", when=(2026, 11, 27, 12, 0, 0))
+    assert again != MEMBERS["wheels/beta-2.0-py3-none-any.whl"]
     new = pkg(
         tmp_path / "1.zip",
         lock=LOCK.replace("b" * 64, "c" * 64),
-        members={**MEMBERS, "wheels/beta-2.0-py3-none-any.whl": "other bytes"},
+        members={**MEMBERS, "wheels/beta-2.0-py3-none-any.whl": again},
     )
     compare_source(tmp_path, source_recipe, new, pkg(tmp_path / "2.zip"))
+
+
+@pytest.mark.parametrize(
+    "name, text",
+    [
+        ("beta/__init__.py", "import os\nprint('beta')\n"),
+        ("beta/extra.py", "print('more')\n"),
+        ("{info}/entry_points.txt", "[console_scripts]\nbeta = beta.other:main\n"),
+        ("{info}/METADATA", "Metadata-Version: 2.1\nName: beta\nVersion: 2.0\nRequires-Dist: gamma\n"),
+    ],
+)
+def test_a_listed_wheel_that_installs_something_else_fails(tmp_path, source_recipe, name, text):
+    # the same distribution and version, built from the same pinned archive, with other code,
+    # another file, another entry point or another requirement in it: only the build tools,
+    # which no hash pins, can have made the difference
+    other = wheel_of({**BETA_FILES, name: text})
+    new = pkg(
+        tmp_path / "1.zip",
+        lock=LOCK.replace("b" * 64, "c" * 64),
+        members={**MEMBERS, "wheels/beta-2.0-py3-none-any.whl": other},
+    )
+    with pytest.raises(build.BuildError) as err:
+        compare_source(tmp_path, source_recipe, new, pkg(tmp_path / "2.zip"))
+    inner = name.format(info="dist-info")
+    assert f"wheels/beta==2.0 ({inner})" in str(err.value)
+    assert "wheels.lock" not in str(err.value)
+
+
+def test_a_listed_wheel_missing_a_file_fails(tmp_path, source_recipe):
+    less = {k: v for k, v in BETA_FILES.items() if k != "{info}/entry_points.txt"}
+    new = pkg(tmp_path / "1.zip", members={**MEMBERS, "wheels/beta-2.0-py3-none-any.whl": wheel_of(less)})
+    with pytest.raises(build.BuildError) as err:
+        compare_source(tmp_path, source_recipe, new, pkg(tmp_path / "2.zip"))
+    assert "wheels/beta==2.0 (dist-info/entry_points.txt)" in str(err.value)
+
+
+def test_a_listed_wheel_that_is_not_a_wheel_is_refused(tmp_path, source_recipe):
+    new = pkg(tmp_path / "1.zip", members={**MEMBERS, "wheels/beta-2.0-py3-none-any.whl": "not a zip"})
+    with pytest.raises(build.BuildError, match="cannot be read as a wheel"):
+        compare_source(tmp_path, source_recipe, new, pkg(tmp_path / "2.zip"))
+
+
+def test_a_listed_wheel_with_a_file_twice_is_refused(tmp_path, source_recipe):
+    import io
+    import warnings
+    import zipfile
+
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w") as zf, warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        zf.writestr("beta/__init__.py", "one")
+        zf.writestr("beta/__init__.py", "two")
+    new = pkg(tmp_path / "1.zip", members={**MEMBERS, "wheels/beta-2.0-py3-none-any.whl": data.getvalue()})
+    with pytest.raises(build.BuildError, match="more than once"):
+        compare_source(tmp_path, source_recipe, new, pkg(tmp_path / "2.zip"))
 
 
 def test_a_listed_wheel_built_with_other_tags_or_spelling_passes(tmp_path, source_recipe):
     # the build tools are not pinned for a distribution built from source: a newer one may spell
     # the name or tag the wheel differently, and only the distribution and its version count
     members = {k: v for k, v in MEMBERS.items() if k != "wheels/beta-2.0-py3-none-any.whl"}
-    new = pkg(tmp_path / "1.zip", members={**members, "wheels/Beta-2.0-py2.py3-none-any.whl": "beta"})
+    spelt = wheel_of(info="Beta-2.0.dist-info")
+    new = pkg(tmp_path / "1.zip", members={**members, "wheels/Beta-2.0-py2.py3-none-any.whl": spelt})
     compare_source(tmp_path, source_recipe, new, pkg(tmp_path / "2.zip"))
 
 
@@ -425,7 +506,7 @@ def test_a_listed_wheel_of_another_version_fails(tmp_path, source_recipe):
     new = pkg(
         tmp_path / "1.zip",
         lock=LOCK.replace("beta==2.0", "beta==2.1").replace("b" * 64, "c" * 64),
-        members={**members, "wheels/beta-2.1-py3-none-any.whl": "newer"},
+        members={**members, "wheels/beta-2.1-py3-none-any.whl": wheel_of(info="beta-2.1.dist-info")},
     )
     with pytest.raises(build.BuildError) as err:
         compare_source(tmp_path, source_recipe, new, pkg(tmp_path / "2.zip"))

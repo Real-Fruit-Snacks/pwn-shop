@@ -1122,8 +1122,13 @@ def _check_wheel(path: Path, pin: Pin, python: str, *, built: bool = False) -> N
 
 def _tool_env(tool: str) -> dict[str, str]:
     # the caller's pip and uv settings (index, config, require-virtualenv) must not change
-    # what a build collects
-    env = {k: v for k, v in os.environ.items() if not k.upper().startswith(("PIP_", "UV_"))}
+    # what a build collects. And no token goes with them: building a wheel from source runs
+    # that archive's build code and build tools pip fetched without hashes, and neither has
+    # any use for GH_TOKEN, GITHUB_TOKEN or whatever else CI holds under a name ending in TOKEN
+    env = {
+        k: v for k, v in os.environ.items()
+        if not k.upper().startswith(("PIP_", "UV_")) and not k.upper().endswith("TOKEN")
+    }
     env["PIP_CONFIG_FILE"] = os.devnull
     env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
     env["PIP_NO_INPUT"] = "1"
@@ -1770,9 +1775,44 @@ def _zip_member(zip_path: Path, name: str, limit: int) -> bytes | None:
         raise BuildError(f"{zip_path.name}: cannot be read as a zip ({exc})") from exc
 
 
+def _wheel_payload(data: bytes, label: str) -> dict[str, tuple[int, str]]:
+    """Name -> (size, SHA-256) of what a wheel installs: every file in it but WHEEL and RECORD.
+
+    WHEEL names the build tool and its version, and RECORD holds WHEEL's hash, so those two
+    differ whenever the unpinned build tools move. Everything else is the distribution: its
+    code, its metadata and its entry points. The .dist-info folder is named without its
+    spelling of the distribution, which the build tools also decide.
+    """
+    found: dict[str, tuple[int, str]] = {}
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as wheel:
+            infos = [i for i in wheel.infolist() if not i.is_dir()]
+            if len(infos) > MAX_MEMBERS:
+                raise BuildError(f"{label} has {len(infos)} entries; the limit is {MAX_MEMBERS}")
+            if sum(i.file_size for i in infos) > MAX_UNPACKED_BYTES:
+                raise BuildError(f"{label} unpacks to more than {MAX_UNPACKED_BYTES} bytes")
+            for info in infos:
+                top, slash, rest = info.filename.partition("/")
+                name = info.filename
+                if slash and top.endswith(".dist-info"):
+                    if rest in ("WHEEL", "RECORD"):
+                        continue
+                    name = f"dist-info/{rest}"
+                if name in found:
+                    raise BuildError(f"{label}: {name} appears more than once")
+                digest = hashlib.sha256()
+                with wheel.open(info) as src:
+                    while chunk := src.read(_CHUNK):
+                        digest.update(chunk)
+                found[name] = (info.file_size, digest.hexdigest())
+    except (zipfile.BadZipFile, zlib.error, OSError) as exc:
+        raise BuildError(f"{label} cannot be read as a wheel ({exc})") from exc
+    return found
+
+
 def _zip_digests(zip_path: Path, left_out: list[str]) -> dict[str, tuple[int, str]]:
     """Name -> (size, SHA-256) of every file in a zip; a wheel of left_out by its distribution and
-    version alone."""
+    version, and by what is in it apart from WHEEL and RECORD."""
     found: dict[str, tuple[int, str]] = {}
     try:
         with zipfile.ZipFile(zip_path) as zf:
@@ -1787,14 +1827,18 @@ def _zip_digests(zip_path: Path, left_out: list[str]) -> dict[str, tuple[int, st
                 if name in found:
                     raise BuildError(f"{zip_path.name}: {name} appears more than once")
                 if _left_out_wheel(name, left_out):
-                    # built from source, its bytes differ by nature, and its file name's spelling
-                    # and tags with the build tools, which are not pinned: its distribution and
-                    # version are what count
+                    # built from source: the file's bytes differ by nature, and its name's
+                    # spelling and tags with the build tools, which are not pinned. Its
+                    # distribution, its version and the files it installs are what count
                     wheel = _WHEEL.fullmatch(name.rpartition("/")[2])
                     key = f"wheels/{_norm_name(wheel['name'])}=={wheel['version']}"
                     if key in found:
                         raise BuildError(f"{zip_path.name}: {key} appears more than once")
                     found[key] = (0, "built from source")
+                    with zf.open(info) as src:
+                        payload = _wheel_payload(src.read(), f"{zip_path.name}: {name}")
+                    for inner, value in payload.items():
+                        found[f"{key} ({inner})"] = value
                     continue
                 digest = hashlib.sha256()
                 with zf.open(info) as src:
@@ -1827,8 +1871,8 @@ def zip_changes(built_zip: Path, published_zip: Path, recipe: Recipe) -> list[st
 
     Every member counts (name, size, SHA-256), except that the wheels of the distributions in
     build_from_source, whose bytes and file names differ between builds by nature, count by their
-    distribution and version, and those distributions' lines in wheels.lock by name and version,
-    without their hashes.
+    distribution and version and by every file in them but WHEEL and RECORD, and those
+    distributions' lines in wheels.lock by name and version, without their hashes.
     """
     left_out = recipe.build_from_source
     new = _zip_digests(built_zip, left_out)

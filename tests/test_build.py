@@ -1538,6 +1538,26 @@ def test_commands_run_with_a_clean_environment_and_a_timeout(tmp_path, net, monk
                          "UV_NO_CONFIG"}
 
 
+def test_no_token_reaches_pip_or_uv(tmp_path, net, monkeypatch):
+    # building a wheel from source runs code that no hash pins: it is given no token of CI's
+    tokens = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "ACTIONS_RUNTIME_TOKEN", "pypi_token")
+    for name in tokens:
+        monkeypatch.setenv(name, "secret")
+    monkeypatch.setenv("TOKEN_FREE", "kept")
+    tool = pure("tinytool", "1.0")
+    fake = FakeTools(downloads=offered(("tinytool", [tool])), uv={SERIES: UV_LOCK})
+    r = py_recipe(tmp_path, net, [("tinytool", "1.0", [tool[1]])])
+    build.collect_wheels(r, staged_dir(tmp_path), run=fake)
+    build.lock(r, run=fake)
+    assert [c[0] for c in fake.calls] == [sys.executable, "uv"]
+    for env in fake.envs:
+        assert not {k for k in env if k.upper().endswith("TOKEN")}
+        assert "secret" not in env.values()
+        assert env["TOKEN_FREE"] == "kept"
+    assert build._tool_env("pip").get("GH_TOKEN") is None
+    assert os.environ["GH_TOKEN"] == "secret"
+
+
 @pytest.mark.parametrize("which", ["pip", "uv"])
 def test_a_timeout_is_a_build_error_naming_the_command(tmp_path, net, which):
     def slow(cmd, **kw):

@@ -28,10 +28,10 @@ jobs:
     # install-check.py).
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.13'
       - name: Syntax
@@ -53,10 +53,10 @@ jobs:
       matrix:
         python: ['3.11', '3.12', '3.13', '3.14']
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python }}
       - name: Install
@@ -75,10 +75,10 @@ jobs:
     name: README panel
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.13'
       - name: Redraw the panel
@@ -108,36 +108,34 @@ jobs:
     outputs:
       dist: ${{ steps.sums.outputs.dist }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python }}
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: '9.0.320'
       - name: Install
         run: python -m pip install --require-hashes -r ci-requirements.txt
-      - name: Build or download each package
+      - name: Download each published package
         # A build that has a release is tested from the published bytes, so CI and a user never
-        # see different files under one tag. It is still built again, into fresh/, one tool at
-        # a time, and the card of that build must equal the published card: a recipe that
-        # changed without its build number going up fails here. --skip-index, because fresh/
-        # is never an index: a tool is rebuilt there without the runtime it requires. If the
-        # rebuild cannot fetch an upstream file (build.py exits 3), that tool gets a warning and
-        # its published zip is still tested; any other failure, and any difference, fails the
-        # job. A build with no release must build.
+        # see different files under one tag. The releases are read a page at a time, so their
+        # number has no limit, and a draft does not count: it is what a publish that stopped
+        # half way leaves behind, and it has no files to download. A build with no release is
+        # built in the next step, which holds no token.
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -eu
-          mkdir -p dist fresh
+          mkdir -p dist
           : > published.txt
+          : > to-build.txt
           python build.py plan > plan.txt
-          gh release list --limit 1000 --json tagName --jq '.[].tagName' > releases.txt
-          to_build=()
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
+            --jq '.[] | select(.draft | not) | .tag_name' > releases.txt
           while read -r tool tag file; do
             if grep -Fxq -- "$tag" releases.txt; then
               card="${file%.zip}.toml"
@@ -147,13 +145,107 @@ jobs:
               echo "$tool $tag $file" >> published.txt
               echo "ok    $tag is published; testing the published zip"
             else
-              to_build+=("$tool")
+              echo "$tool" >> to-build.txt
               echo "ok    $tag has no release; building it"
             fi
           done < plan.txt
+      - name: Build each package that has no release
+        # A build with no release must build. A recipe with build_from_source runs build tools
+        # that pip fetches without hashes, so this step is given no token, and build.py passes
+        # none on to pip either.
+        run: |
+          set -eu
+          mapfile -t to_build < to-build.txt
           if [ "${#to_build[@]}" -gt 0 ]; then
             python build.py build "${to_build[@]}" --out dist </dev/null
           fi
+          python build.py index dist --out dist/index.toml </dev/null
+      - name: Show the package hashes
+        # Each leg prints its bytes, so the legs can be compared in the log.
+        run: sha256sum dist/*.zip
+      - name: Check
+        run: python build.py check
+      - name: Record the packages' SHA-256
+        # Before everything below that runs code CI does not pin: the rebuild of each published
+        # package, which runs a build_from_source recipe's unhashed build tools; pwn-broker's
+        # install, which takes its dependencies from PyPI; and the install check, which starts
+        # every packaged tool. Any of them could change dist/. (A new build of a recipe with
+        # build_from_source has already run its build tools above; that cannot be avoided, since
+        # their output is the package.)
+        # publish and the kali job refuse a dist/ whose files do not give this one SHA-256. It is
+        # kept twice: as this step's output, which the steps after it cannot set again, and as an
+        # artifact of its own, uploaded with dist/. Both must agree, so replacing one is not
+        # enough; code on this runner with root could still reach both. Only this leg sets the
+        # output, and a leg that sets none leaves another's as it is.
+        if: matrix.python == '3.13'
+        id: sums
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          mkdir -p "$RUNNER_TEMP/dist-sha256"
+          sums="$(cd dist && find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
+          echo "$sums" > "$RUNNER_TEMP/dist-sha256/dist.sha256"
+          echo "dist=$sums" >> "$GITHUB_OUTPUT"
+      - name: Keep the packages' SHA-256
+        if: matrix.python == '3.13'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dist-sha256
+          path: ${{ runner.temp }}/dist-sha256/dist.sha256
+          if-no-files-found: error
+          retention-days: 7
+      - name: Keep the packages for publish
+        # One leg's files are published, after the kali job has installed them, and they are
+        # kept here, before the rebuilds, pwn-broker's install and the install check. A Python
+        # tool's wheels are for its runtime's series whichever Python runs the build, and the
+        # zip is built the same way on each.
+        if: matrix.python == '3.13'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Check the index publish would write
+        # publish rebuilds the index from the card of every release, after it has made the new
+        # ones. The rules that span the whole history are applied only then: a command two
+        # tools define, a build that depends on a package no release carries any more, a cycle
+        # of dependencies. A history that breaks one would get its release and no index, and
+        # every later push would stop at the same place. So the same index is written here
+        # first, from the cards of the releases that exist and of the builds about to be
+        # published, and thrown away.
+        if: matrix.python == '3.13'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/download/{tag}/{file}
+        run: |
+          set -eu
+          cards="$RUNNER_TEMP/cards"
+          mkdir -p "$cards"
+          while read -r tag; do
+            if [ "$tag" != index ]; then
+              gh release download "$tag" --dir "$cards" --pattern '*.toml' </dev/null
+            fi
+          done < releases.txt
+          while read -r _ tag file; do
+            if ! grep -Fxq -- "$tag" releases.txt; then
+              cp "dist/${file%.zip}.toml" "$cards/"
+            fi
+          done < plan.txt
+          python build.py index "$cards" --base-url "$BASE_URL" --out "$RUNNER_TEMP/index.toml" </dev/null
+          echo "ok    the index of every release and each new build can be written"
+      - name: Build each published package again and compare
+        # Into fresh/, one tool at a time, and the card of that build must equal the published
+        # card: a recipe that changed without its build number going up fails here.
+        # --skip-index, because fresh/ is never an index: a tool is rebuilt there without the
+        # runtime it requires. If the rebuild cannot fetch an upstream file (build.py exits 3),
+        # that tool gets a warning and its published zip is still tested; any other failure,
+        # and any difference, fails the job. It comes after the packages are kept and holds no
+        # token, because rebuilding a recipe with build_from_source runs unhashed build tools.
+        run: |
+          set -eu
+          mkdir -p fresh
           while read -r tool tag file; do
             card="${file%.zip}.toml"
             if python build.py build "$tool" --out fresh --skip-index </dev/null 2> "rebuild-$tool.err"; then
@@ -173,54 +265,10 @@ jobs:
               exit 1
             fi
           done < published.txt
-          python build.py index dist --out dist/index.toml </dev/null
-      - name: Show the package hashes
-        # Each leg prints its bytes, so the legs can be compared in the log.
-        run: sha256sum dist/*.zip
-      - name: Check
-        run: python build.py check
-      - name: Record the packages' SHA-256
-        # Before pwn-broker's install below, which takes its dependencies from PyPI, and the
-        # install check, which starts every packaged tool: either could change dist/. (The build
-        # above already ran a build_from_source recipe's unhashed build requirements.)
-        # publish and the kali job refuse a dist/ whose files do not give this one SHA-256. It is
-        # kept twice: as this step's output, which the steps after it cannot set again, and as an
-        # artifact of its own, uploaded with dist/. Both must agree, so replacing one is not
-        # enough; code on this runner with root could still reach both. Only this leg sets the
-        # output, and a leg that sets none leaves another's as it is.
-        if: matrix.python == '3.13'
-        id: sums
-        run: |
-          set -euo pipefail
-          export LC_ALL=C
-          mkdir -p "$RUNNER_TEMP/dist-sha256"
-          sums="$(cd dist && find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
-          echo "$sums" > "$RUNNER_TEMP/dist-sha256/dist.sha256"
-          echo "dist=$sums" >> "$GITHUB_OUTPUT"
-      - name: Keep the packages' SHA-256
-        if: matrix.python == '3.13'
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist-sha256
-          path: ${{ runner.temp }}/dist-sha256/dist.sha256
-          if-no-files-found: error
-          retention-days: 7
-      - name: Keep the packages for publish
-        # One leg's files are published, after the kali job has installed them, and they are
-        # kept here, before pwn-broker's install and the install check. A Python tool's wheels
-        # are for its runtime's series whichever Python runs the build, and the zip is built the
-        # same way on each.
-        if: matrix.python == '3.13'
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
-          if-no-files-found: error
-          retention-days: 7
       - name: Check out pwn-broker
         # pwn-broker is public, so no key is needed. vars.PWN_BROKER_REF names a branch of
         # pwn-broker while a change needs both repositories; without it, main is checked out.
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: Real-Fruit-Snacks/pwn-broker
           ref: ${{ vars.PWN_BROKER_REF || 'main' }}
@@ -247,14 +295,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: dist
           path: dist
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: dist-sha256
           path: ${{ runner.temp }}/dist-sha256
@@ -275,7 +323,7 @@ jobs:
           echo "ok    dist/ is what the packages job built"
       - name: Check out pwn-broker
         # the same branch as in the packages job
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: Real-Fruit-Snacks/pwn-broker
           ref: ${{ vars.PWN_BROKER_REF || 'main' }}
@@ -310,7 +358,7 @@ jobs:
         run: docker exec kali sh /shop/.github/scripts/kali-packages.sh install
       - name: Evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: kali-packages-evidence
           path: ${{ runner.temp }}/kali-evidence
@@ -319,10 +367,10 @@ jobs:
         run: docker rm -f kali || true
 
   publish:
-    # Main only, after the tests, the install check and the install in Kali. It uploads what
-    # the packages job installed, not a second build. A run waits for the one before it and
-    # never cancels it.
-    needs: [test, packages, kali]
+    # Main only, after every other job: lint, the tests, the README panel, the install check
+    # and the install in Kali. It uploads what the packages job installed, not a second build.
+    # A run waits for the one before it and never cancels it.
+    needs: [lint, test, art, packages, kali]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
@@ -331,19 +379,19 @@ jobs:
       group: publish
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.13'
       - name: Install
         run: python -m pip install --require-hashes -r ci-requirements.txt
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: dist
           path: dist
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: dist-sha256
           path: ${{ runner.temp }}/dist-sha256
@@ -369,18 +417,30 @@ jobs:
             echo "$want  $zip" | sha256sum -c -
           done
       - name: Publish each build that has no release
+        # gh release create makes a draft, uploads the files and then publishes it. A run that
+        # stops between the two leaves the draft, which is not a release: it is not counted as
+        # published here, and one with the tag about to be made is deleted first, by its id,
+        # so the build is published whole by this run. The releases are read a page at a time.
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           COMMIT: ${{ github.sha }}
         run: |
+          set -eu
           python build.py plan > plan.txt
-          gh release list --limit 1000 --json tagName --jq '.[].tagName' > releases.txt
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
+            --jq '.[] | [.id, .draft, .tag_name] | @tsv' > all-releases.txt
+          awk -F '\t' '$2 == "false" { print $3 }' all-releases.txt > releases.txt
           while read -r tool tag file; do
             if grep -Fxq -- "$tag" releases.txt; then
               echo "ok    $tag is already published"
               continue
             fi
+            awk -F '\t' -v tag="$tag" '$2 == "true" && $3 == tag { print $1 }' all-releases.txt > drafts.txt
+            while read -r id; do
+              gh api --method DELETE "repos/$GH_REPO/releases/$id" </dev/null
+              echo "warn  deleted a draft of $tag that an unfinished run left"
+            done < drafts.txt
             card="${file%.zip}.toml"
             python build.py notes "dist/$card" > "notes-$tool.txt"
             gh release create "$tag" "dist/$file" "dist/sums/$tag/SHA256SUMS.txt" "dist/$card" \
@@ -391,7 +451,10 @@ jobs:
         # The index is rebuilt from the card of every release, so a withdrawn build (a deleted
         # release) drops out of it. The index release is made once and never marked latest.
         # index.toml is uploaded only when it differs from the one there, so it is not briefly
-        # missing on every push.
+        # missing on every push. A draft is not a release and is left out: its card would put a
+        # build in the index whose zip cannot be downloaded. Every tag in plan.txt has a release
+        # by now, made by the step above or found by it, so those are added to the list in case
+        # it does not show one made a moment ago.
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -399,7 +462,9 @@ jobs:
           BASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/download/{tag}/{file}
         run: |
           set -eu
-          gh release list --limit 1000 --json tagName --jq '.[].tagName' > releases.txt
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
+            --jq '.[] | select(.draft | not) | .tag_name' > listed.txt
+          cut -d' ' -f2 plan.txt | sort -u - listed.txt > releases.txt
           mkdir cards current
           while read -r tag; do
             if [ "$tag" != index ]; then
