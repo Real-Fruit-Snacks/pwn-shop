@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -257,6 +258,175 @@ def test_parse_reads_a_runtime_and_a_tool_that_requires_it(tmp_path):
     ]
 
 
+def numbered(name, version, number, data, **extra):
+    return {**card(name, version, data), "build": number,
+            "file": f"{name}-{version}-{number}.zip", **extra}
+
+
+def backend(name, **provider):
+    return {"name": name, "description": f"{name} checks", "commands": [name], **provider}
+
+
+def schema4_cards():
+    """A catalogue with every kind of package and every relationship a build can declare."""
+    return [
+        numbered("spray", "1.0", 1, b"s1", requires=["python-3.13"]),
+        numbered("spray", "1.0", 2, b"s2", requires=["python-3.13"], depends=["sweep"],
+                 backend=[backend("nmap", apt=["nmap"]), backend("netexec", package="netexec"),
+                          {**backend("freerdp", apt=["freerdp3-x11"]),
+                           "commands": ["xfreerdp3", "xfreerdp"]}]),
+        numbered("spray", "1.0", 3, b"s3", requires=["python-3.13"],
+                 backend=[backend("netexec", package="netexec")]),
+        numbered("sweep", "0.1", 2, b"w", depends=["netexec"]),
+        numbered("netexec", "1.5.1", 1, b"n", requires=["python-3.13"]),
+        {**card("pspy", "1.2.1", b"p"), "kind": "upload", "commands": []},
+        {**card("tunnel", "1.4.2", b"t"), "kind": "both"},
+        {**card("playbooks", "2026.11.26", b"b"), "kind": "notes", "commands": []},
+        runtime_card(b"r"),
+    ]
+
+
+def planned(cards):
+    return [
+        f"{c['name']}-v{c['version']}-{c['build']}\t{c['file']}\t{c['sha256']}"
+        for c in build.card_order(cards)
+    ]
+
+
+def test_parse_reads_builds_with_depends_and_backends(tmp_path):
+    # a backend table has a name of its own, and the build after it is still the tool's
+    cards = schema4_cards()
+    text = index_text(cards, "https://h/{tag}/{file}")
+    assert text.startswith("schema = 4\n")
+    assert text.count("[[tool.build.backend]]") == 4 and "depends = [" in text
+    result = parse(tmp_path, text)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == planned(cards)
+
+
+@pytest.mark.parametrize("description", NASTY)
+def test_a_backend_with_the_same_words_changes_nothing(tmp_path, description):
+    # its name is another tool's, and its description holds what a build's keys look like
+    rows = [{**backend("beta", apt=["beta"]), "description": description}]
+    cards = [
+        numbered("alpha", "1.0", 1, b"a1", backend=rows),
+        numbered("alpha", "1.0", 2, b"a2", backend=rows),
+        card("beta", "1.0", b"b"),
+    ]
+    result = parse(tmp_path, index_text(cards))
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == planned(cards)
+
+
+@pytest.mark.parametrize(
+    "line",
+    ['file = "evil-1.0-1.zip"', 'sha256 = "' + "0" * 64 + '"', 'version = "9.9"', "build = 7"],
+)
+def test_a_key_in_a_backend_table_is_not_read_as_the_builds(tmp_path, line):
+    # build.py writes no such key there; the zip is still the one the build itself names
+    cards = schema4_cards()
+    text = index_text(cards)
+    changed = text.replace('[[tool.build.backend]]\nname = "nmap"\n',
+                           f'[[tool.build.backend]]\nname = "nmap"\n{line}\n', 1)
+    assert changed != text
+    result = parse(tmp_path, changed)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == planned(cards)
+
+
+def table_headers(text: str) -> set[str]:
+    return {line for line in text.splitlines() if line.lstrip(" \t").startswith("[")}
+
+
+def table_paths(value, path=()) -> set[tuple]:
+    """Every table a TOML writer may give a header to: each dict, and each list of dicts."""
+    found = set()
+    if isinstance(value, dict):
+        for key, inner in value.items():
+            if isinstance(inner, dict) or (
+                isinstance(inner, list) and inner and all(isinstance(i, dict) for i in inner)
+            ):
+                found.add((*path, key))
+            found |= table_paths(inner, (*path, key))
+    elif isinstance(value, list):
+        for inner in value:
+            found |= table_paths(inner, path)
+    return found
+
+
+def accepted_headers() -> set[str]:
+    """The table headers fetch.sh reads, as its awk program spells them."""
+    text = SCRIPT.read_text(encoding="utf-8")
+    return set(re.findall(r'line == "(\[\[[a-z.]+\]\])"', text))
+
+
+def test_parse_reads_every_table_the_index_writer_can_write(tmp_path):
+    # the index writer's own output, with every kind and relationship: each table it writes
+    # is one fetch.sh reads, and a new one fails here before it is published
+    cards = schema4_cards()
+    index = build.build_index(build.card_order(cards), base_url="https://h/{tag}/{file}")
+    text = tomli_w.dumps(index)
+    assert accepted_headers() == {"[[tool]]", "[[tool.build]]", "[[tool.build.backend]]"}
+    assert {"[[" + ".".join(p) + "]]" for p in table_paths(index)} == accepted_headers()
+    assert table_headers(text) == accepted_headers()
+    result = parse(tmp_path, text)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == planned(cards)
+
+
+def test_parse_reads_the_index_of_the_recipes_in_this_repository(tmp_path):
+    # each recipe's card, as build.py writes it, in one index: whatever a recipe declares
+    # today, fetch.sh has to read
+    recipes = Path(__file__).resolve().parent.parent / "recipes"
+    cards = []
+    for folder in sorted(p for p in recipes.iterdir() if (p / "recipe.toml").is_file()):
+        recipe = build.load_recipe(folder)
+        zip_path = tmp_path / build.zip_name(recipe.name, recipe.version, recipe.build)
+        zip_path.write_bytes(recipe.name.encode())
+        cards.append(build.card(recipe, zip_path))
+    text = index_text(cards, "https://h/{tag}/{file}")
+    assert table_headers(text) <= accepted_headers()
+    result = parse(tmp_path, text)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == planned(cards)
+
+
+@pytest.mark.parametrize(
+    "new",
+    [
+        "[[tool.build.backend]] # nmap",
+        "[[tool.build.backend]] ",
+        " [[tool.build.backend]]",
+        "[tool.build.backend]",
+        "[[tool.build.backends]]",
+        "[[tool.build.depends]]",
+        "[[tool.build.backend.apt]]",
+        "[[tool.backend]]",
+    ],
+)
+def test_parse_refuses_a_table_under_a_build_that_build_py_does_not_write(tmp_path, new):
+    text = index_text(schema4_cards())
+    head, _, tail = text.rpartition("[[tool.build.backend]]")
+    result = parse(tmp_path, head + new + tail)
+    assert result.returncode != 0
+    assert "a table header build.py does not write" in result.stderr
+    assert result.stdout == ""
+
+
+def test_parse_refuses_a_backend_with_no_build_above_it(tmp_path):
+    # before any tool, or under a tool with no build yet: the table could not be a build's
+    rows = '[[tool.build.backend]]\nname = "nmap"\n'
+    text = index_text([card("alpha", "1.0", b"a")])
+    before = text.replace("\n[[tool]]\n", f"\n{rows}\n[[tool]]\n", 1)
+    under = text + f'\n[[tool]]\nname = "gamma"\n\n{rows}'
+    assert before != text
+    for changed in (before, under):
+        result = parse(tmp_path, changed)
+        assert result.returncode != 0
+        assert "a table header build.py does not write" in result.stderr
+        assert result.stdout == ""
+
+
 def test_the_name_rule_is_the_one_build_py_applies():
     text = SCRIPT.read_text(encoding="utf-8")
     assert f"name !~ /^{build._NAME.pattern.replace('(?:', '(')}$/" in text
@@ -368,6 +538,26 @@ def test_a_runtime_is_downloaded_like_any_package(tmp_path, shop):
     assert "python-3.13-v3.13.18-1 python-3.13-3.13.18-1.zip" in calls
     assert (packages / "python-3.13-3.13.18-1.zip").read_bytes() == blob
     assert "ok    3 packages in" in result.stdout
+
+
+def test_builds_with_depends_and_backends_are_downloaded_like_any_other(tmp_path, shop):
+    releases, _, _ = shop
+    blobs = [b"s1", b"s2", b"s3", b"w", b"n", b"p", b"t", b"b", b"r"]
+    cards = schema4_cards()
+    for c, blob in zip(cards, blobs, strict=True):
+        folder = releases / f"{c['name']}-v{c['version']}-{c['build']}"
+        folder.mkdir()
+        (folder / c["file"]).write_bytes(blob)
+    base = "https://github.com/x/y/releases/download/{tag}/{file}"
+    (releases / "index" / "index.toml").write_bytes(index_text(cards, base).encode())
+    packages = tmp_path / "packages"
+    result, calls = run_fetch(tmp_path, shop, packages)
+    assert result.returncode == 0, result.stderr
+    assert calls[2:] == [line.replace("\t", " ").rsplit(" ", 1)[0] for line in planned(cards)]
+    for c, blob in zip(cards, blobs, strict=True):
+        assert (packages / c["file"]).read_bytes() == blob
+    assert "ok    9 packages in" in result.stdout
+    assert (packages / "index.toml").read_bytes() == index_text(cards, base).encode()
 
 
 def test_the_published_index_with_urls_needs_no_rewrite(tmp_path, shop):
