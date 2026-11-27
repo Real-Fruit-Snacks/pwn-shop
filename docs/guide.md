@@ -84,6 +84,8 @@ A `[dotnet]` recipe builds one executable from a pinned source zip with a fixed 
 
 `version` is upstream's. `build` is mine: it starts at 1 and goes up each time I repackage the same upstream version. A published build is never changed or replaced. A build is released under the tag `<tool>-v<version>-<build>` with the zip `<tool>-<version>-<build>.zip`, and its card is the zip's name with `.toml`.
 
+The index calls the last of a tool's builds its `latest`, and that is the one `tool install` takes. Builds are ordered by the leading dotted numbers of the version, then by what follows them (`1.0-rc1` is older than `1.0`), then by build number. So a new build has to sort after every published one: a tool versioned by date, such as `2026.11.03`, cannot move to upstream's first numbered release, `2.1.0`, while the dated builds are published, because `latest` would stay on the date. `python build.py plan --index <index.toml> --releases <file of tags>` fails with that message, and CI runs it in the `packages` job with the published index and the tags that still have a release, so such a recipe stops before `publish`. Withdraw the builds that sort after the new one first, or give the recipe a version that sorts last.
+
 Some versions are dates rather than upstream release numbers: `targetedkerberoast`, `powerview` and `rubeus` use the date of the pinned commit, `autorecon` does the same because it has no releases, and `coercedpotato` uses the publication date of its unnumbered release. The `peass-ng` version is the date of the pinned upstream tag `20261122-25957cb1`. Rubeus upstream deliberately publishes no binaries; its package is a deterministic build of the pinned source.
 
 ## build.py
