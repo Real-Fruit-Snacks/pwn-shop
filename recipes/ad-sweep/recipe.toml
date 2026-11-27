@@ -1,5 +1,5 @@
 version = "0.1.0"
-build = 1
+build = 2
 
 # Upstream publishes SHA256SUMS.txt with the release; the pin below matches it.
 [[source]]

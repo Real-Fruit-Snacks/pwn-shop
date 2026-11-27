@@ -33,7 +33,7 @@ from pathlib import Path
 import tomli_w
 
 KINDS = ("kali", "upload", "both", "runtime", "notes")
-SCHEMAS = (1, 2, 3)
+SCHEMAS = (1, 2, 3, 4)
 COMMAND_TYPES = ("binary", "python-entry", "python-script")
 MANIFEST = "manifest.toml"
 SUMS = "SHA256SUMS.txt"
@@ -456,6 +456,16 @@ def load_recipe(folder: Path) -> Recipe:
     requires = []
     if "requires" in manifest:
         requires = _check_requires(manifest["requires"], name, f"{who}: requires")
+    depends = _check_depends(manifest, name, schema, f"{who}: depends")
+    backends = _check_backends(manifest.get("backend", []), name, schema, f"{who}: backend")
+    if set(depends) & {b["package"] for b in backends if b.get("package")}:
+        raise BuildError(f"{who}: a package cannot be both a dependency and an optional backend")
+    if manifest.get("kind") in ("runtime", "notes") and (
+        "depends" in manifest or "backend" in manifest
+    ):
+        raise BuildError(f"{who}: a runtime or notes package has no ordinary dependencies or backends")
+    if schema == 4 and not (depends or backends):
+        raise BuildError(f"{who}: schema 4 needs ordinary dependencies or optional backends")
     series = None
     if manifest.get("kind") == "runtime":
         if requires:
@@ -498,18 +508,22 @@ def load_recipe(folder: Path) -> Recipe:
 
 
 def _recipe_schema(manifest: dict, who: str) -> int:
-    """3 for notes, 2 for a runtime and for a tool that requires one, else 1; a stated schema
-    must agree."""
+    """Infer the oldest schema that represents the manifest; a stated schema must agree."""
     runtime = manifest.get("kind") == "runtime"
     notes = manifest.get("kind") == "notes"
-    schema = 3 if notes else 2 if runtime or "requires" in manifest else 1
+    ordinary = "depends" in manifest or "backend" in manifest
+    schema = 4 if ordinary else 3 if notes else 2 if runtime or "requires" in manifest else 1
     stated = manifest.get("schema", schema)
     if isinstance(stated, bool) or stated not in SCHEMAS:
-        raise BuildError(f"{who}: manifest schema must be 1, 2 or 3")
+        raise BuildError(f"{who}: manifest schema must be 1, 2, 3 or 4")
     if notes and stated != 3:
         raise BuildError(f"{who}: kind: notes needs schema 3")
     if stated == 3 and not notes:
         raise BuildError(f"{who}: schema: only a notes package is schema 3")
+    if ordinary and stated != 4:
+        raise BuildError(f"{who}: ordinary dependencies and optional backends need schema 4")
+    if stated == 4 and not ordinary:
+        raise BuildError(f"{who}: schema 4 needs ordinary dependencies or optional backends")
     if stated == 1 and runtime:
         raise BuildError(f"{who}: kind: a runtime needs schema 2")
     if stated == 1 and schema == 2:
@@ -1463,8 +1477,13 @@ def source_pins(recipe: Recipe) -> list[str]:
 
 def card(recipe: Recipe, zip_path: Path) -> dict:
     m = recipe.manifest
-    # requires is left out when empty, so the cards of schema 1 builds stay as published
+    # Empty metadata is left out, so cards of older builds stay byte-for-byte compatible.
     required = {"requires": list(recipe.requires)} if recipe.requires else {}
+    ordinary = {}
+    if m.get("depends"):
+        ordinary["depends"] = list(m["depends"])
+    if m.get("backend"):
+        ordinary["backend"] = _check_backends(m["backend"], recipe.name, 4)
     # sources only for a build from source, so every other card stays as published
     sources = {"sources": source_pins(recipe)} if recipe.build_from_source else {}
     return {
@@ -1480,6 +1499,7 @@ def card(recipe: Recipe, zip_path: Path) -> dict:
         "needs_root": bool(m.get("needs_root", False)),
         "commands": [c["name"] for c in m.get("command", []) if isinstance(c, dict) and "name" in c],
         **required,
+        **ordinary,
         **sources,
         "file": zip_path.name,
         "size": zip_path.stat().st_size,
@@ -1534,12 +1554,19 @@ def _check_shared_commands(commands: dict[str, list[str]]) -> None:
                 raise BuildError(f"the command {command} is defined by both {owner[command]} and {tool}")
 
 
-def _check_index_build(name: str, c: dict) -> list[str]:
-    """The rules pwn-broker's index parser applies to one build; returns its requires."""
+def _check_index_build(name: str, c: dict) -> tuple[list[str], list[str], list[dict]]:
+    """Apply pwn-broker's index rules and return runtime, ordinary and optional metadata."""
     label = f"{name} {c['version']}-{c['build']}"
     if c["kind"] not in KINDS:
         raise BuildError(f"{label}: kind must be one of {', '.join(KINDS)}")
     requires = _check_requires(c.get("requires", []), name, f"{label}: requires")
+    schema = 4 if "depends" in c or "backend" in c else 1
+    depends = _check_depends(c, name, schema, f"{label}: depends")
+    backends = _check_backends(c.get("backend", []), name, schema, f"{label}: backend")
+    if set(depends) & {b["package"] for b in backends if b.get("package")}:
+        raise BuildError(f"{label}: a package cannot be both a dependency and an optional backend")
+    if schema == 4 and not (depends or backends):
+        raise BuildError(f"{label}: schema 4 needs ordinary dependencies or optional backends")
     if c["kind"] == "runtime":
         if c["commands"]:
             raise BuildError(f"{label}: a runtime has no commands")
@@ -1552,7 +1579,9 @@ def _check_index_build(name: str, c: dict) -> list[str]:
             raise BuildError(f"{label}: requires: a notes package requires nothing")
         if c["needs_root"]:
             raise BuildError(f"{label}: a notes package never needs root")
-    return requires
+    if c["kind"] in ("runtime", "notes") and (depends or backends):
+        raise BuildError(f"{label}: a {c['kind']} package has no ordinary dependencies or backends")
+    return requires, depends, backends
 
 
 def build_index(cards: list[dict], *, base_url: str | None) -> dict:
@@ -1562,10 +1591,10 @@ def build_index(cards: list[dict], *, base_url: str | None) -> dict:
     _check_shared_commands({name: rows[-1]["commands"] for name, rows in grouped.items()})
     tools = []
     needs: list[tuple[str, str, str]] = []
-    # schema 2 or 3 only when a build needs it, so an index of older builds stays as it was: 3
-    # for a notes build, which a pwn-broker older than 0.1.7 cannot read and tells to upgrade
+    ordinary: list[tuple[str, str, str, str]] = []
     schema = 1
     notes = False
+    schema4 = False
     for name, rows in grouped.items():
         if not _NAME.fullmatch(name):
             raise BuildError(f"name {name!r} {_NAME_RULE}")
@@ -1580,10 +1609,17 @@ def build_index(cards: list[dict], *, base_url: str | None) -> dict:
             if key in seen:
                 raise BuildError(f"{name}: build {c['version']}-{c['build']} appears more than once")
             seen.add(key)
-            requires = _check_index_build(name, c)
-            needs.extend((name, f"{c['version']}-{c['build']}", wanted) for wanted in requires)
+            build_id = f"{c['version']}-{c['build']}"
+            requires, depends, backends = _check_index_build(name, c)
+            needs.extend((name, build_id, wanted) for wanted in requires)
+            ordinary.extend((name, build_id, wanted, "depends") for wanted in depends)
+            ordinary.extend(
+                (name, build_id, b["package"], "backend package")
+                for b in backends if b.get("package")
+            )  # fmt: skip
             if requires or c["kind"] == "runtime":
                 schema = 2
+            schema4 = schema4 or bool(depends or backends)
             notes = notes or c["kind"] == "notes"
             builds.append(
                 {
@@ -1593,6 +1629,8 @@ def build_index(cards: list[dict], *, base_url: str | None) -> dict:
                     "needs_root": c["needs_root"],
                     "commands": list(c["commands"]),
                     **({"requires": requires} if requires else {}),
+                    **({"depends": depends} if depends else {}),
+                    **({"backend": backends} if backends else {}),
                     "file": c["file"],
                     "url": _url(base_url, name, c["version"], c["build"], c["file"]),
                     "size": c["size"],
@@ -1619,7 +1657,39 @@ def build_index(cards: list[dict], *, base_url: str | None) -> dict:
             )
         if wanted not in runtimes:
             raise BuildError(f"{name} {build_id}: requires {wanted}, which is not a runtime")
-    return {"schema": 3 if notes else schema, "tool": tools}
+    installable = {
+        name for name, rows in grouped.items() if rows[0]["kind"] not in ("runtime", "notes")
+    }
+    for name, build_id, wanted, label in ordinary:
+        if wanted not in grouped:
+            raise BuildError(f"{name} {build_id}: {label} {wanted}, which is not in the index")
+        if wanted not in installable:
+            raise BuildError(f"{name} {build_id}: {label} {wanted} is not an installable tool")
+
+    # Names are resolved to the latest build at install time. A cycle in any published hard-
+    # dependency metadata is rejected here rather than left for a client to discover.
+    edges = {
+        name: {wanted for c in rows for wanted in c.get("depends", [])}
+        for name, rows in grouped.items()
+    }
+    visiting: list[str] = []
+    visited: set[str] = set()
+
+    def visit(name: str) -> None:
+        if name in visiting:
+            cycle = " -> ".join([*visiting[visiting.index(name):], name])
+            raise BuildError(f"ordinary tool dependency cycle: {cycle}")
+        if name in visited:
+            return
+        visiting.append(name)
+        for wanted in edges.get(name, set()):
+            visit(wanted)
+        visiting.pop()
+        visited.add(name)
+
+    for name in grouped:
+        visit(name)
+    return {"schema": 4 if schema4 else 3 if notes else schema, "tool": tools}
 
 
 _CARD_FILE = re.compile(_NAME.pattern + r"-[^/\\\s:]+-[1-9][0-9]*\.toml")
@@ -1645,6 +1715,12 @@ def _read_card(path: Path) -> dict:
     sources = data.get("sources", [])
     if not isinstance(sources, list) or not all(isinstance(s, str) for s in sources):
         raise BuildError(f"{path.name}: sources must be a list of strings")
+    # Schema 4 metadata is optional so cards from every earlier schema stay readable.
+    schema = 4 if "depends" in data or "backend" in data else 1
+    depends = _check_depends(data, data["name"], schema, f"{path.name}: depends")
+    backends = _check_backends(data.get("backend", []), data["name"], schema, f"{path.name}: backend")
+    if set(depends) & {b["package"] for b in backends if b.get("package")}:
+        raise BuildError(f"{path.name}: a package cannot be both a dependency and an optional backend")
     return data
 
 
@@ -1874,6 +1950,77 @@ def _check_requires(value: object, name: str, label: str) -> list[str]:
     return list(value)
 
 
+def _check_depends(data: dict, name: str, schema: int, label: str = "depends") -> list[str]:
+    if "depends" not in data:
+        return []
+    if schema != 4:
+        raise BuildError(f"{label}: ordinary dependencies need schema 4")
+    depends = _strings(data, "depends", label)
+    seen = set()
+    for wanted in depends:
+        if not _NAME.fullmatch(wanted):
+            raise BuildError(f"{label}: {wanted!r} is not a valid package name")
+        if wanted == name:
+            raise BuildError(f"{label}: {name} cannot depend on itself")
+        if wanted in seen:
+            raise BuildError(f"{label}: {wanted!r} appears more than once")
+        seen.add(wanted)
+    return depends
+
+
+def _check_backends(rows: object, name: str, schema: int, label: str = "backend") -> list[dict]:
+    if rows in (None, []):
+        return []
+    if schema != 4:
+        raise BuildError(f"{label}: optional backends need schema 4")
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        raise BuildError(f"{label}: must be a list of tables")
+    answer = []
+    names, packages = set(), set()
+    for index, row in enumerate(rows):
+        where = f"{label}[{index}]"
+        unknown = set(row) - {"name", "description", "commands", "package", "apt"}
+        if unknown:
+            raise BuildError(f"{where}: unknown key {sorted(unknown)[0]!r}")
+        backend_name = _text(row, "name", f"{where}.name")
+        if not _NAME.fullmatch(backend_name):
+            raise BuildError(f"{where}.name: {backend_name!r} is not a valid backend name")
+        if backend_name in names:
+            raise BuildError(f"{where}.name: {backend_name!r} appears more than once")
+        names.add(backend_name)
+        commands = _strings(row, "commands", f"{where}.commands")
+        if not commands or any(_COMMAND_NAME.fullmatch(c) is None for c in commands):
+            raise BuildError(f"{where}.commands: needs plain executable names")
+        if len(set(commands)) != len(commands):
+            raise BuildError(f"{where}.commands: a command appears more than once")
+        package = row.get("package", "")
+        if not isinstance(package, str) or (package and not _NAME.fullmatch(package)):
+            raise BuildError(f"{where}.package: must be a valid package name")
+        if package == name:
+            raise BuildError(f"{where}.package: {name} cannot be its own backend")
+        if package in packages:
+            raise BuildError(f"{where}.package: {package!r} appears more than once")
+        if package:
+            packages.add(package)
+        apt = _strings(row, "apt", f"{where}.apt")
+        if any(re.fullmatch(r"[a-z0-9][a-z0-9+.-]*", p) is None for p in apt):
+            raise BuildError(f"{where}.apt: package names must be lower-case Debian names")
+        if len(set(apt)) != len(apt):
+            raise BuildError(f"{where}.apt: a package appears more than once")
+        if not package and not apt:
+            raise BuildError(f"{where}: needs a pwn-shop package or apt packages")
+        answer.append(
+            {
+                "name": backend_name,
+                "description": _text(row, "description", f"{where}.description"),
+                "commands": commands,
+                **({"package": package} if package else {}),
+                **({"apt": apt} if apt else {}),
+            }
+        )
+    return answer
+
+
 def _runtime_table(data: dict) -> tuple[str, str, str]:
     """A runtime is nothing but its archive. Returns its archive, interpreter and series."""
     for key, table in (
@@ -1903,6 +2050,8 @@ _NOT_IN_NOTES = (
     ("upload", "upload: a notes package has no uploads"),
     ("python", "python: a notes package has no Python"),
     ("requires", "requires: a notes package requires nothing"),
+    ("depends", "depends: a notes package has no ordinary dependencies"),
+    ("backend", "backend: a notes package has no optional backends"),
     ("data", "data: a notes package keeps no tool data"),
     ("runtime", "runtime: a notes package is not a runtime"),
 )
@@ -1933,7 +2082,7 @@ def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
     """Returns the files the manifest names, its wheels folder (or None) and its lock path."""
     schema = data.get("schema")
     if isinstance(schema, bool) or schema not in SCHEMAS:
-        raise BuildError("schema: must be 1, 2 or 3")
+        raise BuildError("schema: must be 1, 2, 3 or 4")
     name = _text(data, "name", "name")
     if not _NAME.fullmatch(name):
         raise BuildError(f"name: {name!r} {_NAME_RULE}")
@@ -1962,10 +2111,16 @@ def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
         if schema == 1:
             raise BuildError("requires: a schema 1 package cannot require anything; it needs schema 2")
         requires = _check_requires(data["requires"], name, "requires")
+    depends = _check_depends(data, name, schema)
+    backends = _check_backends(data.get("backend", []), name, schema)
+    if set(depends) & {b["package"] for b in backends if b.get("package")}:
+        raise BuildError("depends: a package cannot be both a dependency and an optional backend")
     named: list[str] = []
     if kind == "runtime":
         if requires:
             raise BuildError("requires: a runtime requires nothing")
+        if "depends" in data or "backend" in data:
+            raise BuildError("runtime: a runtime has no ordinary dependencies or backends")
         named.append(_runtime_table(data)[0])
     for key in ("description", "upstream", "licence", "arch"):
         _text(data, key, key)
@@ -2060,18 +2215,20 @@ def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
                 lock.append(value)
             else:
                 wheels = value
-    if schema == 2 and kind != "runtime":
-        # schema 2 is only for what schema 1 cannot say, so published builds stay as they are
+    if schema in (2, 4) and kind != "runtime":
+        # requires remains runtime-only; schema 4 adds the separate ordinary tool graph.
         if table is not None and len(requires) != 1:
             raise BuildError(
                 f"requires: a Python tool requires exactly one runtime; this one names {len(requires)}"
             )
         if table is None and requires:
             raise BuildError("requires: a tool that is not Python requires nothing")
-        if not requires:
+        if schema == 2 and not requires:
             raise BuildError(
                 "schema: a package that is not a runtime and requires nothing must be schema 1"
             )
+        if schema == 4 and not (depends or backends):
+            raise BuildError("schema: schema 4 needs ordinary dependencies or optional backends")
     home = data.get("data", {})
     if not isinstance(home, dict):
         raise BuildError("data: must be a table")

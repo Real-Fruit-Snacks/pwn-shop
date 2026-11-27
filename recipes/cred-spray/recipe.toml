@@ -1,5 +1,5 @@
 version = "1.0.0"
-build = 1
+build = 2
 build_from_source = ["cred-spray"]
 
 # The pin matches the digest of the sdist attached to upstream's v1.0.0 release.

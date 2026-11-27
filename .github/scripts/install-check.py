@@ -296,7 +296,7 @@ def network_state(
 
 def load_broker():
     try:
-        from pwn_broker import boxes, config, toolhooks, toolindex, toolinstall, toolstate
+        from pwn_broker import boxes, config, tooldeps, toolhooks, toolindex, toolinstall, toolstate
         from pwn_broker.console import FakeConsole
         from pwn_broker.model import current_tools
         from pwn_broker.session import Session
@@ -307,7 +307,7 @@ def load_broker():
             "of the environment that has pwn-broker installed"
         ) from exc
     return SimpleNamespace(
-        boxes=boxes, config=config, toolhooks=toolhooks, toolindex=toolindex,
+        boxes=boxes, config=config, tooldeps=tooldeps, toolhooks=toolhooks, toolindex=toolindex,
         toolinstall=toolinstall, toolstate=toolstate, FakeConsole=FakeConsole,
         current_tools=current_tools, Session=Session, write_toml=write_toml,
     )  # fmt: skip
@@ -407,6 +407,12 @@ def _check_installed_tool(broker, paths, settings, index, entry, env, now) -> st
         if problem:
             raise CheckFailed(f"{label}: {problem}")
         on.append(f"on {runtime} {row.version}")
+    for wanted in getattr(entry, "depends", []):
+        row = installed.get(wanted)
+        record = next((t for t in broker.current_tools(box) if t.name == wanted), None)
+        if row is None or record is None or not getattr(record, "dependency", False):
+            raise CheckFailed(f"{label}: automatic dependency {wanted} was not installed correctly")
+        on.append(f"with {wanted} {row.version}")
 
     notes = Path(item.notes) if entry.kind == "notes" else None
     playbooks = 0
@@ -432,25 +438,40 @@ def _check_installed_tool(broker, paths, settings, index, entry, env, now) -> st
     if problems:
         raise CheckFailed(f"{label}: " + "; ".join(problems))
 
-    # as tool remove does: the tool is taken off the box, then any runtime no tool requires
-    record = next(t for t in broker.current_tools(box) if t.name == entry.name)
+    # As tool remove does: release the requested tool and every automatic dependency that
+    # becomes orphaned, then remove runtimes only after the whole ordinary graph is gone.
+    planner = getattr(broker, "tooldeps", None)  # older test stand-ins have no ordinary graph
+    automatic = planner.orphaned(box, installed, {entry.name}) if planner is not None else []
+    removed = [entry.name, *automatic]
+    rows = {name: installed.get(name) for name in removed}
+    runtimes = sorted({r for row in rows.values() if row is not None for r in row.requires})
     holding = broker.toolstate.holding_boxes(paths, installed, excluding=box.id)
-    broker.toolhooks.release_tool(
-        session, record, "remove", installed=installed, unfinished=holding
-    )
+    for name in removed:
+        record = next(t for t in broker.current_tools(box) if t.name == name)
+        broker.toolhooks.release_tool(
+            session, record, "remove", installed=installed, unfinished=holding
+        )
     for runtime in broker.toolhooks.remove_idle_runtimes(paths, installed, console):
         broker.toolhooks.log_tool(session, "remove", runtime, kind="runtime")
-    left = leftovers(paths.opt, entry.name, item.commands, list(entry.requires))
+    left = []
+    for position, name in enumerate(removed):
+        row = rows[name]
+        left.extend(leftovers(
+            paths.opt, name, list(row.commands) if row is not None else [],
+            runtimes if position == 0 else [],
+        ))
     still = broker.toolstate.load_installed(paths)
-    for name in (entry.name, *entry.requires):
-        if name in still:
-            left.append(f"{name} in the list of installed tools")
-    if any(t.name == entry.name for t in broker.current_tools(box)):
+    for name, row in still.items():
+        # The temporary root must be empty, including anything a damaged orphan plan missed.
+        left.extend(leftovers(paths.opt, name, list(getattr(row, "commands", []))))
+        left.append(f"{name} in the list of installed tools")
+    if any(broker.current_tools(box)):
         left.append("a current record in the box")
     if notes is not None and notes.as_posix() in _run_notes(paths).splitlines():
         left.append("run/notes still names its folder")
     if left:
-        raise CheckFailed(f"{label}: left behind after removal: {', '.join(left)}{_said(console)}")
+        unique = list(dict.fromkeys(left))
+        raise CheckFailed(f"{label}: left behind after removal: {', '.join(unique)}{_said(console)}")
 
     files = f"{len(item.uploads)} upload files" if item.uploads else ""
     if notes is not None:

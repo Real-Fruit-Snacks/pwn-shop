@@ -2146,7 +2146,7 @@ def test_what_write_wheels_lock_writes_passes_validate(tmp_path):
 
 # ---- the rules shared with pwn-broker
 
-# literal copies of pwn-broker's toolpkg._NAME.pattern, toolpkg.KINDS and toolpkg.SCHEMAS (0.1.7)
+# literal copies of pwn-broker's toolpkg._NAME.pattern, toolpkg.KINDS and toolpkg.SCHEMAS (0.1.14)
 NAME_PATTERN = r"[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*"
 APP_KINDS = ("kali", "upload", "both", "runtime", "notes")
 
@@ -2154,7 +2154,7 @@ APP_KINDS = ("kali", "upload", "both", "runtime", "notes")
 def test_name_pattern_and_kinds_equal_the_apps():
     assert build._NAME.pattern == NAME_PATTERN
     assert build.KINDS == APP_KINDS
-    assert build.SCHEMAS == (1, 2, 3)
+    assert build.SCHEMAS == (1, 2, 3, 4)
 
 
 def pkg_manifest(**over):
@@ -2251,8 +2251,9 @@ BAD_SCHEMA_2 = [
     (runtime_manifest(runtime=None), r"runtime: a runtime package needs a \[runtime\] table"),
     (runtime_manifest(runtime="files/python.tar.gz"), "runtime: must be a table"),
     (pkg_manifest(schema=3), "schema: only a notes package is schema 3"),
-    (pkg_manifest(schema=4), "schema: must be 1, 2 or 3"),
-    (pkg_manifest(schema=True), "schema: must be 1, 2 or 3"),
+    (pkg_manifest(schema=4), "schema: schema 4 needs ordinary dependencies or optional backends"),
+    (pkg_manifest(schema=5), "schema: must be 1, 2, 3 or 4"),
+    (pkg_manifest(schema=True), "schema: must be 1, 2, 3 or 4"),
 ]
 
 
@@ -2615,7 +2616,10 @@ def test_a_stated_schema_must_agree_with_what_the_recipe_is(tmp_path, net):
     with pytest.raises(build.BuildError, match="schema: only a notes package is schema 3"):
         build.load_recipe(folder)
     folder = make_recipe(tmp_path / "fourth" / "kerbrute", net, manifest={**PLAIN_MANIFEST, "schema": 4})
-    with pytest.raises(build.BuildError, match="manifest schema must be 1, 2 or 3"):
+    with pytest.raises(build.BuildError, match="schema 4 needs ordinary dependencies or optional backends"):
+        build.load_recipe(folder)
+    folder = make_recipe(tmp_path / "fifth" / "kerbrute", net, manifest={**PLAIN_MANIFEST, "schema": 5})
+    with pytest.raises(build.BuildError, match="manifest schema must be 1, 2, 3 or 4"):
         build.load_recipe(folder)
 
 
@@ -2825,6 +2829,147 @@ def test_the_index_refuses_a_card_whose_name_breaks_the_name_rule():
         build.build_index([cardf(name="Bad_Name")], base_url=None)
 
 
+# ---- ordinary dependencies and optional backends (schema 4)
+
+
+def backend_row(name="netexec", **over):
+    row = {
+        "name": name, "description": "network checks", "commands": ["nxc", "netexec"],
+        "package": "netexec",
+    }
+    return {k: v for k, v in {**row, **over}.items() if v is not None}
+
+
+def test_a_schema_4_manifest_and_package_validate(tmp_path):
+    manifest = pkg_manifest(
+        schema=4, depends=["netexec"],
+        backend=[backend_row("nmap", package=None, commands=["nmap"], apt=["nmap"])],
+    )
+    assert build._check_manifest(manifest) == (["files/kerbrute"], None, [])
+    build.validate(pkg(tmp_path, manifest))
+
+
+def test_schema_4_python_tools_keep_the_runtime_requirement():
+    manifest = tool_manifest(schema=4, depends=["netexec"])
+    assert build._check_manifest(manifest) == ([], "wheels", ["wheels.lock"])
+    with pytest.raises(build.BuildError, match="requires exactly one runtime"):
+        build._check_manifest(tool_manifest(schema=4, requires=[], depends=["netexec"]))
+
+
+@pytest.mark.parametrize(
+    ("manifest", "message"),
+    [
+        (pkg_manifest(depends=["netexec"]), "ordinary dependencies need schema 4"),
+        (pkg_manifest(schema=2, depends=["netexec"]), "ordinary dependencies need schema 4"),
+        (pkg_manifest(schema=4, depends=[]), "schema 4 needs ordinary dependencies"),
+        (pkg_manifest(schema=4, backend=[]), "schema 4 needs ordinary dependencies"),
+        (pkg_manifest(schema=4, depends=["kerbrute"]), "cannot depend on itself"),
+        (pkg_manifest(schema=4, depends=["Bad"]), "not a valid package name"),
+        (pkg_manifest(schema=4, depends=["netexec", "netexec"]), "appears more than once"),
+        (pkg_manifest(schema=4, depends=["netexec"], backend=[backend_row()]),
+         "both a dependency and an optional backend"),
+        (pkg_manifest(schema=4, backend=[backend_row(package=None)]), "needs a pwn-shop package or apt"),
+        (pkg_manifest(schema=4, backend=[backend_row(commands=["/usr/bin/nxc"])]),
+         "needs plain executable names"),
+        (pkg_manifest(schema=4, backend=[backend_row(commands=["nxc", "nxc"])]),
+         "a command appears more than once"),
+        (pkg_manifest(schema=4, backend=[backend_row(apt=["Nmap"])]),
+         "lower-case Debian names"),
+        (pkg_manifest(schema=4, backend=[backend_row(unknown=True)]), "unknown key 'unknown'"),
+        (pkg_manifest(schema=4, backend=[backend_row(), backend_row("nmap", commands=["nmap"])]),
+         "package: 'netexec' appears more than once"),
+        (pkg_manifest(schema=4, depends=["netexec"], requires=["python-3.13"]),
+         "a tool that is not Python requires nothing"),
+        (runtime_manifest(schema=4, depends=["netexec"]),
+         "a runtime has no ordinary dependencies or backends"),
+    ],
+)
+def test_schema_4_manifest_rules(manifest, message):
+    with pytest.raises(build.BuildError, match=message):
+        build._check_manifest(manifest)
+
+
+def test_a_schema_4_recipe_and_card_carry_normalized_metadata(tmp_path, net):
+    manifest = {
+        **PLAIN_MANIFEST,
+        "depends": ["netexec"],
+        "backend": [backend_row("nmap", package=None, commands=["nmap"], apt=["nmap"])],
+    }
+    folder = make_recipe(tmp_path / "recipes" / "kerbrute", net, manifest=manifest)
+    recipe = build.load_recipe(folder)
+    assert recipe.manifest["schema"] == 4
+    zip_path = tmp_path / "kerbrute-1.0.3-1.zip"
+    zip_path.write_bytes(b"zip")
+    card = build.card(recipe, zip_path)
+    assert card["depends"] == ["netexec"]
+    assert card["backend"] == [{
+        "name": "nmap", "description": "network checks", "commands": ["nmap"], "apt": ["nmap"]
+    }]
+    assert list(card)[list(card).index("commands") + 1:list(card).index("commands") + 3] == [
+        "depends", "backend"
+    ]
+
+
+def test_the_index_is_schema_4_and_keeps_mixed_notes_builds():
+    root = card_with(
+        "ad-sweep", ["ad-sweep"], depends=["netexec"],
+        backend=[backend_row("nmap", package=None, commands=["nmap"], apt=["nmap"])],
+    )
+    cards = [root, card_with("netexec", ["nxc"]), notes_card()]
+    idx = build.build_index(build.card_order(cards), base_url=None)
+    assert idx["schema"] == 4
+    tools = {t["name"]: t for t in idx["tool"]}
+    row = tools["ad-sweep"]["build"][0]
+    assert row["depends"] == ["netexec"] and row["backend"][0]["apt"] == ["nmap"]
+    assert tools["playbooks"]["build"][0]["kind"] == "notes"
+    assert "depends" not in tools["netexec"]["build"][0]
+
+
+def test_schema_4_cards_are_read_back_into_an_index(tmp_path):
+    root = card_with("ad-sweep", ["ad-sweep"], depends=["netexec"])
+    for card in (root, card_with("netexec", ["nxc"])):
+        name = f"{card['name']}-{card['version']}-{card['build']}.toml"
+        (tmp_path / name).write_text(tomli_w.dumps(card), encoding="utf-8")
+    out = tmp_path / "index.toml"
+    assert build.main(["index", str(tmp_path), "--out", str(out)]) == 0
+    index = tomllib.loads(out.read_text())
+    assert index["schema"] == 4
+    assert index["tool"][0]["build"][0]["depends"] == ["netexec"]
+
+
+@pytest.mark.parametrize("key,value", [("depends", "netexec"), ("backend", "netexec")])
+def test_bad_schema_4_card_metadata_is_refused(tmp_path, capsys, key, value):
+    card = {**cardf(), key: value}
+    (tmp_path / "kerbrute-1.0.3-1.toml").write_text(tomli_w.dumps(card), encoding="utf-8")
+    assert build.main(["index", str(tmp_path), "--out", str(tmp_path / "i.toml")]) == 1
+    assert key in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("cards", "message"),
+    [
+        ([card_with("ad-sweep", ["ad-sweep"], depends=["netexec"])], "not in the index"),
+        ([card_with("ad-sweep", ["ad-sweep"], depends=["python-3.13"]), runtime_card()],
+         "not an installable tool"),
+        ([card_with("ad-sweep", ["ad-sweep"], depends=["playbooks"]),
+          card_with("playbooks", [], kind="notes")], "not an installable tool"),
+        ([card_with("ad-sweep", ["ad-sweep"], backend=[backend_row()])], "not in the index"),
+        ([card_with("one", ["one"], depends=["two"]), card_with("two", ["two"], depends=["one"])],
+         r"dependency cycle: one -> two -> one"),
+        ([card_with("one", ["one"], depends=[]), card_with("two", ["two"])],
+         "schema 4 needs ordinary dependencies"),
+    ],
+)
+def test_the_index_validates_ordinary_targets_and_cycles(cards, message):
+    with pytest.raises(build.BuildError, match=message):
+        build.build_index(build.card_order(cards), base_url=None)
+
+
+def test_optional_backend_edges_do_not_create_a_hard_dependency_cycle():
+    first = card_with("one", ["one"], backend=[backend_row("two", package="two")])
+    second = card_with("two", ["two"], backend=[backend_row("one", package="one")])
+    assert build.build_index(build.card_order([first, second]), base_url=None)["schema"] == 4
+
 
 # ---- notes packages (schema 3)
 
@@ -2878,6 +3023,8 @@ def test_a_notes_recipe_stating_another_schema_is_refused(tmp_path, net, schema)
         ({"upload": [{"path": "files/x", "as": "x"}]}, "upload: a notes package has no uploads"),
         ({"python": {"lock": "wheels.lock", "wheels": "wheels"}}, "python: a notes package has no Python"),
         ({"requires": ["python-3.13"]}, "requires: a notes package requires nothing"),
+        ({"depends": ["netexec"]}, "depends: a notes package has no ordinary dependencies"),
+        ({"backend": [backend_row()]}, "backend: a notes package has no optional backends"),
         ({"data": {"home": [".playbooks"]}}, "data: a notes package keeps no tool data"),
         ({"runtime": {"archive": "files/x"}}, "runtime: a notes package is not a runtime"),
         ({"needs_root": True}, "needs_root: a notes package never needs root"),

@@ -674,7 +674,7 @@ class ToolBroker:
             )
             item = SimpleNamespace(
                 name="tinytool", kind="tool", folder=str(tool_folder), commands=["tinytool"],
-                uploads=[],
+                uploads=[], requires=["python-3.13"],
             )  # fmt: skip
             for row in (runtime, item):
                 installed[row.name] = row
@@ -776,6 +776,92 @@ def test_a_runtime_left_after_the_tool_is_removed_fails(check, tmp_path, monkeyp
     assert message.startswith("tinytool 1.0-1: left behind after removal: ")
     assert "python-3.13 in the list of installed tools" in message
 
+
+# ---- an ordinary tool dependency, installed and removed automatically
+
+
+DEP_TOOL = SimpleNamespace(
+    name="tinytool", version="1.0", build=1, kind="kali",
+    requires=["python-3.13"], depends=["netexec"],
+)
+
+
+def dependency_tool_check(check, tmp_path, monkeypatch, *, keep=False, missing=False):
+    broker, _, index, _ = tool_check(check, tmp_path, monkeypatch)
+    install = broker.toolhooks.install_tool
+    release = broker.toolhooks.release_tool
+    folder = broker.paths.opt / "tools" / "netexec" / "1.0-1"
+
+    def install_tool(session, index, entry, *, installed, unfinished, **options):
+        item = install(
+            session, index, entry, installed=installed, unfinished=unfinished, **options
+        )
+        if not missing:
+            folder.mkdir(parents=True)
+            (broker.paths.bin / "nxc").write_text("#!/bin/sh\n", encoding="utf-8")
+            row = SimpleNamespace(
+                name="netexec", kind="tool", version="1.0", build=1, folder=str(folder),
+                commands=["nxc"], uploads=[], requires=[],
+            )
+            installed["netexec"] = broker.rows["netexec"] = row
+            session.box.tools.append(
+                SimpleNamespace(name="netexec", removed=None, dependency=True)
+            )
+        return item
+
+    def release_tool(session, record, event, *, installed, unfinished):
+        if record.name != "netexec":
+            return release(session, record, event, installed=installed, unfinished=unfinished)
+        broker.calls.append(("release_tool", record.name, event, dict(unfinished)))
+        shutil.rmtree(folder.parent)
+        (broker.paths.bin / "nxc").unlink()
+        installed.pop("netexec")
+        broker.rows.pop("netexec")
+        record.removed = "now"
+        return True
+
+    broker.toolhooks.install_tool = install_tool
+    broker.toolhooks.release_tool = release_tool
+    broker.tooldeps = SimpleNamespace(
+        orphaned=lambda box, installed, removed: []
+        if keep or missing else ["netexec"]
+    )
+    now = datetime(2026, 11, 15, tzinfo=timezone.utc)
+
+    def go():
+        return check._check_installed_tool(
+            broker, broker.paths, "settings", index, DEP_TOOL, {"PATH": "/bin"}, now
+        )
+
+    return broker, go
+
+
+def test_an_automatic_dependency_is_checked_and_removed(check, tmp_path, monkeypatch):
+    broker, go = dependency_tool_check(check, tmp_path, monkeypatch)
+    assert go() == (
+        "tinytool 1.0-1: on python-3.13 3.13.18, with netexec 1.0, "
+        "tinytool --help: usage: tinytool"
+    )
+    assert broker.named("release_tool") == [
+        ("release_tool", "tinytool", "remove", {}),
+        ("release_tool", "netexec", "remove", {}),
+    ]
+    assert broker.rows == {}
+
+
+def test_a_missing_automatic_dependency_fails_the_check(check, tmp_path, monkeypatch):
+    _, go = dependency_tool_check(check, tmp_path, monkeypatch, missing=True)
+    with pytest.raises(check.CheckFailed, match="automatic dependency netexec was not installed"):
+        go()
+
+
+def test_an_automatic_dependency_left_behind_fails_the_check(check, tmp_path, monkeypatch):
+    _, go = dependency_tool_check(check, tmp_path, monkeypatch, keep=True)
+    with pytest.raises(check.CheckFailed) as err:
+        go()
+    message = str(err.value)
+    assert "netexec in the list of installed tools" in message
+    assert "a current record in the box" in message
 
 
 # ---- a notes package's playbooks

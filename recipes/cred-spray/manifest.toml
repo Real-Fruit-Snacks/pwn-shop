@@ -1,4 +1,4 @@
-schema = 2
+schema = 4
 requires = ["python-3.13"]
 kind = "kali"
 description = "Bounded, protocol-aware credential spraying for authorized testing"
@@ -11,6 +11,36 @@ examples = [
   "cred-spray -t {ip}:445:smb -U users.txt -P passwords.txt --max-attempts 20",
   "cred-spray --list-modules",
 ]
+
+[[backend]]
+name = "nmap"
+description = "Target and service discovery"
+commands = ["nmap"]
+apt = ["nmap"]
+
+[[backend]]
+name = "netexec"
+description = "SMB, LDAP, WinRM, SSH and other network protocol checks"
+commands = ["nxc", "netexec"]
+package = "netexec"
+
+[[backend]]
+name = "freerdp"
+description = "Remote Desktop Protocol connections"
+commands = ["xfreerdp3", "xfreerdp"]
+apt = ["freerdp3-x11"]
+
+[[backend]]
+name = "ipmitool"
+description = "IPMI service checks"
+commands = ["ipmitool"]
+apt = ["ipmitool"]
+
+[[backend]]
+name = "evil-winrm"
+description = "Ruby evil-winrm WinRM backend"
+commands = ["evil-winrm"]
+apt = ["evil-winrm"]
 
 [[command]]
 name = "cred-spray"

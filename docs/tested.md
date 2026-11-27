@@ -11,6 +11,7 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 - With the expanded tool catalog on 2026-11-22, before its pull request: 1195 passed and 3 skipped in Kali Linux under WSL 2 with Python 3.14.7, and 1174 passed and 24 skipped on Windows 11 with Python 3.13. Both runs used warnings as errors. The Windows skips are the POSIX filesystem, `fetch.sh` and pseudo-terminal tests.
 - With the four potato packages added on 2026-11-22: 1227 passed and 3 skipped in Kali under WSL 2, and 1206 passed and 24 skipped on Windows 11, again with warnings as errors.
 - With `ad-sweep` 0.1.0 build 1 on 2026-11-26: 1288 passed and 22 skipped on Windows 11 with Python 3.12.16, warnings treated as errors.
+- With schema-4 ordinary dependencies and optional backends on 2026-11-26: 1332 passed and 22 skipped on Windows 11 with Python 3.12.16, warnings treated as errors. These tests use stand-in packages and simulated apt execution; they perform no real apt installation or target operation.
 
 ## Packages in CI
 
@@ -127,8 +128,8 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 
 ## Not tested
 
-- `ad-sweep` has had its release executable and installed command started, but NetExec command-line compatibility and live-domain enumeration have not been tested. NetExec remains a separately installed prerequisite, and `--fail-limit` is not an account-lockout-prevention guarantee.
-- `cred-spray` had its installed command started with `--help`, but no live credential spray, live domain discovery, external-backend invocation, or representative service-fleet compatibility test was performed. Installation and startup do not establish protocol compatibility.
+- `ad-sweep` has had its release executable and installed command started, but NetExec command-line compatibility and live-domain enumeration have not been tested. Build 2's automatic NetExec installation does not establish that compatibility, and `--fail-limit` is not an account-lockout-prevention guarantee.
+- `cred-spray` had its installed command started with `--help`, but no live credential spray, live domain discovery, external-backend invocation, or representative service-fleet compatibility test was performed. Build 2's real apt-backed installation has not been run; its unit tests simulate apt. Installation and startup do not establish protocol compatibility.
 - Any package run by hand on a Kali desktop or against a real target.
 - The Windows files of `chisel`, `godpotato`, `runascs`, `snaffler` and `lazagne`, which have not been run on any Windows machine, and `cdk`, which has not been run in a container. They are upstream's own release files, pinned by hash.
 - `rusthound-ce` against a domain controller and `git-dumper` against a web server: each was only started.
@@ -149,7 +150,7 @@ Everything the packages, `build.py` and `fetch.sh` have been run on, with the co
 - The first Python tool on a machine costs the runtime: a 34 MB download (mebibytes, the unit pwn-broker prints) and about 100 MB unpacked.
 - The runtime carries its own OpenSSL and other libraries. They are fixed when I publish a new build of the runtime, not when Kali updates.
 - AutoRecon needs nmap and other Kali system tools for its scans; its package supplies the Python code and dependencies, not those system commands.
-- `cred-spray` does not install Nmap, NetExec, FreeRDP, ipmitool or evil-winrm. NetExec is separately required for `--nxc`, WMI and automatic domain discovery. Its failure budget counts recognized authentication rejections, permits in-flight attempts to finish, and is not an account-lockout-prevention guarantee.
+- `cred-spray` 1.0.0 build 2 installs no optional backend by default. `tool install cred-spray --full` selects NetExec from pwn-shop and offers missing Nmap, FreeRDP, ipmitool and Ruby evil-winrm apt packages for confirmation. NetExec enables `--nxc`, WMI and automatic domain discovery. Its failure budget counts recognized authentication rejections, permits in-flight attempts to finish, and is not an account-lockout-prevention guarantee.
 - `cred-spray`'s Cassandra driver had no usable event-loop backend in the tested Windows Python 3.12 environment. SSH host keys are not verified unless `--ssh-known-hosts` is supplied, SNMP no-response is `TIMEOUT` rather than proof of rejection, and library and subprocess timeout enforcement varies by backend. Its upstream operator guide records these boundaries.
 - Evil-WinRM-Py has no Ruby Evil-WinRM `-S`, `-s` or `-e` compatibility and no bundled Kerberos extra. Its native `gssapi` dependency has no suitable Python 3.13 Linux wheel. Kali's Ruby client remains a separate system tool.
 - Penelope 0.21.0 starts a local MCP socket even with `--oscp-safe`. It is packaged for general lab/CTF use, not represented as an OSCP-safe profile.
