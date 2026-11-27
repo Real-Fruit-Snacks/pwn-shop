@@ -50,22 +50,32 @@ need() {
 # read from the [[tool]] table above it. A description that mentions "file" or "sha256"
 # sits in the [[tool]] table, on a line that starts with `description`, and is never read.
 #
-# build.py writes two table headers, flush left, and no comments. Any other line whose
-# first character after spaces or tabs is a bracket is refused: read as some other table, the build under it would be left out
-# while the index still named its zip. So is a `build` key outside a [[tool.build]] table,
-# which is how TOML writes the same builds as a value of the tool (\047 is a single
-# quote, which this awk program cannot hold). An index with a problem prints no line at all.
+# build.py writes three table headers, flush left, and no comments: [[tool]],
+# [[tool.build]] and, under a build that declares optional backends,
+# [[tool.build.backend]]. A backend table comes after the build's own keys and has a
+# `name` and a `description` of its own, so nothing in it is read: the build it sits
+# under is kept and printed when the next build or tool starts. A build's `requires` and
+# `depends` are keys of the build, not tables, and are passed over like its other keys.
+#
+# Any other line whose first character after spaces or tabs is a bracket is refused, and
+# so is a backend header with no build above it: read as some other table, the build
+# under it would be left out while the index still named its zip. So is a `build` key
+# outside a [[tool.build]] table, which is how TOML writes the same builds as a value of
+# the tool (\047 is a single quote, which this awk program cannot hold). An index with a
+# problem prints no line at all.
 parse_index() {
     # the $ in the patterns below are regular-expression anchors for awk
     # shellcheck disable=SC2016
     awk -v index_file="$1" '
     BEGIN {
-        bad = 0; n = 0; inbuild = 0
+        bad = 0; n = 0; inbuild = 0; inbackend = 0
         name = ""; file = ""; sha = ""; ver = ""; bld = ""
         while ((getline line < index_file) > 0) {
-            if (line == "[[tool]]") { emit(); inbuild = 0; name = ""; continue }
-            if (line == "[[tool.build]]") { emit(); inbuild = 1; continue }
-            if (line ~ /^[ \t]*\[/) { emit(); inbuild = 0; problem("the index has a table header build.py does not write"); continue }
+            if (line == "[[tool]]") { emit(); inbuild = 0; inbackend = 0; name = ""; continue }
+            if (line == "[[tool.build]]") { emit(); inbuild = 1; inbackend = 0; continue }
+            if (line == "[[tool.build.backend]]" && inbuild) { inbackend = 1; continue }
+            if (line ~ /^[ \t]*\[/) { emit(); inbuild = 0; inbackend = 0; problem("the index has a table header build.py does not write"); continue }
+            if (inbackend) continue
             if (!inbuild) {
                 if (line ~ /^name = "[^"]*"$/) name = value(line)
                 else if (line ~ /^[ \t]*["\047]?build["\047]?[ \t]*=/) problem("the index has a build that is not under a [[tool.build]] header")
