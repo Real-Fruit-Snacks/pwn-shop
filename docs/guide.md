@@ -52,14 +52,6 @@ A Python tool built now does not run on Kali's own Python. It names the runtime 
 
 A runtime, or a tool that only requires one, is schema 2; a notes package is schema 3; ordinary dependencies or optional backends make a package schema 4; every other package is schema 1. An index takes the highest schema its builds need. Empty new fields are left out of cards and indexes, so packages published before schema 4 rebuild byte for byte.
 
-## Ordinary tool dependencies and optional backends
-
-Schema 4 keeps ordinary tool dependencies separate from Python runtimes. `depends = ["netexec"]` names packages a tool always needs. Each must be an installable `kali`, `upload` or `both` package in the same catalog, not a runtime or notes package. Names may not repeat or name the tool itself, and the build refuses missing targets and hard-dependency cycles. pwn-broker resolves the graph dependencies first, reuses an installed build already represented and hash-pinned by the index, and removes only automatic dependencies that become orphaned.
-
-An optional backend is a `[[backend]]` table with a display `name`, a `description` of the feature it enables, plain executable `commands` to detect, and exactly one provider: `package = "netexec"` for another pwn-shop package, or `apt = ["nmap"]` for system packages. Alternative executable names are allowed, such as `commands = ["xfreerdp3", "xfreerdp"]`. A package may not be both a hard dependency and an optional backend of the same tool, and backend providers may not repeat.
-
-A minimal `tool install <name>` installs hard ordinary dependencies and runtimes but selects no optional backends. `tool install <name> --full` selects every declared optional backend: package-backed ones come from pwn-shop, while missing apt-backed ones are shown in a plan and installed only after confirmation. pwn-broker never runs a recipe-supplied installer, and apt packages remain system-owned during rollback and removal. `tool doctor <name>` reports backend commands, availability, providers and enabled features without installing or changing anything.
-
 The runtime's `LICENSE` holds these parts, each under a heading that names it and where it came from, each copied byte for byte:
 
 - CPython's licence, from the archive.
@@ -69,6 +61,14 @@ The runtime's `LICENSE` holds these parts, each under a heading that names it an
 - pip's licences and those of the libraries pip vendors, from the archive.
 
 `recipes/python-3.13/recipe.toml` names each source with its size and SHA-256, and `tools/runtime-licence.py` writes the file from them. Licence files in the full distribution that `PYTHON.json` names for nothing in the build (Tix and zstd) are left out, and the script says so each time it runs.
+
+## Ordinary tool dependencies and optional backends
+
+Schema 4 keeps ordinary tool dependencies separate from Python runtimes. `depends = ["netexec"]` names packages a tool always needs. Each must be an installable `kali`, `upload` or `both` package in the same catalog, not a runtime or notes package. Names may not repeat or name the tool itself, and the build refuses missing targets and hard-dependency cycles. pwn-broker resolves the graph dependencies first, reuses an installed build already represented and hash-pinned by the index, and removes only automatic dependencies that become orphaned.
+
+An optional backend is a `[[backend]]` table with a display `name`, a `description` of the feature it enables, plain executable `commands` to detect, and exactly one provider: `package = "netexec"` for another pwn-shop package, or `apt = ["nmap"]` for system packages. Alternative executable names are allowed, such as `commands = ["xfreerdp3", "xfreerdp"]`. A package may not be both a hard dependency and an optional backend of the same tool, and backend providers may not repeat.
+
+A minimal `tool install <name>` installs hard ordinary dependencies and runtimes but selects no optional backends. `tool install <name> --full` selects every declared optional backend: package-backed ones come from pwn-shop, while missing apt-backed ones are shown in a plan and installed only after confirmation. pwn-broker never runs a recipe-supplied installer, and apt packages remain system-owned during rollback and removal. `tool doctor <name>` reports backend commands, availability, providers and enabled features without installing or changing anything.
 
 ## Git source dependencies
 
