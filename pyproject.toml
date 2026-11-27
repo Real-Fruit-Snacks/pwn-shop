@@ -3,6 +3,7 @@ name = "pwn-shop"
 version = "0.1.0"
 description = "Recipes and the package builder for pwn-broker tools"
 requires-python = ">=3.11"
+license = { text = "MIT" }
 dependencies = ["tomli-w>=1.0"]
 
 [project.optional-dependencies]

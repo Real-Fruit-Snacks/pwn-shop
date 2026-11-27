@@ -14,7 +14,7 @@ forest/dc01 > tool install certipy
   run   certipy   from any terminal
 ```
 
-- **Pinned, reproducible packages:** 41 recipes covering Active Directory, enumeration, privesc, pivoting, playbooks, and reporting — every upstream binary, wheel, and git source pinned by size and SHA-256.
+- **Pinned packages:** 41 recipes covering Active Directory, enumeration, privesc, pivoting, playbooks, and reporting — every upstream file and git source pinned by size and SHA-256, every wheel by SHA-256. All but four rebuild byte for byte in CI; `cred-spray`, `jwt-tool`, `netexec` and `report` build a wheel from pinned source with unpinned build tools, so their bytes can differ.
 - **Zero Kali pollution:** Python tools run on an isolated `python-3.13` runtime package and never shadow system Python; `finish` in [pwn-broker](https://github.com/Real-Fruit-Snacks/pwn-broker) removes them cleanly.
 - **Offline mirror ready:** Run `sh fetch.sh ~/pwn-packages` to verify and mirror the entire published index locally (`tools_index` in `/opt/pwn-broker/config.toml`).
 - **CI verified in Kali:** Every package is tested with `pwn-broker`'s installer inside an offline Kali Linux container before publishing.

@@ -4,7 +4,7 @@
 
 This repository has no versions of its own: each package is its own release. What it holds today:
 
-**Packages.** The current tools and versions are in the README table, with the `python-3.13` runtime and notes packages. A package name may hold a dot. `record`, `asciinema`, `openvpn`, `ping` and `ip` are reserved command names, with the shells and system commands, because pwn-broker runs them itself.
+**Packages.** The current tools and versions are in the table in [docs/PACKAGES.md](docs/PACKAGES.md), with the `python-3.13` runtime and notes packages. A package name may hold a dot. `record`, `asciinema`, `openvpn`, `ping` and `ip` are reserved command names, with the shells and system commands, because pwn-broker runs them itself.
 
 **The build.** `build.py` builds a package from a recipe, with a card and a `SHA256SUMS.txt`, and writes the index. Every upstream file is refused unless its size and SHA-256 match the recipe. `check` applies pwn-broker's package rules to the recipes and the zips. `lock` resolves a Python tool's `requirements.in` into a hash-pinned `requirements.lock` for its runtime's Python series. `plan`, `compare` and `notes` are for CI. `build` refuses to write an index in which a tool requires a runtime that is not in the folder; `--skip-index` writes no index, for a tool built alone. A dependency that publishes no wheel is built from its hash-checked source archive only if the recipe lists it in `build_from_source`. A `[[wheel_source]]` also pins a Git archive's URL and hash, and `[dotnet]` builds Rubeus from official source with a fixed SDK and reference assemblies.
 

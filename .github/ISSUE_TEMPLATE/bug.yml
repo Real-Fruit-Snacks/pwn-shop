@@ -1,34 +1,53 @@
-name: Bug report
-description: Report a reproducible defect or platform issue
-labels: ["bug"]
+name: Bug
+description: A package, build.py or fetch.sh does not do what the docs say
+labels: [bug]
 body:
-  - type: textarea
-    id: summary
+  - type: input
+    id: package
     attributes:
-      label: What happened
-      description: Plain description of the input, command or action, and actual output.
+      label: Package and build
+      description: The name, version and build, as `tool install` or the zip's name gives them. Leave empty if it is about build.py or fetch.sh itself.
+      placeholder: kerbrute 1.0.3-1
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Kali (`grep VERSION= /etc/os-release`), pwn-broker (`pwn-broker --version`), and Python (`python3 --version`) if you ran build.py
+      placeholder: Kali 2026.3, pwn-broker 0.1.14
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where it went wrong
+      options:
+        - tool install, from the published index
+        - tool install, from a folder filled by fetch.sh
+        - The tool itself, once installed
+        - fetch.sh
+        - build.py (build, check, lock)
+        - The docs
+    validations:
+      required: true
+  - type: textarea
+    id: typed
+    attributes:
+      label: What I typed
+      description: The commands, in order, as typed
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: printed
+    attributes:
+      label: What it printed
+      description: Remove real credentials, flags and addresses first. Placeholders are fine.
+      render: text
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Expected behavior
-      description: What you expected to happen instead.
-    validations:
-      required: true
-  - type: textarea
-    id: repro
-    attributes:
-      label: Reproduction steps
-      placeholder: |
-        1. Run `tool --version`
-        2. Run `tool ...`
-    validations:
-      required: true
-  - type: input
-    id: env
-    attributes:
-      label: OS and version
-      placeholder: "Windows 11 24H2 / Rust 1.84 / tool v1.0.0"
+      label: What you expected
     validations:
       required: true

@@ -1,10 +1,15 @@
 ## Summary
 
-- Plain summary of what changed and why.
+- What changed and why, in plain words.
 
-## Verification
+## Checked
 
-- [ ] Tested locally on target OS/runtime (note OS & version below)
-- [ ] CLI honors `NO_COLOR`, non-TTY stdout, and exit codes `0` / `1` / `2` (if applicable)
-- [ ] Web UI uses `rfs.css` + `rfs-components.css`, below-header scrollbars, and zero native `alert()`/`confirm()`/`prompt()` (if applicable)
-- [ ] Updated README / `cover.toml` if commands or screenshots changed
+- [ ] `python -m pytest -q -W error` passes
+- [ ] `python build.py check <name>` passes for each recipe touched, and `python build.py build <name>` on Linux for a new or changed one
+- [ ] A change to anything that goes into a package (a source, the manifest, the licence, a lock) raises `build` in `recipe.toml`
+- [ ] The tables in `docs/PACKAGES.md` and `docs/index.html`, the package counts and `CHANGELOG.md` say what this changes
+- [ ] `fetch.sh` and `.github/scripts/kali-packages.sh` still pass `sh -n`, `dash -n` and `shellcheck`, if either changed
+
+## Publishes
+
+Merging to `main` publishes a release for every recipe build that has none. Name each one here as `<name>-v<version>-<build>`, or write "nothing".
