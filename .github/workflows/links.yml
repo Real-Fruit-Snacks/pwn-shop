@@ -1,0 +1,34 @@
+name: links
+
+# Links in the README and the docs. Monthly, because the pages they point at move without
+# this repo changing.
+on:
+  push:
+    branches: [main]
+    paths: ['README.md', 'CHANGELOG.md', 'docs/*.md', 'docs/*.html', '.github/workflows/links.yml']
+  schedule:
+    - cron: '19 6 3 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lychee:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      # A link to one of this repository's own files on main is checked against the checkout:
+      # github.com answers 503 to a checker now and then for its larger pages, and the file
+      # on disk is the one that link will show once this commit is on main.
+      - uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --no-progress --max-retries 4 --retry-wait-time 10 --timeout 30
+            --accept 200,206,429
+            --exclude '^https://github\.com/Real-Fruit-Snacks/pwn-shop/(issues/new|security/advisories/new)'
+            --remap '^https://github\.com/Real-Fruit-Snacks/pwn-shop/blob/main/(.*)$ file://${{ github.workspace }}/$1'
+            README.md CHANGELOG.md 'docs/*.md' 'docs/*.html'
+          fail: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
