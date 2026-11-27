@@ -2003,8 +2003,13 @@ def _check_backends(rows: object, name: str, schema: int, label: str = "backend"
         if package:
             packages.add(package)
         apt = _strings(row, "apt", f"{where}.apt")
-        if any(re.fullmatch(r"[a-z0-9][a-z0-9+.-]*", p) is None for p in apt):
-            raise BuildError(f"{where}.apt: package names must be lower-case Debian names")
+        # A name that ends in a sign is not a name to apt: "nmap-" removes nmap and "nmap+"
+        # installs it, so both ends are a letter or digit, as pwn-broker requires.
+        if any(re.fullmatch(r"[a-z0-9][a-z0-9+.-]*[a-z0-9]", p) is None for p in apt):
+            raise BuildError(
+                f"{where}.apt: package names must be lower-case Debian names that start and "
+                "end with a letter or digit"
+            )
         if len(set(apt)) != len(apt):
             raise BuildError(f"{where}.apt: a package appears more than once")
         if not package and not apt:
