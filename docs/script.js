@@ -1,6 +1,6 @@
 // The pwn handbook (Cyclorama Dawn v2.1.0): pwn-broker, pwn-shop, pwn-playbooks and pwn-report share
 // this script word for word up to "this page". Dark (LX 263) default; Light (LX 512) opt-in toggle
-// with radial View Transition and cross-tab rfs-theme storage sync.
+// with radial View Transition and cross-tab rfs-theme / color-scheme storage sync.
 var Handbook = (function () {
     var root = document.documentElement;
     var still = matchMedia('(prefers-reduced-motion: reduce)');
@@ -34,7 +34,7 @@ var Handbook = (function () {
         }, 2400);
     }
 
-    // ---- theme: LX 263 dark explicit default; LX 512 light opt-in; rfs-theme shared across RFS ----
+    // ---- theme: LX 263 dark explicit default; LX 512 light opt-in; rfs-theme + color-scheme shared across RFS ----
     function isLight() { return root.dataset.theme === 'light'; }
     function syncMeta() {
         var light = isLight();
@@ -57,21 +57,26 @@ var Handbook = (function () {
             var next = isLight() ? 'dark' : 'light';
             var commit = function () {
                 applyTheme(next);
-                try { localStorage.setItem('rfs-theme', next); } catch (e) {}
+                try {
+                    localStorage.setItem('rfs-theme', next);
+                    localStorage.setItem('color-scheme', next);
+                } catch (e) {}
             };
             if (!document.startViewTransition || still.matches) return commit();
             var r = toggle.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
             var end = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
-            document.startViewTransition(commit).ready.then(function () {
+            var transition = document.startViewTransition(commit);
+            var animated = transition.ready.then(function () {
                 root.animate(
                     { clipPath: ['circle(0px at ' + x + 'px ' + y + 'px)', 'circle(' + end + 'px at ' + x + 'px ' + y + 'px)'] },
                     { duration: 520, easing: 'cubic-bezier(.22, .61, .36, 1)', pseudoElement: '::view-transition-new(root)' }
                 );
             });
+            Promise.allSettled([animated, transition.updateCallbackDone, transition.finished]);
         });
     }
     window.addEventListener('storage', function (ev) {
-        if (ev.key === 'rfs-theme') applyTheme(ev.newValue);
+        if (ev.key === 'rfs-theme' || ev.key === 'color-scheme') applyTheme(ev.newValue);
     });
     syncMeta();
 
