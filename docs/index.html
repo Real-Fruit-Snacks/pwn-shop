@@ -13,7 +13,7 @@
 <meta property="og:image" content="https://real-fruit-snacks.github.io/pwn-shop/assets/cover-dark.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="560">
-<meta property="og:image:alt" content="pwn-shop: a terminal that builds the kerbrute package with build.py, then installs it with tool install at a pwn-broker prompt.">
+<meta property="og:image:alt" content="pwn-shop: Tool packages for pwn-broker, built from upstream releases — flow diagram showing a SHA-256 verified upstream release packaged by pwn-shop into kerbrute-1.0.3-1.zip for pwn-broker.">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="favicon.ico" sizes="32x32">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -24,11 +24,15 @@
 <link rel="preload" href="fonts/big-shoulders-stencil-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/azeret-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <script>
-    // Dark (LX 263) default; opt-in light (LX 512) synced via rfs-theme across RFS pages.
+    // Dark (LX 263) default; opt-in light (LX 512) synced via rfs-theme and color-scheme across RFS pages.
     (function (d) {
         try {
-            var t = localStorage.getItem('rfs-theme');
-            if (t === 'light' || t === 'dayshift') d.dataset.theme = 'light';
+            var t = localStorage.getItem('rfs-theme') || localStorage.getItem('color-scheme');
+            if (t === 'light' || t === 'dayshift') {
+                d.dataset.theme = 'light';
+                var cs = document.querySelector('meta[name="color-scheme"]');
+                if (cs) cs.content = 'light';
+            }
         } catch (e) {}
         if (window.matchMedia && matchMedia('(prefers-reduced-motion: no-preference)').matches) d.classList.add('js-run');
     })(document.documentElement);
@@ -73,7 +77,7 @@
 
 <main class="wrap stack">
 <section class="card first" aria-labelledby="top-h">
-    <p class="runhead"><b>pwn-shop · 41 packages</b><span>x86_64 · glibc · pwn-broker 0.1.14</span><span>MIT</span></p>
+    <p class="runhead"><b>pwn-shop · 41 packages</b><span>x86_64 · glibc · pwn-broker 0.1.14+</span><span>MIT</span></p>
     <div class="hero">
         <div>
             <h1 class="title" id="top-h">pwn-shop</h1>
@@ -195,7 +199,7 @@
     <table class="equip">
         <thead><tr><th scope="col">Package</th><th scope="col">Version</th><th scope="col">Kind</th><th scope="col">You get</th><th scope="col">Licence</th></tr></thead>
         <tbody>
-            <tr><td><code>ad-sweep</code></td><td>0.1.0</td><td><span>kali</span></td><td><code>ad-sweep</code>; also install <code>netexec</code> separately</td><td>MIT</td></tr>
+            <tr><td><code>ad-sweep</code></td><td>0.1.0</td><td><span>kali</span></td><td><code>ad-sweep</code>; build 2 installs NetExec and its runtime automatically</td><td>MIT</td></tr>
             <tr><td><code>autorecon</code></td><td>2026.11.03</td><td><span>kali</span></td><td><code>autorecon</code>, on <code>python-3.13</code></td><td>GPL-3.0</td></tr>
             <tr><td><code>bloodhound-ce</code></td><td>1.9.1</td><td><span>kali</span></td><td><code>bloodhound-ce-python</code>, on <code>python-3.13</code></td><td>MIT</td></tr>
             <tr><td><code>bloodyad</code></td><td>2.5.7</td><td><span>kali</span></td><td><code>bloodyAD</code>, <code>bloodyad</code>, on <code>python-3.13</code></td><td>MIT</td></tr>
@@ -203,7 +207,7 @@
             <tr><td><code>certipy</code></td><td>5.1.0</td><td><span>kali</span></td><td><code>certipy</code>, on <code>python-3.13</code></td><td>MIT</td></tr>
             <tr><td><code>chisel</code></td><td>1.12.0</td><td><span>both</span></td><td><code>chisel</code>; to upload: <code>chisel</code>, <code>chisel.exe</code></td><td>MIT</td></tr>
             <tr><td><code>coercedpotato</code></td><td>2026.07.30</td><td><span>upload</span></td><td>to upload: <code>CoercedPotato_x64.exe</code>, <code>CoercedPotato_x86.exe</code></td><td>MIT</td></tr>
-            <tr><td><code>cred-spray</code></td><td>1.0.0</td><td><span>kali</span></td><td><code>cred-spray</code>, on <code>python-3.13</code>; external backends separately</td><td>MIT</td></tr>
+            <tr><td><code>cred-spray</code></td><td>1.0.0</td><td><span>kali</span></td><td><code>cred-spray</code>, on <code>python-3.13</code>; minimal by default, <code>--full</code> for declared backends</td><td>MIT</td></tr>
             <tr><td><code>evil-winrm-py</code></td><td>1.7.0</td><td><span>kali</span></td><td><code>evil-winrm-py</code>, <code>ewp</code>, on <code>python-3.13</code></td><td>MIT</td></tr>
             <tr><td><code>git-dumper</code></td><td>1.0.9</td><td><span>kali</span></td><td><code>git-dumper</code>, on <code>python-3.13</code></td><td>MIT</td></tr>
             <tr><td><code>godpotato</code></td><td>1.20</td><td><span>upload</span></td><td>to upload: <code>GodPotato-NET4.exe</code>, <code>GodPotato-NET35.exe</code></td><td>Apache-2.0</td></tr>
@@ -232,13 +236,13 @@
             <tr><td><code>runascs</code></td><td>1.5</td><td><span>upload</span></td><td>to upload: <code>RunasCs.exe</code>, <code>RunasCs_net2.exe</code>, <code>Invoke-RunasCs.ps1</code></td><td>GPL-3.0</td></tr>
             <tr><td><code>rusthound-ce</code></td><td>2.5.52</td><td><span>kali</span></td><td><code>rusthound-ce</code></td><td>MIT</td></tr>
             <tr><td><code>sharphound</code></td><td>2.18.0</td><td><span>upload</span></td><td>to upload: <code>SharpHound.exe</code></td><td>GPL-3.0</td></tr>
+            <tr><td><code>shell-tunnel</code></td><td>1.4.2</td><td><span>both</span></td><td><code>shell-tunnel</code>; to upload: <code>shell-tunnel</code>, <code>shell-tunnel.exe</code></td><td>GPL-3.0</td></tr>
             <tr><td><code>snaffler</code></td><td>1.0.244</td><td><span>upload</span></td><td>to upload: <code>Snaffler.exe</code></td><td>GPL-3.0</td></tr>
             <tr><td><code>sshuttle</code></td><td>2.0.0</td><td><span>kali</span></td><td><code>sshuttle</code>, on <code>python-3.13</code></td><td>LGPL-2.1-or-later</td></tr>
             <tr><td><code>targetedkerberoast</code></td><td>2024.12.16</td><td><span>kali</span></td><td><code>targetedKerberoast</code>, on <code>python-3.13</code></td><td>GPL-3.0</td></tr>
-            <tr><td><code>shell-tunnel</code></td><td>1.4.2</td><td><span>both</span></td><td><code>shell-tunnel</code>; to upload: <code>shell-tunnel</code>, <code>shell-tunnel.exe</code></td><td>GPL-3.0</td></tr>
         </tbody>
     </table>
-    <p class="after">A <code>runtime</code> is never installed on its own: it comes and goes with the tools that require it. The published index is schema 4, which needs pwn-broker 0.1.14 or later; an older pwn-broker says to upgrade. Each package carries the licence of the tool in it, and this project is not affiliated with those projects.</p>
+    <p class="after">A <code>runtime</code> is never installed on its own: it comes and goes with the tools that require it. A <code>notes</code> package needs pwn-broker 0.1.7 or later, and a schema-4 catalog needs pwn-broker 0.1.14 or later. Each package carries the licence of the tool in it, and this project is not affiliated with those projects.</p>
 </section>
 
 <section class="card ref" id="tested" aria-labelledby="tested-h">
@@ -273,8 +277,8 @@
         <li>Kali's own <code>ligolo-ng</code> package also installs a command named <code>ligolo-proxy</code>, and <code>sudo</code> does not use PATH. Use <code>sudo /opt/pwn-broker/bin/ligolo-proxy</code>, the path <code>tool install</code> prints.</li>
         <li>PEASS-ng's licence has terms beyond the GPL. Read <code>recipes/peass-ng/LICENSE</code> before redistributing the package.</li>
         <li>The first Python tool on a machine costs the runtime: a 34 MB download and about 100 MB unpacked. Its OpenSSL and other libraries are fixed when a new build of the runtime is published, not when Kali updates.</li>
-        <li><code>ad-sweep</code> needs NetExec as a separate prerequisite; run <code>tool install netexec</code> separately. Its package check starts the CLI, not a NetExec compatibility test or a domain scan.</li>
-        <li><code>cred-spray</code> uses separate Nmap, NetExec, FreeRDP, ipmitool and evil-winrm backends where selected. Its package check starts the CLI; it does not scan, authenticate, or test those backends.</li>
+        <li><code>ad-sweep</code> 0.1.0 build 2 declares NetExec as an ordinary dependency: <code>tool install ad-sweep</code> installs NetExec and its runtime automatically with pwn-broker 0.1.14 or later. Its package check starts <code>ad-sweep --help</code>, which proves installation and startup, not NetExec command-line compatibility or a domain scan.</li>
+        <li><code>cred-spray</code> 1.0.0 build 2 bundles its Python code and dependencies and declares Nmap, NetExec, FreeRDP, ipmitool and Ruby evil-winrm as optional backends. A minimal install selects none; <code>tool install cred-spray --full</code> selects all five. Missing apt-backed providers are shown in a plan and installed only after confirmation; NetExec comes from pwn-shop. NetExec enables <code>--nxc</code>, WMI and automatic domain discovery. The package check only starts <code>cred-spray --help</code>; it does not install apt backends, scan or authenticate.</li>
         <li><code>autorecon</code> brings its Python code and dependencies, but its scans call nmap and other Kali system tools, which it does not bring.</li>
         <li><code>evil-winrm-py</code> is not a drop-in for Ruby Evil-WinRM: it takes <code>--ssl</code> for <code>-S</code>, has no <code>-s</code> or <code>-e</code>, and its Kerberos extra is not bundled. Kali's Ruby <code>evil-winrm</code> remains separate.</li>
         <li><code>penelope</code> 0.21.0 starts a local MCP socket even with <code>--oscp-safe</code>. It is packaged for lab and CTF use, not as an OSCP-safe shell handler; use Kali's <code>nc</code>, <code>ncat</code> or <code>socat</code> for that.</li>
