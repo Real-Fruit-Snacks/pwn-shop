@@ -7,6 +7,7 @@ reimplements the checks it makes (see validate) and never imports it.
 import argparse
 import base64
 import csv
+import difflib
 import gzip
 import hashlib
 import io
@@ -112,6 +113,32 @@ _VERSION_RULE = (
     "must start with a letter or digit and hold only letters, digits and . _ + ~ -, "
     "100 characters at most"
 )
+# A recipe's build is released under the git tag <name>-v<version>-<build>. Of what _VERSION
+# allows, git refuses a ~ and two dots together in a ref name (git check-ref-format).
+_NOT_IN_A_TAG = re.compile(r"~|\.\.")
+# The keys recipe.toml and manifest.toml may hold. One that is not here is a misspelling: it
+# would be dropped without a word, and the package built as if the line were not there.
+_RECIPE_KEYS = ("name", "version", "build", "source", "build_from_source", "wheel_source", "dotnet")
+_SOURCE_KEYS = ("url", "size", "sha256", "to", "member", "unpack")
+_WHEEL_SOURCE_KEYS = ("name", "version", "url", "size", "sha256", "env")
+_DOTNET_KEYS = (
+    "sdk", "url", "size", "sha256", "to", "project", "output",
+    "framework_url", "framework_size", "framework_sha256", "framework",
+)  # fmt: skip
+_MANIFEST_KEYS = (
+    "schema", "name", "version", "build", "kind", "description", "tags", "upstream", "licence",
+    "arch", "needs_root", "examples", "requires", "depends", "backend", "command", "upload",
+    "data", "python", "runtime", "notes",
+)  # fmt: skip
+# the tables of a manifest; a [[backend]]'s keys are checked with the rest of it
+_MANIFEST_TABLE_KEYS = {
+    "command": ("name", "type", "path", "script", "entry", "args", "env"),
+    "upload": ("path", "as", "note"),
+    "data": ("home",),
+    "python": ("versions", "lock", "wheels"),
+    "runtime": ("archive", "python", "series"),
+    "notes": ("root",),
+}
 # Places in the home folder a tool may not claim as its own data, as pwn-broker refuses them:
 # they hold the user's keys or settings, or run something at login. HOME_TREES is refused with
 # everything under it, HOME_SHARED by its exact name.
@@ -306,10 +333,35 @@ def _int(table: dict, key: str, label: str) -> int:
     return value
 
 
+def _known_keys(table: dict, known: tuple[str, ...], label: str) -> None:
+    """Refuse a key that is not one of `known`, and name the one it was probably meant to be."""
+    unknown = sorted(str(key) for key in table if key not in known)
+    if not unknown:
+        return
+    close = difflib.get_close_matches(unknown[0], known, n=1)
+    hint = f"; did you mean {close[0]!r}?" if close else ""
+    raise BuildError(f"{label}: unknown key {unknown[0]!r}{hint}")
+
+
+def _manifest_keys(manifest: dict, label: str) -> None:
+    """Refuse a key no rule reads, in the manifest or in one of its tables."""
+    _known_keys(manifest, _MANIFEST_KEYS, label)
+    for key, known in _MANIFEST_TABLE_KEYS.items():
+        value = manifest.get(key)
+        # a value of the wrong type is refused, by its own rule, where it is read
+        if isinstance(value, dict):
+            _known_keys(value, known, f"{label}: {key}")
+        elif isinstance(value, list):
+            for index, row in enumerate(value):
+                if isinstance(row, dict):
+                    _known_keys(row, known, f"{label}: {key}[{index}]")
+
+
 def _source(row: object, index: int) -> Source:
     label = f"source[{index}]"
     if not isinstance(row, dict):
         raise BuildError(f"{label}: must be a table")
+    _known_keys(row, _SOURCE_KEYS, label)
     url = row.get("url")
     if not isinstance(url, str) or not url:
         raise BuildError(f"{label}.url: must be a non-empty string")
@@ -346,6 +398,7 @@ def _wheel_source(row: object, index: int) -> WheelSource:
         raise BuildError(f"{label}.version: {_VERSION_RULE}")
     if any(key in row for key in ("to", "member", "unpack")):
         raise BuildError(f"{label}: the archive is built into a wheel, not unpacked into the package")
+    _known_keys(row, _WHEEL_SOURCE_KEYS, label)
     env = row.get("env", {})
     if not isinstance(env, dict) or not all(
         isinstance(k, str) and isinstance(v, str) and _ENV_NAME.fullmatch(k)
@@ -368,6 +421,7 @@ def _parse_dotnet(table: object, who: str) -> DotnetBuild | None:
         return None
     if not isinstance(table, dict):
         raise BuildError(f"{who}: dotnet must be a table")
+    _known_keys(table, _DOTNET_KEYS, f"{who}: dotnet")
     sdk = table.get("sdk")
     if not isinstance(sdk, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", sdk):
         raise BuildError(f"{who}: dotnet.sdk must be a full SDK version")
@@ -403,6 +457,13 @@ def load_recipe(folder: Path) -> Recipe:
         raise BuildError(f"{who}: the folder name must equal the recipe's name {name!r}")
     if not isinstance(version, str) or not _VERSION.fullmatch(version):
         raise BuildError(f"{who}: version {version!r} {_VERSION_RULE}")
+    if _NOT_IN_A_TAG.search(version):
+        raise BuildError(
+            f"{who}: version {version!r} cannot be released: the build's git tag would be "
+            f"{name}-v{version}-<build>, and a tag may not hold a ~ or two dots together"
+        )
+    _known_keys(recipe, _RECIPE_KEYS, f"{who}: recipe.toml")
+    _manifest_keys(manifest, f"{who}: {MANIFEST}")
     build = _int(recipe, "build", f"{who}: build")
     for key, value in (("name", name), ("version", version), ("build", build)):
         if key in manifest and manifest[key] != value:
@@ -1544,6 +1605,60 @@ def card_order(cards: list[dict]) -> list[dict]:
     return sorted(cards, key=lambda c: (c["name"], _version_key(c["version"]), c["build"]))
 
 
+def _index_builds(index: dict, where: str) -> dict[str, list[tuple[str, int]]]:
+    """Tool -> the (version, build) of each build an index lists."""
+    found: dict[str, list[tuple[str, int]]] = {}
+    tools = index.get("tool", [])
+    if not isinstance(tools, list) or not all(isinstance(t, dict) for t in tools):
+        raise BuildError(f"{where}: not an index (tool must be a list of tables)")
+    for tool in tools:
+        name, builds = tool.get("name"), tool.get("build", [])
+        if not isinstance(name, str) or not isinstance(builds, list):
+            raise BuildError(f"{where}: not an index (a tool needs a name and its builds)")
+        for row in builds:
+            version = row.get("version") if isinstance(row, dict) else None
+            number = row.get("build") if isinstance(row, dict) else None
+            if not isinstance(version, str) or not isinstance(number, int) or isinstance(number, bool):
+                raise BuildError(f"{where}: not an index ({name} has a build with no version or number)")
+            found.setdefault(name, []).append((version, number))
+    return found
+
+
+def check_latest(
+    recipes: list[Recipe], index: dict, where: str, *, released: set[str] | None = None
+) -> None:
+    """Refuse a recipe whose build would be published and never installed.
+
+    An index calls the last of a tool's builds, in card_order, its latest, and that is the one
+    tool install takes. The order is by version, so a recipe whose version sorts before a
+    published one would get its release while `latest` stayed where it was: a tool versioned
+    by its commit's date that moves to upstream's first numbered release, 2026.11.03 to 2.1.0,
+    or a recipe put back to an older version. `released` is the tags that have a release: a
+    withdrawn build stays in the published index until the next publish, and does not count.
+    """
+    published = _index_builds(index, where)
+
+    def order(build: tuple[str, int]) -> tuple:
+        return (_version_key(build[0]), build[1])
+
+    for recipe in recipes:
+        mine = (recipe.version, recipe.build)
+        others = [
+            b for b in published.get(recipe.name, [])
+            if released is None or _tag(recipe.name, *b) in released
+        ]  # fmt: skip
+        newest = max([*others, mine], key=order)
+        if newest != mine:
+            raise BuildError(
+                f"{recipe.name}: {mine[0]}-{mine[1]} would not be the latest build of "
+                f"{recipe.name}. The published {newest[0]}-{newest[1]} sorts after it, so the "
+                f"index would keep that as latest and tool install {recipe.name} would never "
+                "install this one. Builds are ordered by the leading numbers of the version, "
+                f"then by build. Give the recipe a version that sorts after {newest[0]}, or "
+                "withdraw the builds that sort after it (delete each one's release and tag) first"
+            )
+
+
 def _url(base_url: str | None, name: str, version: str, build: int, file: str) -> str:
     if base_url is None:
         return file
@@ -2124,6 +2239,9 @@ def _check_notes(data: dict) -> None:
 
 def _check_manifest(data: dict) -> tuple[list[str], str | None, list[str]]:
     """Returns the files the manifest names, its wheels folder (or None) and its lock path."""
+    # not a pwn-broker rule: it reads the keys it knows and passes over the rest, so a
+    # misspelt needs_root would install as a tool that does not need root
+    _manifest_keys(data, MANIFEST)
     schema = data.get("schema")
     if isinstance(schema, bool) or schema not in SCHEMAS:
         raise BuildError("schema: must be 1, 2, 3 or 4")
@@ -2480,6 +2598,10 @@ def main(argv: list[str] | None = None, *, run: Run = subprocess.run) -> int:
             p.add_argument("--skip-index", action="store_true")
     p = sub.add_parser("plan")
     p.add_argument("--recipes", default="recipes")
+    # the published index, and the tags that have a release, one on a line: with them, plan
+    # refuses a recipe whose build would not be the latest of its tool
+    p.add_argument("--index", default=None)
+    p.add_argument("--releases", default=None)
     p = sub.add_parser("compare")
     p.add_argument("built")
     p.add_argument("published")
@@ -2505,6 +2627,17 @@ def main(argv: list[str] | None = None, *, run: Run = subprocess.run) -> int:
             _check_shared_commands(
                 {r.name: [c["name"] for c in r.manifest.get("command", [])] for r in recipes}
             )
+            if args.releases is not None and args.index is None:
+                raise BuildError("plan: --releases is only read with --index")
+            if args.index is not None:
+                released = None
+                if args.releases is not None:
+                    try:
+                        text = Path(args.releases).read_text(encoding="utf-8")
+                    except (OSError, UnicodeDecodeError) as exc:
+                        raise BuildError(f"cannot read {args.releases}: {exc}") from exc
+                    released = {line.strip() for line in text.splitlines() if line.strip()}
+                check_latest(recipes, _read_toml(Path(args.index)), args.index, released=released)
             for recipe in recipes:
                 print(recipe.name, tag(recipe), zip_name(recipe.name, recipe.version, recipe.build))
         elif args.cmd == "compare":

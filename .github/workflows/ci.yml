@@ -274,6 +274,25 @@ jobs:
           ref: ${{ vars.PWN_BROKER_REF || 'main' }}
           path: pwn-broker
           persist-credentials: false
+      - name: Check each recipe's build would be the latest of its tool
+        # The index calls the highest version of a tool its latest build, and that is the one
+        # tool install takes. A recipe whose version sorts before a published one, as when a
+        # tool versioned by date moves to upstream's first numbered release, would be released
+        # and never installed. plan refuses it, given the published index and releases.txt,
+        # the tags that have a release, which the first step of this job wrote: a withdrawn
+        # build stays in the index until the next publish, and does not count.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          if grep -Fxq index releases.txt; then
+            gh release download index --dir "$RUNNER_TEMP/published" --pattern index.toml </dev/null
+            python build.py plan --index "$RUNNER_TEMP/published/index.toml" --releases releases.txt > /dev/null
+            echo "ok    each recipe's build is, or would be, the latest of its tool"
+          else
+            echo "ok    no index is published yet"
+          fi
       - name: Install pwn-broker
         run: |
           python -m venv "$RUNNER_TEMP/broker"

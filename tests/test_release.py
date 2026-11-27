@@ -160,6 +160,108 @@ def test_plan_with_no_recipes_is_an_error(tmp_path, capsys):
     assert "no recipes" in capsys.readouterr().err
 
 
+# ---- plan, with the published index: the recipe's build has to become the tool's latest
+
+
+def published_index(tmp_path, *builds, name="kerbrute"):
+    """The index of a tool's published builds, each a (version, build)."""
+    cards = [
+        card_of(name=name, version=version, build=number, file=f"{name}-{version}-{number}.zip",
+                commands=[name])
+        for version, number in builds
+    ]
+    path = tmp_path / "published-index.toml"
+    index = build.build_index(build.card_order(cards), base_url="https://h/{tag}/{file}")
+    path.write_bytes(tomli_w.dumps(index).encode())
+    return path
+
+
+def plan(tmp_path, *more):
+    return build.main(["plan", "--recipes", str(tmp_path / "recipes"), *more])
+
+
+@pytest.mark.parametrize(
+    "version, number, published",
+    [
+        ("1.0.3", 1, []),
+        ("1.0.3", 1, [("1.0.3", 1)]),
+        ("1.0.3", 2, [("1.0.3", 1)]),
+        ("1.0.4", 1, [("1.0.3", 1), ("1.0.3", 2)]),
+        ("1.10", 1, [("1.9", 3)]),
+        ("2026.11.26", 1, [("2026.11.3", 1), ("2026.11.25", 1)]),
+        ("1.0", 1, [("1.0-rc1", 1)]),
+    ],
+)
+def test_plan_passes_a_build_that_is_or_will_be_the_latest(tmp_path, net, capsys, version, number, published):
+    make_recipe(tmp_path / "recipes" / "kerbrute", net, version=version, build_no=number)
+    index = published_index(tmp_path, *published) if published else published_index(tmp_path, ("9", 1), name="other")
+    assert plan(tmp_path, "--index", str(index)) == 0
+    assert capsys.readouterr().out == f"kerbrute kerbrute-v{version}-{number} kerbrute-{version}-{number}.zip\n"
+
+
+@pytest.mark.parametrize(
+    "version, number, published, stays",
+    [
+        # a tool versioned by its commit's date moves to upstream's first numbered release
+        ("2.1.0", 1, [("2026.11.03", 1)], "2026.11.03-1"),
+        # the recipe is put back to an older version, or to an older build of this one
+        ("1.0.3", 3, [("1.0.3", 1), ("1.0.4", 1)], "1.0.4-1"),
+        ("1.0.3", 1, [("1.0.3", 1), ("1.0.3", 2)], "1.0.3-2"),
+        # a version with something after its numbers is older than the one without
+        ("1.0-rc2", 1, [("1.0", 1)], "1.0-1"),
+    ],
+)
+def test_plan_refuses_a_build_that_would_not_be_the_latest(tmp_path, net, capsys, version, number, published, stays):
+    make_recipe(tmp_path / "recipes" / "kerbrute", net, version=version, build_no=number)
+    index = published_index(tmp_path, *published)
+    # what build_index itself would call latest, with the recipe's build among the cards
+    cards = [card_of(version=v, build=n, file=f"kerbrute-{v}-{n}.zip") for v, n in {*published, (version, number)}]
+    assert build.build_index(build.card_order(cards), base_url=None)["tool"][0]["latest"] == stays
+    assert plan(tmp_path, "--index", str(index)) == 1
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert f"kerbrute: {version}-{number} would not be the latest build" in err
+    assert f"The published {stays} sorts after it" in err
+    assert "tool install kerbrute would never install this one" in err
+
+
+def test_plan_passes_over_a_published_build_that_has_been_withdrawn(tmp_path, net, capsys):
+    # its release is gone, and the index still lists it until the next publish
+    make_recipe(tmp_path / "recipes" / "kerbrute", net, version="2.1.0")
+    index = published_index(tmp_path, ("2026.11.03", 1), ("2026.11.20", 1))
+    releases = tmp_path / "releases.txt"
+    releases.write_bytes(b"index\nkerbrute-v2026.11.20-1\nother-v1-1\n")
+    assert plan(tmp_path, "--index", str(index), "--releases", str(releases)) == 1
+    assert "The published 2026.11.20-1 sorts after it" in capsys.readouterr().err
+    releases.write_bytes(b"index\nother-v1-1\n\n")
+    assert plan(tmp_path, "--index", str(index), "--releases", str(releases)) == 0
+    assert capsys.readouterr().out.startswith("kerbrute kerbrute-v2.1.0-1 ")
+
+
+def test_plan_reads_releases_only_with_an_index(tmp_path, net, capsys):
+    make_recipe(tmp_path / "recipes" / "kerbrute", net)
+    (tmp_path / "releases.txt").write_bytes(b"index\n")
+    assert plan(tmp_path, "--releases", str(tmp_path / "releases.txt")) == 1
+    assert "--releases is only read with --index" in capsys.readouterr().err
+    index = published_index(tmp_path, ("1.0.3", 1))
+    assert plan(tmp_path, "--index", str(index), "--releases", str(tmp_path / "missing.txt")) == 1
+    assert "cannot read" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["tool = 1\n", "[[tool]]\nname = 1\n", "[[tool]]\nname = 'kerbrute'\nbuild = [1]\n",
+     "[[tool]]\nname = 'kerbrute'\n[[tool.build]]\nversion = '1'\nbuild = true\n", "not toml ["],
+)
+def test_plan_refuses_an_index_it_cannot_read(tmp_path, net, capsys, text):
+    make_recipe(tmp_path / "recipes" / "kerbrute", net)
+    index = tmp_path / "published-index.toml"
+    index.write_bytes(text.encode())
+    assert plan(tmp_path, "--index", str(index)) == 1
+    out, err = capsys.readouterr()
+    assert out == "" and err.startswith("fail ")
+
+
 # ---- notes
 
 

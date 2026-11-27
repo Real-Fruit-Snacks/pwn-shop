@@ -1,6 +1,7 @@
 import gzip
 import hashlib
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -2035,6 +2036,123 @@ def test_validate_refuses_a_version_the_app_would_refuse(tmp_path, version):
 @pytest.mark.parametrize("version", ["1.0.3", "2026.11.14", "3.13.18", "1.0~rc1", "1.0+git5", "v1_2"])
 def test_the_version_rule_allows_what_packages_use(version):
     assert build._VERSION.fullmatch(version)
+
+
+# a recipe's build is released under the git tag <name>-v<version>-<build>
+
+GIT_TAKES = ["1.0.3", "2026.11.14", "2.2.0-20220919", "2026.10.28-1", "1.0+git5", "v1_2", "1.0-rc1",
+             "1.", "1.lock", "a.b-c_d+e"]
+GIT_REFUSES = ["1.0~rc1", "1..0", "1~", "2026..11", "1...2", "a~1", "1.0-rc1..2"]
+
+
+@pytest.mark.parametrize("version", GIT_REFUSES)
+def test_a_recipe_version_that_cannot_be_in_a_git_tag_is_refused(tmp_path, net, version):
+    # pwn-broker's rule allows it, so the package would build, and the release could not be made
+    assert build._VERSION.fullmatch(version)
+    folder = make_recipe(tmp_path / "recipes" / "kerbrute", net, version=version)
+    with pytest.raises(build.BuildError) as err:
+        build.load_recipe(folder)
+    assert "cannot be released" in str(err.value)
+    assert f"kerbrute-v{version}-<build>" in str(err.value)
+    assert build.main(["plan", "--recipes", str(tmp_path / "recipes")]) == 1
+
+
+@pytest.mark.parametrize("version", GIT_TAKES)
+def test_a_recipe_version_git_takes_in_a_tag_is_loaded(tmp_path, net, version):
+    recipe = build.load_recipe(make_recipe(tmp_path / "recipes" / "kerbrute", net, version=version))
+    assert build.tag(recipe) == f"kerbrute-v{version}-1"
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+@pytest.mark.parametrize("version", GIT_TAKES + GIT_REFUSES)
+def test_the_tag_rule_is_the_one_git_applies(version):
+    assert build._VERSION.fullmatch(version)
+    done = subprocess.run(
+        ["git", "check-ref-format", f"refs/tags/kerbrute-v{version}-1"], capture_output=True
+    )
+    assert (done.returncode != 0) == bool(build._NOT_IN_A_TAG.search(version))
+
+
+# ---- a key no rule reads is a misspelling, not something to pass over
+
+
+def source_row(**extra):
+    return {"url": "https://example.invalid/x.tar.gz", "size": 3, "sha256": "a" * 64,
+            "to": "files/x", **extra}
+
+
+@pytest.mark.parametrize(
+    "key, meant",
+    [("bild", "build"), ("sources", "source"), ("build_from_sources", "build_from_source"),
+     ("wheel_sources", "wheel_source"), ("unrelated", None)],
+)
+def test_an_unknown_key_in_recipe_toml_is_refused(tmp_path, net, key, meant):
+    folder = make_recipe(tmp_path / "recipes" / "kerbrute", net)
+    path = folder / "recipe.toml"
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    path.write_bytes(tomli_w.dumps({key: 1, **data}).encode())
+    with pytest.raises(build.BuildError) as err:
+        build.load_recipe(folder)
+    text = str(err.value)
+    assert f"kerbrute: recipe.toml: unknown key {key!r}" in text
+    assert (f"did you mean {meant!r}?" in text) if meant else ("did you mean" not in text)
+
+
+def test_a_misspelt_member_is_refused_and_not_taken_for_a_whole_file(tmp_path, net):
+    # with member unread, the whole archive would have gone into the package under the file's name
+    folder = make_recipe(tmp_path / "recipes" / "kerbrute", net, sources=[source_row(memeber="x")])
+    with pytest.raises(build.BuildError) as err:
+        build.load_recipe(folder)
+    assert "source[0]: unknown key 'memeber'; did you mean 'member'?" in str(err.value)
+
+
+def test_an_unknown_key_in_a_wheel_source_or_dotnet_table_is_refused():
+    row = {"name": "beta", "version": "2.0", "url": "https://example.invalid/b.tar.gz", "size": 3,
+           "sha256": "a" * 64}
+    assert build._wheel_source(row, 0).name == "beta"
+    with pytest.raises(build.BuildError, match=r"wheel_source\[0\]: unknown key 'envs'; did you mean 'env'"):
+        build._wheel_source({**row, "envs": {}}, 0)
+    with pytest.raises(build.BuildError, match="kerbrute: dotnet: unknown key 'frameworks'"):
+        build._parse_dotnet({"sdk": "9.0.320", "frameworks": "x"}, "kerbrute")
+
+
+@pytest.mark.parametrize(
+    "change, where, key, meant",
+    [
+        ({"need_root": True}, "", "need_root", "needs_root"),
+        ({"example": ["kerbrute"]}, "", "example", "examples"),
+        ({"license": "MIT"}, "", "license", "licence"),
+        ({"commands": []}, "", "commands", "command"),
+        ({"command": [{"name": "kerbrute", "type": "binary", "path": "files/kerbrute", "arg": ["-v"]}]},
+         ": command[0]", "arg", "args"),
+        ({"data": {"homes": [".kerbrute"]}}, ": data", "homes", "home"),
+    ],
+)
+def test_an_unknown_key_in_manifest_toml_is_refused(tmp_path, net, change, where, key, meant):
+    folder = make_recipe(tmp_path / "recipes" / "kerbrute", net, manifest={**PLAIN_MANIFEST, **change})
+    with pytest.raises(build.BuildError) as err:
+        build.load_recipe(folder)
+    assert f"kerbrute: manifest.toml{where}: unknown key {key!r}; did you mean {meant!r}?" in str(err.value)
+    assert build.main(["plan", "--recipes", str(tmp_path / "recipes")]) == 1
+    # and in a package, whoever built it
+    with pytest.raises(build.BuildError, match=f"unknown key '{key}'"):
+        build._check_manifest(pkg_manifest(**change))
+
+
+@pytest.mark.parametrize(
+    "manifest, where, key",
+    [
+        (lambda: tool_manifest(python={"lock": "wheels.lock", "wheels": "wheels", "wheel": "x"}), "python", "wheel"),
+        (lambda: runtime_manifest(runtime={"archive": "files/python.tar.gz", "python": "python/bin/python3.13",
+                                           "series": "3.13", "serie": "3.13"}), "runtime", "serie"),
+        (lambda: notes_manifest(notes={"root": "files/playbooks", "roots": "x"}), "notes", "roots"),
+        (lambda: pkg_manifest(kind="both", upload=[{"path": "files/kerbrute", "as": "k", "notes": "n"}]),
+         r"upload\[0\]", "notes"),
+    ],
+)
+def test_an_unknown_key_in_a_table_of_a_packaged_manifest_is_refused(manifest, where, key):
+    with pytest.raises(build.BuildError, match=f"manifest.toml: {where}: unknown key '{key}'"):
+        build._check_manifest(manifest())
 
 
 @pytest.mark.parametrize(
