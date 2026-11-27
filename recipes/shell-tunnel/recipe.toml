@@ -1,5 +1,5 @@
 version = "1.4.2"
-build = 1
+build = 2
 
 # Upstream lists these SHA-256 values in SHA256SUMS.txt; the downloads match.
 
