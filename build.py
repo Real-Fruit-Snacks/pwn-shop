@@ -118,8 +118,22 @@ _VERSION_RULE = (
 _NOT_IN_A_TAG = re.compile(r"~|\.\.")
 # The keys recipe.toml and manifest.toml may hold. One that is not here is a misspelling: it
 # would be dropped without a word, and the package built as if the line were not there.
-_RECIPE_KEYS = ("name", "version", "build", "source", "build_from_source", "wheel_source", "dotnet")
+_RECIPE_KEYS = (
+    "name", "version", "build", "source", "build_from_source", "wheel_source", "dotnet",
+    "source_code",
+)  # fmt: skip
 _SOURCE_KEYS = ("url", "size", "sha256", "to", "member", "unpack")
+_SOURCE_CODE_KEYS = ("tag", "commit", "url")
+# A licence that has whoever passes a program on say where its source is: the GPL, the AGPL and
+# the LGPL, and the MPL, which asks the same for a file in executable form. `licence` is free
+# text ("GPL-2.0-or-later with additional terms"), so the family is looked for as a word in it.
+_NAMES_ITS_SOURCE = re.compile(r"(?<![A-Za-z])(?:AGPL|LGPL|GPL|MPL)(?![A-Za-z])", re.IGNORECASE)
+# a full hash, of either kind git has: a short one is not exact, and a tag can be moved
+_COMMIT = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
+# The tag and the address are printed in a release's notes, which GitHub reads as Markdown, so
+# neither may hold what would make a link, a mention or a line of its own there.
+_SOURCE_TAG = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+/-]{0,199}")
+_SOURCE_URL = re.compile(r"https://[A-Za-z0-9][A-Za-z0-9.-]*(?::[0-9]+)?/[A-Za-z0-9._~/%+=&?-]+")
 _WHEEL_SOURCE_KEYS = ("name", "version", "url", "size", "sha256", "env")
 _DOTNET_KEYS = (
     "sdk", "url", "size", "sha256", "to", "project", "output",
@@ -260,6 +274,9 @@ class Recipe:
     series: str | None = None
     wheel_sources: list[WheelSource] = field(default_factory=list)
     dotnet: DotnetBuild | None = None
+    # where the source of this build is: the upstream commit, its tag if it has one, and the
+    # address of the source archive. Empty when the recipe has no [source_code] table
+    source_code: dict[str, str] = field(default_factory=dict)
 
 
 Fetch = Callable[[str, Path, int], None]
@@ -445,6 +462,40 @@ def _parse_dotnet(table: object, who: str) -> DotnetBuild | None:
     return DotnetBuild(sdk, source, reference, project, output, framework)
 
 
+def needs_source_code(licence: object) -> bool:
+    """Whether a package under this licence has to say where its source is."""
+    return isinstance(licence, str) and _NAMES_ITS_SOURCE.search(licence) is not None
+
+
+def _source_code(table: object, label: str) -> dict[str, str]:
+    """A [source_code] table, of a recipe or of a card: the upstream commit a build was made
+    from, the tag that names it if there is one, and the address of the source archive."""
+    if not isinstance(table, dict):
+        raise BuildError(f"{label}: must be a table")
+    _known_keys(table, _SOURCE_CODE_KEYS, label)
+    found = {}
+    if "tag" in table:
+        tag = table["tag"]
+        if not isinstance(tag, str) or not _SOURCE_TAG.fullmatch(tag):
+            raise BuildError(
+                f"{label}.tag: must be the upstream tag's name: letters, digits and . _ + / -, "
+                "starting with a letter or digit"
+            )
+        found["tag"] = tag
+    commit = table.get("commit")
+    if not isinstance(commit, str) or not _COMMIT.fullmatch(commit):
+        raise BuildError(
+            f"{label}.commit: must be the full commit hash, in lower case; a short hash is not "
+            "exact, and a tag alone can be moved"
+        )
+    found["commit"] = commit
+    url = table.get("url")
+    if not isinstance(url, str) or not _SOURCE_URL.fullmatch(url):
+        raise BuildError(f"{label}.url: must be the https address of the source archive")
+    found["url"] = url
+    return found
+
+
 def load_recipe(folder: Path) -> Recipe:
     recipe = _read_toml(folder / "recipe.toml")
     manifest = _read_toml(folder / MANIFEST)
@@ -562,9 +613,18 @@ def load_recipe(folder: Path) -> Recipe:
                 f"{who}: python: a python-entry or python-script command needs a [python] table"
             )
         raise BuildError(f"{who}: requires: a tool that is not Python requires nothing")
+    source_code = {}
+    if "source_code" in recipe:
+        source_code = _source_code(recipe["source_code"], f"{who}: source_code")
+    elif needs_source_code(manifest.get("licence")):
+        raise BuildError(
+            f"{who}: a package under {manifest['licence']} has to say where its source is: give "
+            "recipe.toml a [source_code] table with the commit this build was made from, the "
+            "tag that names it if there is one, and the url of the source archive"
+        )
     return Recipe(
         name, version, build, sources, filled, folder, listed, requires, series,
-        wheel_sources=wheel_sources, dotnet=dotnet,
+        wheel_sources=wheel_sources, dotnet=dotnet, source_code=source_code,
     )  # fmt: skip
 
 
@@ -1552,6 +1612,8 @@ def card(recipe: Recipe, zip_path: Path) -> dict:
         ordinary["backend"] = _check_backends(m["backend"], recipe.name, 4)
     # sources only for a build from source, so every other card stays as published
     sources = {"sources": source_pins(recipe)} if recipe.build_from_source else {}
+    # and the source's own address only for a recipe that gives one, for the same reason
+    code = {"source_code": dict(recipe.source_code)} if recipe.source_code else {}
     return {
         "name": recipe.name,
         "version": recipe.version,
@@ -1567,6 +1629,7 @@ def card(recipe: Recipe, zip_path: Path) -> dict:
         **required,
         **ordinary,
         **sources,
+        **code,
         "file": zip_path.name,
         "size": zip_path.stat().st_size,
         "sha256": sha256_file(zip_path),
@@ -1835,6 +1898,9 @@ def _read_card(path: Path) -> dict:
     sources = data.get("sources", [])
     if not isinstance(sources, list) or not all(isinstance(s, str) for s in sources):
         raise BuildError(f"{path.name}: sources must be a list of strings")
+    # a card written before a build named its source code has none; the notes print what is here
+    if "source_code" in data:
+        _source_code(data["source_code"], f"{path.name}: source_code")
     # Schema 4 metadata is optional so cards from every earlier schema stay readable.
     schema = 4 if "depends" in data or "backend" in data else 1
     depends = _check_depends(data, data["name"], schema, f"{path.name}: depends")
@@ -2047,6 +2113,14 @@ def _notes_requires(card: dict) -> str:
     return ""
 
 
+def _notes_source_code(card: dict) -> str:
+    code = card.get("source_code")
+    if not code:
+        return ""
+    tag = f"tag {code['tag']}, " if "tag" in code else ""
+    return f"Source code: {tag}commit {code['commit']}, {code['url']}\n"
+
+
 def release_notes(card: dict) -> str:
     return (
         f"{card['name']} {card['version']}, build {card['build']}\n"
@@ -2055,6 +2129,7 @@ def release_notes(card: dict) -> str:
         "\n"
         f"Upstream: {card['upstream']}\n"
         f"Licence: {card['licence']}\n"
+        f"{_notes_source_code(card)}"
         f"{_notes_requires(card)}"
         f"Package: {card['file']} ({card['size']} bytes)\n"
         f"SHA-256: {card['sha256']}\n"

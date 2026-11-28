@@ -1,5 +1,5 @@
 version = "0.1"
-build = 1
+build = 2
 
 # Upstream publishes no checksum; this is the official release file's SHA-256.
 [[source]]
@@ -7,3 +7,8 @@ url = "https://github.com/ohpe/juicy-potato/releases/download/v0.1/JuicyPotato.e
 size = 347648
 sha256 = "0f56c703e9b7ddeb90646927bac05a5c6d95308c8e13b88e5d4f4b572423e036"
 to = "files/JuicyPotato.exe"
+
+[source_code]
+tag = "v0.1"
+commit = "8a8c9d7bf0e06f50dfd2b9dc29f4c1e268c3213b"
+url = "https://github.com/ohpe/juicy-potato/archive/refs/tags/v0.1.tar.gz"

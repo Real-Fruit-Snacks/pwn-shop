@@ -3261,3 +3261,160 @@ def test_a_notes_recipe_whose_zip_holds_no_playbooks_fails_to_build(tmp_path, ne
     recipe = build.load_recipe(notes_recipe(tmp_path, net, data=notes_zip({"LICENSE": b"x"})))
     with pytest.raises(build.BuildError, match="files/playbooks: the package holds no .md files"):
         build.build_one(recipe, tmp_path / "dist", tmp_path / "c", fetch_fn=net)
+
+
+# ---- a package under a copyleft licence names the source of its build
+
+SOURCE_CODE = {
+    "tag": "v1.2.1",
+    "commit": "f9e6a1590a4312b9faa093d8dc84e19567977a6d",
+    "url": "https://github.com/DominicBreuker/pspy/archive/refs/tags/v1.2.1.tar.gz",
+}
+
+
+def licensed_recipe(folder, net, licence, source_code=None):
+    folder = make_recipe(folder, net, manifest={**PLAIN_MANIFEST, "licence": licence})
+    if source_code is not None:
+        path = folder / "recipe.toml"
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        path.write_bytes(tomli_w.dumps({**data, "source_code": source_code}).encode())
+    return folder
+
+
+@pytest.mark.parametrize(
+    "licence",
+    ["GPL-3.0", "GPL-3.0-or-later", "GPL-2.0-or-later with additional terms", "LGPL-3.0",
+     "LGPL-2.1-or-later", "AGPL-3.0-only", "MPL-2.0", "MIT and GPL-2.0", "gpl-3.0"],
+)
+def test_a_copyleft_recipe_without_source_code_is_refused(tmp_path, net, capsys, licence):
+    folder = licensed_recipe(tmp_path / "recipes" / "kerbrute", net, licence)
+    with pytest.raises(build.BuildError) as err:
+        build.load_recipe(folder)
+    text = str(err.value)
+    assert text.startswith(f"kerbrute: a package under {licence} has to say where its source is")
+    assert "[source_code]" in text
+    # nothing is built, checked or planned from it
+    for command in ("build", "check"):
+        args = [command, "--recipes", str(tmp_path / "recipes"), "--out", str(tmp_path / "dist"),
+                "--cache", str(tmp_path / "cache")]
+        assert build.main(args) == 1
+    assert build.main(["plan", "--recipes", str(tmp_path / "recipes")]) == 1
+    assert "[source_code]" in capsys.readouterr().err
+    assert not (tmp_path / "dist").exists()
+
+
+@pytest.mark.parametrize(
+    "licence",
+    ["MIT", "Apache-2.0", "Apache-2.0 with additional notices", "BSD-3-Clause", "CC-BY-4.0",
+     "PSF-2.0 and others (see LICENSE)", "SIMPL-2.0"],
+)
+def test_a_recipe_under_another_licence_needs_no_source_code(tmp_path, net, licence):
+    recipe = build.load_recipe(licensed_recipe(tmp_path / "recipes" / "kerbrute", net, licence))
+    assert recipe.source_code == {}
+    assert not build.needs_source_code(licence)
+
+
+def test_a_recipe_s_source_code_is_read(tmp_path, net):
+    folder = licensed_recipe(tmp_path / "recipes" / "kerbrute", net, "GPL-3.0", SOURCE_CODE)
+    assert build.load_recipe(folder).source_code == SOURCE_CODE
+    # a commit with no tag is enough: upstream may have no releases
+    untagged = {k: v for k, v in SOURCE_CODE.items() if k != "tag"}
+    folder = licensed_recipe(tmp_path / "recipes" / "kerbrute", net, "GPL-3.0", untagged)
+    assert build.load_recipe(folder).source_code == untagged
+
+
+def test_any_recipe_may_name_its_source_code(tmp_path, net):
+    folder = licensed_recipe(tmp_path / "recipes" / "kerbrute", net, "MIT", SOURCE_CODE)
+    assert build.load_recipe(folder).source_code == SOURCE_CODE
+
+
+@pytest.mark.parametrize(
+    "change, message",
+    [
+        ({"commit": None}, "source_code.commit: must be the full commit hash"),
+        ({"commit": "f9e6a15"}, "source_code.commit: must be the full commit hash"),
+        ({"commit": "F9E6A1590A4312B9FAA093D8DC84E19567977A6D"}, "source_code.commit"),
+        ({"commit": "v1.2.1"}, "source_code.commit"),
+        ({"commit": 1}, "source_code.commit"),
+        ({"tag": ""}, "source_code.tag: must be the upstream tag's name"),
+        ({"tag": "v1.2.1 final"}, "source_code.tag"),
+        ({"tag": "[v1.2.1](https://example.invalid)"}, "source_code.tag"),
+        ({"tag": "@someone"}, "source_code.tag"),
+        ({"tag": "v1\nUpstream: x"}, "source_code.tag"),
+        ({"tag": 1}, "source_code.tag"),
+        ({"url": None}, "source_code.url: must be the https address of the source archive"),
+        ({"url": "http://github.com/DominicBreuker/pspy/archive/v1.2.1.tar.gz"}, "source_code.url"),
+        ({"url": "https://github.com/"}, "source_code.url"),
+        ({"url": "https://github.com/a b.tar.gz"}, "source_code.url"),
+        ({"url": "https://github.com/x.tar.gz) [here](https://example.invalid"}, "source_code.url"),
+        ({"url": "https://github.com/x.tar.gz\nLicence: MIT"}, "source_code.url"),
+        ({"ref": "v1.2.1"}, "source_code: unknown key 'ref'"),
+        ({"sha256": "a" * 64}, "source_code: unknown key 'sha256'"),
+        ({"urls": "x"}, "source_code: unknown key 'urls'; did you mean 'url'?"),
+    ],
+)
+def test_a_source_code_table_that_is_not_exact_is_refused(tmp_path, net, change, message):
+    table = {k: v for k, v in {**SOURCE_CODE, **change}.items() if v is not None}
+    folder = licensed_recipe(tmp_path / "recipes" / "kerbrute", net, "GPL-3.0", table)
+    with pytest.raises(build.BuildError) as err:
+        build.load_recipe(folder)
+    assert f"kerbrute: {message}" in str(err.value)
+
+
+def test_source_code_that_is_not_a_table_is_refused(tmp_path, net):
+    folder = licensed_recipe(tmp_path / "recipes" / "kerbrute", net, "GPL-3.0", SOURCE_CODE["url"])
+    with pytest.raises(build.BuildError, match="kerbrute: source_code: must be a table"):
+        build.load_recipe(folder)
+
+
+def test_a_commit_hash_of_either_length_is_taken():
+    for commit in ("a" * 40, "0123456789abcdef" * 4):
+        assert build._source_code({"commit": commit, "url": SOURCE_CODE["url"]}, "x")["commit"] == commit
+    for commit in ("a" * 39, "a" * 41, "a" * 63, "a" * 65, "g" * 40):
+        with pytest.raises(build.BuildError, match="x.commit"):
+            build._source_code({"commit": commit, "url": SOURCE_CODE["url"]}, "x")
+
+
+def test_the_card_names_the_source_code_and_the_index_does_not(tmp_path, net):
+    recipe = build.load_recipe(licensed_recipe(tmp_path / "recipes" / "kerbrute", net, "GPL-3.0", SOURCE_CODE))
+    out = tmp_path / "dist"
+    zip_path = build.build_one(recipe, out, tmp_path / "cache", fetch_fn=net)
+    card_path = zip_path.with_suffix(".toml")
+    card = tomllib.loads(card_path.read_text(encoding="utf-8"))
+    assert card["source_code"] == SOURCE_CODE
+    # the zip is the package pwn-broker reads: nothing about the source goes into it
+    with zipfile.ZipFile(zip_path) as zf:
+        assert sorted(zf.namelist()) == ["LICENSE", "files/kerbrute", "manifest.toml"]
+        assert "source_code" not in tomllib.loads(zf.read("manifest.toml").decode())
+    # and the index is made of the fields pwn-broker reads, so it holds no key of this one
+    index_path = build.write_index_from_cards(out, out / "index.toml", base_url="https://h/{tag}/{file}")
+    text = index_path.read_text(encoding="utf-8")
+    assert "source_code" not in text and SOURCE_CODE["commit"] not in text
+    del card["source_code"]
+    card_path.write_bytes(tomli_w.dumps(card).encode())
+    again = build.write_index_from_cards(out, out / "again.toml", base_url="https://h/{tag}/{file}")
+    assert again.read_bytes() == index_path.read_bytes()
+
+
+def test_a_card_has_no_source_code_when_the_recipe_has_none(tmp_path, net):
+    # so every build published before a recipe named its source still rebuilds to its own card
+    recipe = build.load_recipe(make_recipe(tmp_path / "recipes" / "kerbrute", net))
+    zip_path = build.build_one(recipe, tmp_path / "dist", tmp_path / "cache", fetch_fn=net)
+    card = tomllib.loads(zip_path.with_suffix(".toml").read_text(encoding="utf-8"))
+    assert list(card) == [
+        "name", "version", "build", "kind", "description", "tags", "upstream", "licence", "arch",
+        "needs_root", "commands", "file", "size", "sha256",
+    ]
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["https://example.invalid/x.tar.gz", {"tag": "v1"}, {**SOURCE_CODE, "commit": "f9e6a15"},
+     {**SOURCE_CODE, "extra": "x"}],
+)
+def test_a_card_whose_source_code_is_not_exact_is_refused(tmp_path, capsys, value):
+    card = {**cardf(), "source_code": value}
+    (tmp_path / "kerbrute-1.0.3-1.toml").write_text(tomli_w.dumps(card), encoding="utf-8")
+    assert build.main(["index", str(tmp_path), "--out", str(tmp_path / "i.toml")]) == 1
+    assert "kerbrute-1.0.3-1.toml: source_code" in capsys.readouterr().err
+    assert build.main(["notes", str(tmp_path / "kerbrute-1.0.3-1.toml")]) == 1

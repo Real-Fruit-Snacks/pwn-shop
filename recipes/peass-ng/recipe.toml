@@ -1,6 +1,6 @@
 # Upstream publishes several releases a day; this is the one from 2026-11-22, tag 20261122-25957cb1.
 version = "2026.11.22"
-build = 1
+build = 2
 
 # Upstream publishes no checksum file. Each SHA-256 can be checked against the digest GitHub
 # shows for that asset on the release page of tag 20261122-25957cb1.
@@ -28,3 +28,10 @@ url = "https://github.com/peass-ng/PEASS-ng/releases/download/20261122-25957cb1/
 size = 43707
 sha256 = "cd45a0db52a7a887e34622c0af501cfcd67b65267517fe9964bd2d5af2e9d1a2"
 to = "files/winPEAS.bat"
+
+# The end of upstream's tag is not a commit of its repository; the commit is the one
+# the tag names, which is also the release's target.
+[source_code]
+tag = "20261122-25957cb1"
+commit = "9b04c047c407c82b37f1f693394b2957842161fb"
+url = "https://github.com/peass-ng/PEASS-ng/archive/refs/tags/20261122-25957cb1.tar.gz"

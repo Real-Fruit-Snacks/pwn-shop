@@ -1,2 +1,9 @@
 version = "2.0.0"
-build = 1
+build = 2
+
+# The wheel comes from PyPI (requirements.lock). Every file of the sshuttle module in it
+# is byte for byte the file at this tag.
+[source_code]
+tag = "v2.0.0"
+commit = "a25c6862ba6b51569105e3108a9caa224521f0cb"
+url = "https://github.com/sshuttle/sshuttle/archive/refs/tags/v2.0.0.tar.gz"

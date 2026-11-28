@@ -1,5 +1,5 @@
 version = "1.0.244"
-build = 1
+build = 2
 
 # Upstream publishes no checksums. The SHA-256 is that of the file as first downloaded.
 
@@ -8,3 +8,8 @@ url = "https://github.com/SnaffCon/Snaffler/releases/download/1.0.244/Snaffler.e
 size = 494592
 sha256 = "397b22a956545ba9cd5f03f0f61cb16e4760db21be97f979a5cfc059c2f854ca"
 to = "files/Snaffler.exe"
+
+[source_code]
+tag = "1.0.244"
+commit = "50ed78372b2cdf6df5a61cfdf6fd49c0d575331f"
+url = "https://github.com/SnaffCon/Snaffler/archive/refs/tags/1.0.244.tar.gz"

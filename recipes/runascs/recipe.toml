@@ -1,5 +1,5 @@
 version = "1.5"
-build = 2
+build = 3
 
 # Upstream publishes no checksums. The SHA-256 is that of the file as first downloaded.
 
@@ -24,3 +24,8 @@ url = "https://raw.githubusercontent.com/antonioCoco/RunasCs/a1e47b55952fadd46bf
 size = 88284
 sha256 = "69058ca0c4eada431047c0376db8a4728feffbacebbb9578e59f4c9113a342ca"
 to = "files/Invoke-RunasCs.ps1"
+
+[source_code]
+tag = "v1.5"
+commit = "a1e47b55952fadd46bf097be74a6efbcbe846c2b"
+url = "https://github.com/antonioCoco/RunasCs/archive/refs/tags/v1.5.tar.gz"

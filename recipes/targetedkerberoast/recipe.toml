@@ -1,9 +1,13 @@
 # Upstream has no releases: the version is the date of the pinned commit.
 version = "2024.12.16"
-build = 3
+build = 4
 
 [[source]]
 url = "https://raw.githubusercontent.com/ShutdownRepo/targetedKerberoast/ebed0790002dfae503eb5e5525a0630f131fa117/targetedKerberoast.py"
 size = 33921
 sha256 = "a42b96f51efcdff7a38ed095dd26998412206b5ed141da548ebe8d0526d229b2"
 to = "files/targetedKerberoast.py"
+
+[source_code]
+commit = "ebed0790002dfae503eb5e5525a0630f131fa117"
+url = "https://github.com/ShutdownRepo/targetedKerberoast/archive/ebed0790002dfae503eb5e5525a0630f131fa117.tar.gz"

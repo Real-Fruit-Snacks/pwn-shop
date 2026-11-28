@@ -1,5 +1,5 @@
 version = "2.3.0"
-build = 1
+build = 2
 build_from_source = ["cprint", "ratelimit"]
 
 [[source]]
@@ -7,3 +7,8 @@ url = "https://raw.githubusercontent.com/ticarpi/jwt_tool/v2.3.0/jwt_tool.py"
 size = 104967
 sha256 = "8ca48c1b5b519a583d9eafec37e3933a3c5ffc05b171422bd8ce3b742fbc0e6c"
 to = "files/jwt_tool.py"
+
+[source_code]
+tag = "v2.3.0"
+commit = "3bc7407cf2222d6a821dcc19c776e5a1b1cb9a9b"
+url = "https://github.com/ticarpi/jwt_tool/archive/refs/tags/v2.3.0.tar.gz"

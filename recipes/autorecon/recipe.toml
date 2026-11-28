@@ -1,6 +1,6 @@
 # Upstream has no releases: the version is the date of the pinned commit.
 version = "2026.11.03"
-build = 1
+build = 2
 
 [[source]]
 url = "https://github.com/Tib3rius/AutoRecon/archive/bf40763dcc58f547680645616b1ee4155baf2e7a.zip"
@@ -8,3 +8,8 @@ size = 562816
 sha256 = "06ecdc776157bab5e7cc3e27c19517d999f2d262585cb5f083284209d5a813f9"
 unpack = true
 to = "files/autorecon"
+
+# The package is this commit's own files, so the archive is the source above.
+[source_code]
+commit = "bf40763dcc58f547680645616b1ee4155baf2e7a"
+url = "https://github.com/Tib3rius/AutoRecon/archive/bf40763dcc58f547680645616b1ee4155baf2e7a.zip"

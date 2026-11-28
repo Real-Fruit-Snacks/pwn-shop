@@ -1,5 +1,5 @@
 version = "1.0"
-build = 1
+build = 2
 
 # Upstream publishes no checksum; both members come from the official release zip.
 [[source]]
@@ -15,3 +15,8 @@ size = 147122
 sha256 = "615b79f1390ff1168e8bcd72f733c74d4b10fe74855f90229188b3ee14e257a5"
 member = "RogueOxidResolver.exe"
 to = "files/RogueOxidResolver.exe"
+
+[source_code]
+tag = "1.0"
+commit = "d6156c309107de4cb72747e2fa84ca77a9fb5808"
+url = "https://github.com/antonioCoco/RoguePotato/archive/refs/tags/1.0.tar.gz"

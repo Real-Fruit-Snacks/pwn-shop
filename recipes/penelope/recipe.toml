@@ -1,2 +1,9 @@
 version = "0.21.0"
-build = 1
+build = 2
+
+# The wheel comes from PyPI (requirements.lock). Its penelope.py is byte for byte the
+# file at this tag.
+[source_code]
+tag = "v0.21.0"
+commit = "9b1cb3c86885dc45291f8475092b70041b4e14da"
+url = "https://github.com/brightio/penelope/archive/refs/tags/v0.21.0.tar.gz"
