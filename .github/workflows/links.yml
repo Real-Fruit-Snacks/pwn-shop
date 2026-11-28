@@ -17,7 +17,7 @@ jobs:
   lychee:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # A link to one of this repository's own files on main is checked against the checkout:
       # github.com answers 503 to a checker now and then for its larger pages, and the file
       # on disk is the one that link will show once this commit is on main.
