@@ -1,11 +1,11 @@
-version = "0.1.0"
+version = "0.1.1"
 build = 1
 build_from_source = ["pwn-report"]
 
 # pwn-report's own release; the SHA-256 is the one in that release's SHA256SUMS.txt
 [[wheel_source]]
 name = "pwn-report"
-version = "0.1.0"
-url = "https://github.com/Real-Fruit-Snacks/pwn-report/releases/download/v0.1.0/pwn_report-0.1.0.tar.gz"
-size = 569285
-sha256 = "2b011b88e9e3a80cbaaa40c4332babb8cd0f44466da388b4f4244558cff49fcb"
+version = "0.1.1"
+url = "https://github.com/Real-Fruit-Snacks/pwn-report/releases/download/v0.1.1/pwn_report-0.1.1.tar.gz"
+size = 1009409
+sha256 = "47ef370961e3a47f2fbb38931b94b9abfe64c3efde83d9832bd048f2a83ea018"

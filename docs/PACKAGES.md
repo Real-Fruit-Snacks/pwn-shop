@@ -64,14 +64,14 @@ pwn-broker keeps a Hack The Box machine in order on Kali Linux, and its `tool in
 | `netexec` | 1.5.1 | kali | `nxc`, `netexec`, `nxcdb`, on `python-3.13` | BSD-2-Clause |
 | `peass-ng` | 2026.11.22 | upload | to upload: `linpeas.sh`, `winPEASx64.exe`, `winPEASany.exe`, `winPEAS.bat` | GPL-2.0-or-later with additional terms |
 | `penelope` | 0.21.0 | kali | `penelope`, on `python-3.13` | GPL-3.0-or-later |
-| `playbooks` | 2026.11.26 | notes | playbooks to read into the note window with `:Pb <name>` | CC-BY-4.0 |
+| `playbooks` | 2026.11.27 | notes | playbooks to read into the note window with `:Pb <name>` | CC-BY-4.0 |
 | `plink` | 0.85 | upload | to upload: `plink.exe`, `plink32.exe` | MIT |
 | `powerview` | 2020.08.17 | upload | to upload: `PowerView.ps1` | BSD-3-Clause |
 | `privesccheck` | 2026.10.28-1 | upload | to upload: `PrivescCheck.ps1` | BSD-3-Clause |
 | `pspy` | 1.2.1 | upload | to upload: `pspy64`, `pspy32`, `pspy64s`, `pspy32s` | GPL-3.0 |
 | `pypykatz` | 0.6.13 | kali | `pypykatz`, on `python-3.13` | MIT |
 | `python-3.13` | 3.13.18 | runtime | nothing on PATH; the Python that the Python tools run on | PSF-2.0 and others (see its `LICENSE`) |
-| `report` | 0.1.0 | kali | `pwn-report`, on `python-3.13` | MIT |
+| `report` | 0.1.1 | kali | `pwn-report`, on `python-3.13` | MIT |
 | `roguepotato` | 1.0 | upload | to upload: `RoguePotato.exe`, `RogueOxidResolver.exe` | GPL-3.0 |
 | `rubeus` | 2025.11.14 | upload | to upload: `Rubeus.exe` | BSD-3-Clause |
 | `runascs` | 1.5 | upload | to upload: `RunasCs.exe`, `RunasCs_net2.exe`, `Invoke-RunasCs.ps1` | GPL-3.0 |
