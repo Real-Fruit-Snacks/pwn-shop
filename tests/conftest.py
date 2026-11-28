@@ -79,7 +79,7 @@ PLAIN_MANIFEST = {
 }
 
 
-# design 8.14's playbooks manifest, as a recipe holds it
+# the playbooks manifest of "Adding notes" in CONTRIBUTING.md, as a recipe holds it
 NOTES_MANIFEST = {
     "kind": "notes",
     "description": "Playbooks to read into the note and fill in",
