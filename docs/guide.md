@@ -40,11 +40,119 @@ That writes `dist/` with the zips, a card for each, `dist/sums/<tag>/SHA256SUMS.
 
 ## The package format
 
-A package is one zip for one build of one tool: `manifest.toml`, the upstream licence as `LICENSE`, the tool's files under `files/`, and for a Python tool every dependency as a wheel under `wheels/`, each recorded with its SHA-256 in `wheels.lock`. Most tool files are exactly as upstream published them. A Python dependency with no suitable wheel can be built from a pinned source archive, and Rubeus is built from its pinned official source. The format is the one pwn-broker reads, described in its `docs/design.md`, section 8.
+A package is one zip for one build of one tool: `manifest.toml`, the upstream licence as `LICENSE`, the tool's files under `files/`, and for a Python tool every dependency as a wheel under `wheels/`, each recorded with its SHA-256 in `wheels.lock`. Most tool files are exactly as upstream published them. A Python dependency with no suitable wheel can be built from a pinned source archive, and Rubeus is built from its pinned official source. The format is the one pwn-broker reads. It is written down here, with [the manifest](#the-manifest) and [the index](#the-index) below and each rule in [CONTRIBUTING.md](../CONTRIBUTING.md#manifest-rules); pwn-broker's [guide](https://github.com/Real-Fruit-Snacks/pwn-broker/blob/main/docs/guide.md#what-a-package-is) says what it does with a package.
 
 No tool binary is committed here. A recipe (`recipes/<tool>/recipe.toml`) names each upstream file by its address, size and SHA-256, and where it goes in the package; a source may be a bare file, one member of a `tar.gz` or `zip`, or a whole `zip` unpacked into a folder under `files/`. `build.py` downloads it, refuses it if the size or the SHA-256 differs, and writes the zip. The zip's entries are stored, not compressed, with a fixed date and no executable bits, so its bytes do not depend on the machine that built it. pwn-broker makes everything under `files/` executable when it installs.
 
 Kind `kali` puts a command on the machine, `upload` puts files in a folder to carry to the target, and `both` does both. A `runtime` is never installed on its own: `tool install` and `tool remove` refuse its name, and it comes and goes with the tools that require it. A `notes` package puts nothing on PATH and nothing to upload: it holds files to read, such as the playbooks pwn-broker's note window reads with `:Pb`. Its manifest is schema 3, which pwn-broker 0.1.7 and later read. An index also containing schema-4 metadata is schema 4, so a current mixed catalog needs pwn-broker 0.1.14 or later; an older pwn-broker refuses an index whose schema it does not know and says to upgrade.
+
+## The manifest
+
+`manifest.toml` says what the package is and what pwn-broker is to put on the machine from it. This is `ligolo-ng` 0.9.2 build 1's, laid out as its recipe writes it, with the `name`, `version` and `build` that `build.py` takes from `recipe.toml`:
+
+```toml
+schema = 1
+name = "ligolo-ng"
+version = "0.9.2"
+build = 1
+kind = "both"
+description = "Tunnelling and pivoting into internal networks"
+tags = ["pivot", "tunnel", "linux", "windows"]
+upstream = "https://github.com/nicocha30/ligolo-ng"
+licence = "GPL-3.0"
+arch = "x86_64"
+needs_root = true
+examples = [
+  "ligolo-proxy -selfcert",
+  "./agent -connect {lhost}:11601 -ignore-cert",
+  "agent.exe -connect {lhost}:11601 -ignore-cert",
+]
+
+[[command]]
+name = "ligolo-proxy"
+type = "binary"
+path = "files/proxy"
+
+[[upload]]
+path = "files/agent"
+as = "agent"
+note = "Linux x86_64"
+
+[[upload]]
+path = "files/agent.exe"
+as = "agent.exe"
+note = "Windows x86_64"
+
+[data]
+home = [".ligolo-proxy"]
+```
+
+| Key | Holds |
+|---|---|
+| `schema` | 1, 2, 3 or 4: the oldest format that can say what the package needs. See [the runtime](#the-runtime) for which is which |
+| `name`, `version`, `build` | The tool, upstream's version and this repository's build of it. The zip is `<name>-<version>-<build>.zip`. A recipe's `manifest.toml` may leave all three out, with `schema`: `build.py` fills them from `recipe.toml` |
+| `kind` | `kali`, `upload`, `both`, `runtime` or `notes` |
+| `description`, `tags` | One line about the tool, and words for it. `tool search` looks in both and in the name |
+| `upstream`, `licence` | The project's address and the name of its licence. The licence's text is the package's `LICENSE` |
+| `arch` | `x86_64`, or `any` for a `notes` package, which runs nothing |
+| `needs_root` | `true` when the command has to be run with `sudo`. Left out, it is `false` |
+| `examples` | Command lines to show for the tool. `{ip}`, `{hostname}` and `{domain}` stand for the current target and `{lhost}` for the VPN address |
+| `requires` | From schema 2: the one runtime a Python tool runs on, as `["python-3.13"]` |
+| `depends`, `[[backend]]` | Schema 4: the packages a tool always needs, and its optional features. See [ordinary tool dependencies and optional backends](#ordinary-tool-dependencies-and-optional-backends) |
+| `[[command]]` | A command for PATH, in kinds `kali` and `both`: its `name`, its `type`, and the file it runs. `binary` has a `path`, `python-script` a `script`, and `python-entry` an `entry`, the name of a console script. `args` are put before the user's own and `env` is a table of variables; in both, `{data}` stands for the box's folder for the tool's data |
+| `[[upload]]` | A file to carry to the target, in kinds `upload` and `both`: its `path` in the package, the name it is given `as`, and a `note` about it, which may be left out |
+| `[data]` | `home`: the paths under the home folder that the tool writes to, which pwn-broker moves into the box at `finish` |
+| `[python]` | A Python tool only: `lock` and `wheels`, the package's `wheels.lock` and its folder of wheels. `build.py` fills both |
+| `[runtime]` | A `runtime` only: `archive`, the Python archive in the package; `python`, the interpreter inside it once unpacked; and `series`, such as `3.13` |
+| `[notes]` | A `notes` package only: `root`, the folder of `.md` files |
+
+[CONTRIBUTING.md](../CONTRIBUTING.md#manifest-rules) has what each key may hold, and `build.py check` applies those rules to a recipe and to the manifest inside a zip. A key that is not in this table is refused. Inside the zip, `build.py` writes the same manifest with its `[[command]]` and `[[upload]]` tables in TOML's inline form. A package holds no install script.
+
+pwn-broker refuses a manifest or an index whose `schema` it does not know and says to upgrade. So a change to either format is released in pwn-broker first and used in a package afterwards.
+
+## The index
+
+`index.toml` names every published build. pwn-broker and `fetch.sh` read it, and `build.py index` writes it from the cards of the releases. pwn-broker's [guide](https://github.com/Real-Fruit-Snacks/pwn-broker/blob/main/docs/guide.md#the-tools-index) says where it looks for the index and how long it keeps a copy. This is `kerbrute` in the published index:
+
+```toml
+schema = 4
+
+[[tool]]
+name = "kerbrute"
+description = "Kerberos user enumeration and password spraying"
+tags = [
+    "ad",
+    "kerberos",
+    "enum",
+    "bruteforce",
+]
+licence = "Apache-2.0"
+upstream = "https://github.com/ropnop/kerbrute"
+latest = "1.0.3-1"
+
+[[tool.build]]
+version = "1.0.3"
+build = 1
+kind = "kali"
+needs_root = false
+commands = [
+    "kerbrute",
+]
+file = "kerbrute-1.0.3-1.zip"
+url = "https://github.com/Real-Fruit-Snacks/pwn-shop/releases/download/kerbrute-v1.0.3-1/kerbrute-1.0.3-1.zip"
+size = 8298909
+sha256 = "fc399df537955ca34fe6191f04596af85baed797ec35dd94e2fcdd3bbf85b425"
+```
+
+- `schema` is the highest that any build in the index needs: 4 with a build that has `depends` or a backend, otherwise 3 with a `notes` build, otherwise 2 with a runtime or a build that requires one, otherwise 1.
+- There is one `[[tool]]` for each package, in the order of their names, with one `[[tool.build]]` for each published build of it, oldest first, in the order [Versions and builds](#versions-and-builds) gives. `latest` is the last of them, written `<version>-<build>`, and `description`, `tags`, `licence` and `upstream` are that build's.
+- A build has its `version`, `build`, `kind` and `needs_root`, and `commands`, the names it puts on PATH. No two tools' latest builds may have a command of one name.
+- `requires`, `depends` and the build's `[[tool.build.backend]]` tables are as in the manifest, and each is left out when it is empty. A backend has a `name`, a `description`, its `commands`, and either a `package` or a list of `apt` names. Every package named has to be in the index: a runtime for `requires`, and an installable tool for `depends` and for a backend's `package`.
+- `file` is the zip's name, and `size` and `sha256` are the zip's. pwn-broker checks a zip against both before it uses it.
+- `url` is the zip's address on its own release. In the index that `build.py build` writes into a folder it is the file name alone, since a folder is read by file name.
+- The file has only the three kinds of table shown and named here, `[[tool]]`, `[[tool.build]]` and `[[tool.build.backend]]`, and `fetch.sh` refuses any other.
+
+A card is the small file published beside each zip, named as the zip with `.toml`. It holds the manifest's `name`, `version`, `build`, `kind`, `description`, `tags`, `upstream`, `licence`, `arch` and `needs_root`, the names of its `commands`, its `requires`, `depends` and `backend` when it has any, the pins of whatever it built from source as `sources`, and the zip's `file`, `size` and `sha256`. The index is written from the cards alone, so no zip is downloaded to write it, and CI compares a rebuilt package with its published card.
 
 ## The runtime
 
@@ -115,7 +223,7 @@ CI runs on pushes to `main` and on pull requests. A push run is never cancelled,
 - `kali`: the official Kali image (not pinned, on purpose), with pwn-broker installed in it. The container's network is switched off, the check confirms that nothing resolves or answers, then each recipe's current build is installed from the built folder index with pwn-broker's own code and each command started with `--help` or `-h`. Older builds are not tested there. The evidence folder is uploaded whatever the result.
 - `publish`, on `main` only, after every other job: so a build that fails on the Kali of the day is not published. It publishes one GitHub release per new build, tagged `<tool>-v<version>-<build>` and holding the zip, `SHA256SUMS.txt` and a card, with notes from `build.py notes`. Then it rebuilds the index from every release's card and replaces `index.toml` on the release tagged `index`, only when it changed. `gh release create` makes a draft, uploads the files and then publishes it, so a run that stops in between leaves a draft. A draft is not a release anywhere in CI: it is not counted as published and its card is not indexed, and `publish` deletes a draft of the tag it is about to make, so the next run publishes that build whole.
 
-The releases are read from the API a page at a time, so their number has no limit. Every action is pinned to a full commit, with its version in a comment beside it.
+The releases are read from the API a page at a time, so their number has no limit. Every action is pinned to a full commit, with its version in a comment beside it. Nothing moves a pin forward on its own, so once a month Dependabot (`.github/dependabot.yml`) opens one pull request that raises every pin that has a newer release, the commit and its comment together. It watches the actions only: the Python pins and locks are raised by hand.
 
 Do not turn on immutable releases for this repository: the index file could not be replaced.
 
