@@ -1,0 +1,13 @@
+# The workflows pin each action to a commit, so nothing moves them forward on its own. Once a
+# month Dependabot opens one pull request that raises every pin that has a newer release, the
+# commit and the version in its comment together. It watches the actions only: the Python pins
+# and locks are raised by hand.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ['*']
