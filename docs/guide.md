@@ -152,7 +152,7 @@ sha256 = "fc399df537955ca34fe6191f04596af85baed797ec35dd94e2fcdd3bbf85b425"
 - `url` is the zip's address on its own release. In the index that `build.py build` writes into a folder it is the file name alone, since a folder is read by file name.
 - The file has only the three kinds of table shown and named here, `[[tool]]`, `[[tool.build]]` and `[[tool.build.backend]]`, and `fetch.sh` refuses any other.
 
-A card is the small file published beside each zip, named as the zip with `.toml`. It holds the manifest's `name`, `version`, `build`, `kind`, `description`, `tags`, `upstream`, `licence`, `arch` and `needs_root`, the names of its `commands`, its `requires`, `depends` and `backend` when it has any, the pins of whatever it built from source as `sources`, and the zip's `file`, `size` and `sha256`. The index is written from the cards alone, so no zip is downloaded to write it, and CI compares a rebuilt package with its published card.
+A card is the small file published beside each zip, named as the zip with `.toml`. It holds the manifest's `name`, `version`, `build`, `kind`, `description`, `tags`, `upstream`, `licence`, `arch` and `needs_root`, the names of its `commands`, its `requires`, `depends` and `backend` when it has any, the pins of whatever it built from source as `sources`, the recipe's `source_code` when it has one, and the zip's `file`, `size` and `sha256`. `source_code` is on the card only: the index leaves it out. The index is written from the cards alone, so no zip is downloaded to write it, and CI compares a rebuilt package with its published card.
 
 ## The runtime
 
