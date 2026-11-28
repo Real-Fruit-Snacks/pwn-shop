@@ -1,5 +1,5 @@
 version = "1.4.2"
-build = 2
+build = 3
 
 # Upstream lists these SHA-256 values in SHA256SUMS.txt; the downloads match.
 
@@ -16,3 +16,8 @@ size = 2623248
 sha256 = "c533f2a104d90c796ba3804c0fb7fb05d52c114a1b303d28802ffae46ba7245b"
 member = "shell-tunnel.exe"
 to = "files/shell-tunnel.exe"
+
+[source_code]
+tag = "v1.4.2"
+commit = "d60e29c9d62ecab34bf4fa00f189b910873b529d"
+url = "https://github.com/Real-Fruit-Snacks/shell-tunnel/archive/refs/tags/v1.4.2.tar.gz"

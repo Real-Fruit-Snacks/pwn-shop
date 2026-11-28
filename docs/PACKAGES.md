@@ -96,6 +96,30 @@ The [guide](guide.md) has the package format, the runtime, `build.py` and CI. [C
 - Before anything is published, CI installs every package with pwn-broker's own code, then again inside the Kali image with the network off.
 - A published build is never changed. A fix is a new build.
 
+## Source code
+
+Fifteen packages are under the GPL or the LGPL, which have whoever passes a program on say where its source is. pwn-shop hosts no source archives: each of those packages names the upstream commit its files were made from, the tag that names that commit when upstream has one, and upstream's own source archive for it. The same line is in the build's release notes and in its card, beside the zip. These are the sources of the current builds:
+
+| Package | Tag | Commit | Source archive |
+|---|---|---|---|
+| `autorecon` | none | `bf40763dcc58f547680645616b1ee4155baf2e7a` | <https://github.com/Tib3rius/AutoRecon/archive/bf40763dcc58f547680645616b1ee4155baf2e7a.zip> |
+| `juicypotato` | `v0.1` | `8a8c9d7bf0e06f50dfd2b9dc29f4c1e268c3213b` | <https://github.com/ohpe/juicy-potato/archive/refs/tags/v0.1.tar.gz> |
+| `jwt-tool` | `v2.3.0` | `3bc7407cf2222d6a821dcc19c776e5a1b1cb9a9b` | <https://github.com/ticarpi/jwt_tool/archive/refs/tags/v2.3.0.tar.gz> |
+| `lazagne` | `v2.4.7` | `a678a971c06710b0041ee5ff8488ccef9c7ce3ed` | <https://github.com/AlessandroZ/LaZagne/archive/refs/tags/v2.4.7.tar.gz> |
+| `ligolo-ng` | `v0.9.2` | `e543732f4be6dc899096ae322ae620bf010bfbfc` | <https://github.com/nicocha30/ligolo-ng/archive/refs/tags/v0.9.2.tar.gz> |
+| `peass-ng` | `20261122-25957cb1` | `9b04c047c407c82b37f1f693394b2957842161fb` | <https://github.com/peass-ng/PEASS-ng/archive/refs/tags/20261122-25957cb1.tar.gz> |
+| `penelope` | `v0.21.0` | `9b1cb3c86885dc45291f8475092b70041b4e14da` | <https://github.com/brightio/penelope/archive/refs/tags/v0.21.0.tar.gz> |
+| `pspy` | `v1.2.1` | `f9e6a1590a4312b9faa093d8dc84e19567977a6d` | <https://github.com/DominicBreuker/pspy/archive/refs/tags/v1.2.1.tar.gz> |
+| `roguepotato` | `1.0` | `d6156c309107de4cb72747e2fa84ca77a9fb5808` | <https://github.com/antonioCoco/RoguePotato/archive/refs/tags/1.0.tar.gz> |
+| `runascs` | `v1.5` | `a1e47b55952fadd46bf097be74a6efbcbe846c2b` | <https://github.com/antonioCoco/RunasCs/archive/refs/tags/v1.5.tar.gz> |
+| `sharphound` | `v2.18.0` | `d82326c2a0ac068a87718c7ad7f214a4f0969c53` | <https://github.com/SpecterOps/SharpHound/archive/refs/tags/v2.18.0.tar.gz> |
+| `shell-tunnel` | `v1.4.2` | `d60e29c9d62ecab34bf4fa00f189b910873b529d` | <https://github.com/Real-Fruit-Snacks/shell-tunnel/archive/refs/tags/v1.4.2.tar.gz> |
+| `snaffler` | `1.0.244` | `50ed78372b2cdf6df5a61cfdf6fd49c0d575331f` | <https://github.com/SnaffCon/Snaffler/archive/refs/tags/1.0.244.tar.gz> |
+| `sshuttle` | `v2.0.0` | `a25c6862ba6b51569105e3108a9caa224521f0cb` | <https://github.com/sshuttle/sshuttle/archive/refs/tags/v2.0.0.tar.gz> |
+| `targetedkerberoast` | none | `ebed0790002dfae503eb5e5525a0630f131fa117` | <https://github.com/ShutdownRepo/targetedKerberoast/archive/ebed0790002dfae503eb5e5525a0630f131fa117.tar.gz> |
+
+`autorecon` and `targetedkerberoast` have no upstream releases and are pinned to a commit. `penelope` and `sshuttle` are wheels from PyPI whose files are byte for byte the ones at the tag. The first build of each that names its source is `autorecon` 2026.11.03 build 2, `runascs` 1.5 build 3, `shell-tunnel` 1.4.2 build 3, `targetedkerberoast` 2024.12.16 build 4, and build 2 of the other eleven; the builds published before those have no such line, and were made from the same upstream files. The [guide](guide.md#source-code) has the rule and where the line is written.
+
 ## Tested on
 
 - The unit tests on Windows 11 with Python 3.13, and on Ubuntu 24.04 in CI under Python 3.11, 3.12, 3.13 and 3.14, with warnings treated as errors
@@ -117,7 +141,7 @@ The [guide](guide.md) has the package format, the runtime, `build.py` and CI. [C
 
 ## Known issues
 
-- Packages are x86_64 with glibc only. Build 3 of `certipy` and `targetedkerberoast` carries wheels for its runtime's Python 3.13 only.
+- Packages are x86_64 with glibc only. From build 3 on, `certipy` and `targetedkerberoast` carry wheels for their runtime's Python 3.13 only.
 - The index and the packages are not signed. The SHA-256 values in the index are the only check: they catch a corrupted or swapped zip, not who published the index.
 - `kerbrute` and `pspy` publish no checksums upstream. Their pins are the SHA-256 of each file as first downloaded.
 - Kali's own `ligolo-ng` package also installs a command named `ligolo-proxy`. While this package is installed a bare `ligolo-proxy` runs this one, but `sudo` does not use PATH, so `sudo ligolo-proxy` runs Kali's. Use `sudo /opt/pwn-broker/bin/ligolo-proxy`, the path `tool install` prints.
@@ -129,7 +153,7 @@ The [guide](guide.md) has the package format, the runtime, `build.py` and CI. [C
 - `autorecon` bundles its Python code and dependencies, but its scans call nmap and other Kali system tools. Install those base tools separately; the package check starts the CLI but does not run a scan.
 - `evil-winrm-py` is not a drop-in replacement for Ruby Evil-WinRM: it uses `--ssl` rather than `-S` and has no `-s` or `-e` directory options. Its Kerberos extra is not bundled because `gssapi` has no compatible Python 3.13 Linux wheel and needs a native build. Kali's Ruby `evil-winrm` remains separate.
 - `penelope` 0.21.0 fixes the session-archive path traversal, and `--oscp-safe` disables Meterpreter, Traitor and ngrok, but this release still starts its local MCP socket unconditionally. It is therefore a general lab/CTF package, not an OSCP-approved profile; use Kali's nc, ncat or socat for the basic OSCP shell workflow.
-- `shell-tunnel` lets in any user who gives its published default password, and in listening mode it serves on every interface. Start the handler with `-N`, as build 2's example does: it then denies shell, exec, SFTP and local forwards, and still grants the reverse forward a callback needs. Build 1's examples left `-N` out and gave the target as `host:port`, which is read as a host name on the default port.
+- `shell-tunnel` lets in any user who gives its published default password, and in listening mode it serves on every interface. Start the handler with `-N`, as the example has done since build 2: it then denies shell, exec, SFTP and local forwards, and still grants the reverse forward a callback needs. Build 1's examples left `-N` out and gave the target as `host:port`, which is read as a host name on the default port.
 - PrintSpoofer, SharpEfsPotato, SweetPotato, Hot Potato, SharpGPOAbuse, SeRestoreAbuse, SeManageVolumeExploit and calebstewart's CVE-2021-1675 script have no upstream redistribution licence, and Microsoft's Sysinternals terms prohibit publishing AccessChk for others to copy. They are not redistributed here. `godpotato`, `juicypotato`, `roguepotato`, `localpotato` and `coercedpotato` are packaged; obtain AccessChk directly from Microsoft.
 
 The rest of the list is in [docs/tested.md](tested.md#known-limits).

@@ -152,7 +152,7 @@ sha256 = "fc399df537955ca34fe6191f04596af85baed797ec35dd94e2fcdd3bbf85b425"
 - `url` is the zip's address on its own release. In the index that `build.py build` writes into a folder it is the file name alone, since a folder is read by file name.
 - The file has only the three kinds of table shown and named here, `[[tool]]`, `[[tool.build]]` and `[[tool.build.backend]]`, and `fetch.sh` refuses any other.
 
-A card is the small file published beside each zip, named as the zip with `.toml`. It holds the manifest's `name`, `version`, `build`, `kind`, `description`, `tags`, `upstream`, `licence`, `arch` and `needs_root`, the names of its `commands`, its `requires`, `depends` and `backend` when it has any, the pins of whatever it built from source as `sources`, and the zip's `file`, `size` and `sha256`. The index is written from the cards alone, so no zip is downloaded to write it, and CI compares a rebuilt package with its published card.
+A card is the small file published beside each zip, named as the zip with `.toml`. It holds the manifest's `name`, `version`, `build`, `kind`, `description`, `tags`, `upstream`, `licence`, `arch` and `needs_root`, the names of its `commands`, its `requires`, `depends` and `backend` when it has any, the pins of whatever it built from source as `sources`, the recipe's `source_code` when it has one, and the zip's `file`, `size` and `sha256`. `source_code` is on the card only: the index leaves it out. The index is written from the cards alone, so no zip is downloaded to write it, and CI compares a rebuilt package with its published card.
 
 ## The runtime
 
@@ -187,6 +187,28 @@ When the tool's own metadata would otherwise resolve a Git dependency at a movin
 ## .NET source builds
 
 A `[dotnet]` recipe builds one executable from a pinned source zip with a fixed SDK and pinned .NET Framework reference-assembly package. It names `sdk`, the source `url`, `size` and `sha256`, the project and output paths inside the archive, the final `to` path, and `framework_url`, `framework_size`, `framework_sha256` and `framework`. The builder checks `dotnet --version`, unpacks both archives with the usual path checks, and runs only `dotnet msbuild` with Release, `FrameworkPathOverride` and deterministic compilation. It does not restore packages. Only the output named by `to` enters the package. Rubeus uses SDK 9.0.320 and the .NET 4.0 reference assemblies; `global.json` stops a newer SDK already on the machine from being selected, and CI installs that SDK in the package jobs.
+
+## Source code
+
+The GPL, the AGPL and the LGPL have whoever passes a program on say where its source is, and the MPL asks the same for a file in executable form. Most packages here are upstream's own binaries, and pwn-shop hosts no source archives. So a package under one of those licences names the source of its build: a `[source_code]` table in `recipe.toml` with the full `commit` the pinned files were made from, the `tag` that names that commit when upstream has one, and the `url` of upstream's source archive for it.
+
+```toml
+[source_code]
+tag = "v0.9.2"
+commit = "e543732f4be6dc899096ae322ae620bf010bfbfc"
+url = "https://github.com/nicocha30/ligolo-ng/archive/refs/tags/v0.9.2.tar.gz"
+```
+
+`build.py` refuses a recipe whose `licence` names one of those four families and has no such table, and any other recipe may have one. The commit is always given in full, because a tag can be moved and its name can mislead: PEASS-ng's tags end in eight characters that are not a commit of its repository. The tests hold each table to the recipe's own pins: the tag is the one whose release the files were downloaded from, or the commit is the one in their address.
+
+The table goes into the build's card, and `build.py notes` prints it as a `Source code:` line under the licence, so the release that holds the zip says where its source is:
+
+```text
+Licence: GPL-3.0
+Source code: tag v0.9.2, commit e543732f4be6dc899096ae322ae620bf010bfbfc, https://github.com/nicocha30/ligolo-ng/archive/refs/tags/v0.9.2.tar.gz
+```
+
+It is not in the zip and not in the index. pwn-broker refuses a package that holds a file outside the package layout, `LICENSE` is upstream's text unchanged, and the index holds only the fields pwn-broker reads. A recipe with no table gets a card with no such field, so a build published before its recipe named a source still rebuilds to its own card. Naming a source changes the card, and that takes a new build. [PACKAGES.md](PACKAGES.md#source-code) lists the source of each such package's current build.
 
 ## Versions and builds
 

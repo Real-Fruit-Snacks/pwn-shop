@@ -1,5 +1,5 @@
 version = "1.2.1"
-build = 1
+build = 2
 
 # Upstream publishes no checksums. Each SHA-256 is that of the file as first downloaded.
 
@@ -26,3 +26,8 @@ url = "https://github.com/DominicBreuker/pspy/releases/download/v1.2.1/pspy32s"
 size = 1175648
 sha256 = "f2e8ed736e90aa38fd23606937e9e8393db6d10cb3be426afe4b65564860df35"
 to = "files/pspy32s"
+
+[source_code]
+tag = "v1.2.1"
+commit = "f9e6a1590a4312b9faa093d8dc84e19567977a6d"
+url = "https://github.com/DominicBreuker/pspy/archive/refs/tags/v1.2.1.tar.gz"

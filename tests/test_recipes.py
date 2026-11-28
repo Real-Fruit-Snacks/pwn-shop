@@ -36,23 +36,95 @@ def test_manifest_passes_the_manifest_rules(loaded):
     build._check_manifest(manifest)
 
 
-# The SHA-256 of manifest.toml inside each published schema 1 build that is still rebuilt. The
-# staged manifest must not change, or the rebuild would differ from what was published.
+# The SHA-256 of manifest.toml inside a published build of each of these schema 1 recipes, and
+# that build's number. The staged manifest must not change, or a rebuild would differ from what
+# was published. Build 2 of pspy, ligolo-ng and peass-ng names its source code, which is in the
+# card and not in the manifest: its manifest is build 1's with the build number raised.
 PUBLISHED_MANIFESTS = {
-    "kerbrute": "6763e79cc260e80783473c03daafb09cdcd139cac0a6d92e95bad6be79ba1332",
-    "pspy": "fc25f8f08fd3a101149754a567e3466fa3c0d4a3400c9022674e5af12b10d30b",
-    "ligolo-ng": "5f9f01035f0db052735f8cefe7efcdfa8e797b0e2393af69efb9a8299a9d68b7",
-    "peass-ng": "e5623d5035ef01de19d2321e8c1c52ccbb50b2c11444e75136dbf2705a9b3e58",
+    "kerbrute": (1, "6763e79cc260e80783473c03daafb09cdcd139cac0a6d92e95bad6be79ba1332"),
+    "pspy": (1, "fc25f8f08fd3a101149754a567e3466fa3c0d4a3400c9022674e5af12b10d30b"),
+    "ligolo-ng": (1, "5f9f01035f0db052735f8cefe7efcdfa8e797b0e2393af69efb9a8299a9d68b7"),
+    "peass-ng": (1, "e5623d5035ef01de19d2321e8c1c52ccbb50b2c11444e75136dbf2705a9b3e58"),
 }
 
 
 @pytest.mark.parametrize("name", sorted(PUBLISHED_MANIFESTS))
 def test_a_schema_1_recipe_stages_its_published_manifest(name):
+    published_build, sha256 = PUBLISHED_MANIFESTS[name]
     recipe = build.load_recipe(RECIPES / name)
     manifest, is_python = build._python_manifest(recipe)
     assert not is_python and manifest["schema"] == 1
-    staged = tomli_w.dumps(manifest).encode("utf-8")
-    assert hashlib.sha256(staged).hexdigest() == PUBLISHED_MANIFESTS[name]
+    assert "source_code" not in manifest
+    staged = tomli_w.dumps({**manifest, "build": published_build}).encode("utf-8")
+    assert hashlib.sha256(staged).hexdigest() == sha256
+
+
+# ---- the source code of the packages under a copyleft licence
+
+_RELEASE_FILE = re.compile(r"https://github\.com/([^/]+/[^/]+)/releases/download/([^/]+)/[^/]+")
+_RAW_FILE = re.compile(r"https://raw\.githubusercontent\.com/([^/]+/[^/]+)/([^/]+)/.+")
+_COMMIT_ARCHIVE = re.compile(r"https://github\.com/([^/]+/[^/]+)/archive/([0-9a-f]{40})\.(?:zip|tar\.gz)")
+
+
+def test_a_copyleft_recipe_names_its_source_code(loaded):
+    # load_recipe refuses one that does not; this is the list a reader can check it against
+    copyleft = re.search(r"GPL|MPL", loaded.manifest["licence"]) is not None
+    assert build.needs_source_code(loaded.manifest["licence"]) == copyleft
+    if copyleft:
+        assert loaded.source_code
+
+
+def test_source_code_is_the_tag_or_commit_the_files_come_from(loaded):
+    """The recipe's own pins say where each file was downloaded from: a release of a tag, a file
+    at a tag or a commit, or a commit's archive. The source named has to be that tag or commit,
+    in that repository, so a recipe moved to a new upstream version cannot keep the old one."""
+    code = loaded.source_code
+    if not code:
+        return
+    upstream = loaded.manifest["upstream"]
+    assert upstream.startswith("https://github.com/")
+    repo = upstream.removeprefix("https://github.com/")
+    refs = [code["commit"], *([code["tag"]] if "tag" in code else [])]
+    for source in loaded.sources:
+        found = (
+            _RELEASE_FILE.fullmatch(source.url)
+            or _RAW_FILE.fullmatch(source.url)
+            or _COMMIT_ARCHIVE.fullmatch(source.url)
+        )
+        assert found, source.url
+        assert found[1] == repo
+        if _RELEASE_FILE.fullmatch(source.url):
+            # a release is made from its tag
+            assert found[2] == code.get("tag")
+        else:
+            assert found[2] in refs
+    if "tag" in code:
+        assert code["url"] == f"https://github.com/{repo}/archive/refs/tags/{code['tag']}.tar.gz"
+    else:
+        found = _COMMIT_ARCHIVE.fullmatch(code["url"])
+        assert found and (found[1], found[2]) == (repo, code["commit"])
+    if not loaded.sources:
+        # the tool is a wheel from PyPI, pinned by requirements.lock: the tag is that version's
+        pins = build.read_requirements_lock(loaded.folder / build.REQUIREMENTS_LOCK, loaded.name)
+        assert loaded.version in {p.version for p in pins}
+        assert code["tag"] == f"v{loaded.version}"
+
+
+def test_packages_md_lists_the_source_code_of_each_copyleft_package():
+    text = (RECIPES.parent / "docs" / "PACKAGES.md").read_text(encoding="utf-8")
+    section = text.split("\n## Source code\n", 1)[1].split("\n## ", 1)[0]
+    listed = {}
+    for line in section.splitlines():
+        row = re.fullmatch(r"\| `([^`]+)` \| (`[^`]+`|none) \| `([0-9a-f]+)` \| <([^>]+)> \|", line)
+        if row:
+            assert row[1] not in listed
+            listed[row[1]] = (None if row[2] == "none" else row[2].strip("`"), row[3], row[4])
+    declared = {}
+    for folder in FOLDERS:
+        code = build.load_recipe(folder).source_code
+        if code:
+            declared[folder.name] = (code.get("tag"), code["commit"], code["url"])
+    assert listed == declared
 
 
 def test_sources_are_pinned(loaded):

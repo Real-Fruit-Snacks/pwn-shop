@@ -42,7 +42,16 @@ python docs/art/make-panel.py
    ```
 
    Download the file once, and take its size and hash from the file: `wc -c < file` and `sha256sum file`. If upstream publishes checksums, compare them, and say in a comment when it does not. A source may be a bare file, one member of a `tar.gz` or `zip` (`member = "proxy"`), or the one file in a plain `.gz`, where `member` is the file's name as the URL gives it, less the `.gz`. A whole `zip` is unpacked with `unpack = true` and no `member`: every file in it lands under `to`, which is `files` or a folder in it. Its entries are checked as pwn-broker checks a package's, so a link, a special file, an encrypted entry, a name pwn-broker would refuse or a path that would leave the folder is refused. So is a path another source writes too, one folder spelt in two cases, a file and a folder of one name, and a name ending in a dot or a space, which Windows drops: a build on Windows and one on Linux cannot differ. A tool with no releases is pinned to a full commit hash in the URL, and its version is the commit's date.
-3. Copy the upstream licence text, unchanged, to `LICENSE`.
+3. Copy the upstream licence text, unchanged, to `LICENSE`. If the licence is the GPL, the AGPL, the LGPL or the MPL, name the source of the build in `recipe.toml` as well, because those licences have whoever passes a program on say where its source is:
+
+   ```toml
+   [source_code]
+   tag = "v0.9.2"
+   commit = "e543732f4be6dc899096ae322ae620bf010bfbfc"
+   url = "https://github.com/nicocha30/ligolo-ng/archive/refs/tags/v0.9.2.tar.gz"
+   ```
+
+   `commit` is the full hash of the commit the pinned files were made from: for a release, the commit its tag names (`gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`). `tag` is that tag, left out when upstream has none, and `url` is upstream's source archive for it; check that it answers. `build.py` refuses a recipe under one of those licences that has no such table, and the tests refuse a tag or commit that is not the one the recipe's sources were downloaded from. Add the package to the list in [docs/PACKAGES.md](docs/PACKAGES.md#source-code). See [the guide](docs/guide.md#source-code).
 4. Write `manifest.toml`: the manifest that goes into the package (see below).
 5. For a Python tool, name the runtime it runs on in `manifest.toml`, with `requires = ["python-3.13"]` and an empty `[python]` table. A tool that only requires a runtime is `schema = 2`; ordinary `depends` or `[[backend]]` declarations make it `schema = 4`, whether or not it also has a runtime. List the tool and its direct Python dependencies in `requirements.in`, then pin everything:
 

@@ -242,7 +242,7 @@
             <tr><td><code>targetedkerberoast</code></td><td>2024.12.16</td><td><span>kali</span></td><td><code>targetedKerberoast</code>, on <code>python-3.13</code></td><td>GPL-3.0</td></tr>
         </tbody>
     </table>
-    <p class="after">A <code>runtime</code> is never installed on its own: it comes and goes with the tools that require it. A <code>notes</code> package needs pwn-broker 0.1.7 or later, and a schema-4 catalog needs pwn-broker 0.1.14 or later. Each package carries the licence of the tool in it, and this project is not affiliated with those projects.</p>
+    <p class="after">A <code>runtime</code> is never installed on its own: it comes and goes with the tools that require it. A <code>notes</code> package needs pwn-broker 0.1.7 or later, and a schema-4 catalog needs pwn-broker 0.1.14 or later. Each package carries the licence of the tool in it, and this project is not affiliated with those projects. A package under the GPL or the LGPL names the exact source of its build, the upstream commit and its source archive, in its release notes and in <a href="https://github.com/Real-Fruit-Snacks/pwn-shop/blob/main/docs/PACKAGES.md#source-code">docs/PACKAGES.md</a>.</p>
 </section>
 
 <section class="card ref" id="tested" aria-labelledby="tested-h">
@@ -271,7 +271,7 @@
 <section class="card ref limits" id="issues" aria-labelledby="issues-h">
     <h2 id="issues-h">Known issues</h2>
     <ul class="plain">
-        <li>Packages are x86_64 with glibc only. Build 3 of <code>certipy</code> and <code>targetedkerberoast</code> carries wheels for its runtime's Python 3.13 only.</li>
+        <li>Packages are x86_64 with glibc only. From build 3 on, <code>certipy</code> and <code>targetedkerberoast</code> carry wheels for their runtime's Python 3.13 only.</li>
         <li>The index and the packages are not signed. The SHA-256 values in the index are the only check: they catch a corrupted or swapped zip, not who published the index.</li>
         <li><code>kerbrute</code> and <code>pspy</code> publish no checksums upstream. Their pins are the SHA-256 of each file as first downloaded.</li>
         <li>Kali's own <code>ligolo-ng</code> package also installs a command named <code>ligolo-proxy</code>, and <code>sudo</code> does not use PATH. Use <code>sudo /opt/pwn-broker/bin/ligolo-proxy</code>, the path <code>tool install</code> prints.</li>

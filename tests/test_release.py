@@ -771,3 +771,70 @@ def test_compare_command_handles_a_runtime(tmp_path, net, capsys):
     args = ["compare", str(one), str(two), str(one), str(two), "--recipes", str(tmp_path / "recipes")]
     assert build.main(args) == 0
     assert capsys.readouterr().out.startswith("ok python-3.13 3.13.18-1 matches")
+
+
+# ---- the source code of a copyleft package
+
+SOURCE_CODE = {
+    "tag": "v1.2.1",
+    "commit": "f9e6a1590a4312b9faa093d8dc84e19567977a6d",
+    "url": "https://github.com/DominicBreuker/pspy/archive/refs/tags/v1.2.1.tar.gz",
+}
+
+
+def test_notes_name_the_source_code_under_the_licence():
+    text = build.release_notes(card_of(licence="GPL-3.0", source_code=SOURCE_CODE))
+    assert (
+        "Licence: GPL-3.0\n"
+        "Source code: tag v1.2.1, commit f9e6a1590a4312b9faa093d8dc84e19567977a6d, "
+        "https://github.com/DominicBreuker/pspy/archive/refs/tags/v1.2.1.tar.gz\n"
+        "Package: kerbrute-1.0.3-1.zip (100 bytes)\n"
+    ) in text
+    assert "!" not in text and "\r" not in text
+
+
+def test_notes_name_a_commit_that_has_no_tag():
+    code = {"commit": "ebed0790002dfae503eb5e5525a0630f131fa117",
+            "url": "https://github.com/ShutdownRepo/targetedKerberoast/archive/ebed0790002dfae503eb5e5525a0630f131fa117.tar.gz"}
+    text = build.release_notes(card_of(licence="GPL-3.0", source_code=code, requires=["python-3.13"]))
+    assert (
+        "Licence: GPL-3.0\n"
+        f"Source code: commit {code['commit']}, {code['url']}\n"
+        "Requires: python-3.13\n"
+    ) in text
+
+
+def test_notes_of_a_card_without_source_code_are_as_before():
+    assert "Source code" not in build.release_notes(card_of())
+    assert "Licence: Apache-2.0\nPackage: kerbrute-1.0.3-1.zip (100 bytes)\n" in build.release_notes(card_of())
+
+
+def test_a_built_card_s_notes_name_its_source_code(tmp_path, net, capsys):
+    folder = make_recipe(tmp_path / "recipes" / "kerbrute", net, manifest={**PLAIN_MANIFEST, "licence": "GPL-3.0"})
+    path = folder / "recipe.toml"
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    path.write_bytes(tomli_w.dumps({**data, "source_code": SOURCE_CODE}).encode())
+    zip_path = build.build_one(build.load_recipe(folder), tmp_path / "dist", tmp_path / "cache", fetch_fn=net)
+    assert build.main(["notes", str(zip_path.with_suffix(".toml"))]) == 0
+    out = capsys.readouterr().out
+    assert f"Source code: tag v1.2.1, commit {SOURCE_CODE['commit']}, {SOURCE_CODE['url']}\n" in out
+
+
+def test_compare_fails_when_a_recipe_gains_source_code_without_a_new_build(tmp_path, net):
+    # the published card has no source_code, so naming one changes the card: a new build
+    recipe = recipe_for(tmp_path, net)
+    built = write_card(tmp_path / "a.toml", card_of(source_code=SOURCE_CODE))
+    published = write_card(tmp_path / "b.toml", card_of())
+    with pytest.raises(build.BuildError, match="differs from its published build in source_code; raise build"):
+        build.compare_cards(built, published, recipe)
+
+
+def test_compare_fails_when_the_source_code_moves_under_the_same_build(tmp_path, net):
+    recipe = recipe_for(tmp_path, net)
+    moved = {**SOURCE_CODE, "commit": "0" * 40}
+    built = write_card(tmp_path / "a.toml", card_of(source_code=moved))
+    published = write_card(tmp_path / "b.toml", card_of(source_code=SOURCE_CODE))
+    with pytest.raises(build.BuildError, match="in source_code"):
+        build.compare_cards(built, published, recipe)
+    same = write_card(tmp_path / "c.toml", card_of(source_code=SOURCE_CODE))
+    build.compare_cards(same, published, recipe)
